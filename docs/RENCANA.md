@@ -555,9 +555,35 @@ Nama produk berganti dari OTTVista ke LUXA (by Alf Studio). Baca ulang docs/FASE
 Commit terpisah: 'fase-4a: identitas LUXA'.
 ```
 
+### Review Fase 4a (22 Nov 2026)
+
+Branch `fase-4a-kerangka` (7 commit, terakhir `2df9336`), diperiksa di salinan terpisah. Hasilnya **lolos dengan catatan**: boleh di-merge ke `main`, dan perbaikan di bawah dikerjakan di awal 4b-1.
+
+**Yang sudah beres**
+
+- pytest 133/133 hijau (7 tes baru untuk `build_sanity_flags`); `vite build` berhasil.
+- Tidak ada `fetch('/api/` di luar `engine.js`, tidak ada hex di komponen, teks dari file model lewat `textContent` (`innerHTML` hanya untuk ikon dan label tetap), `localStorage` dibungkus `try/catch`.
+- Layar Unggah di 1440 × 900 sesuai mockup: logo + "by Alf Studio", rel ikon, kartu contoh, disclaimer dengan kalimat server (bukan klaim browser), latar cahaya hangat.
+- Daftar Kejanggalan diuji lewat API pada model nyata dan hasilnya sesuai rancangan:
+  - `Facade only to Alfian.3dm`: muka tanah (z0 −3,58 m), tanpa render mesh, bidang tersaring, tanpa atap.
+  - `Facade only to Alfian.ifc`: tanpa pertanyaan muka tanah (z0 = 0).
+  - buildingSMART IFC4.3: tanpa kaca + luas fasad tidak wajar.
+  - Duplex: luas fasad tidak wajar.
+- Gerbang Konfirmasi (`evaluateConfirmGate`) memeriksa satuan, muka tanah, isi model, dan tanpa kaca.
+
+**Belum bisa diuji**: klik tampilan Konfirmasi, Inspeksi, Hasil, dan tema gelap. Backend di laptop Alfian masih proses lama saat uji pertama, lalu frontend tidak bisa dinyalakan lewat `start_studio.bat` (lihat P1). Uji klik dilakukan bersamaan dengan review 4b-1.
+
+**Perbaikan (kerjakan di awal 4b-1)**
+
+| # | Temuan | Perbaikan |
+| --- | --- | --- |
+| P1 | `start_studio.bat` gagal menyalakan frontend: `FileNotFoundError` karena `node` tidak ada di PATH Windows. Judulnya juga masih "OTTV 3D Parametric Studio v3.0 · 5-Stage". | `run_studio_servers.py` mencari Node dengan `shutil.which('node')`, lalu lokasi umum (`%ProgramFiles%\nodejs`, `%APPDATA%\nvm`), dan variabel `NODE_EXE`. Bila tidak ketemu, tampilkan pesan Indonesia yang jelas (cara memasang Node LTS) dan biarkan backend tetap jalan. Judul jendela dan teks jadi LUXA. |
+| P2 | Baris tabel "Grup terdeteksi" hanya bisa diklik dengan mouse (`tr` dengan click handler). | Jadikan nama grup sebuah `<button>` di dalam sel, atau beri baris `tabindex=0` + Enter/Spasi + `aria-selected`. |
+| P3 | Kartu contoh menulis "Fasad\_Curtain\_Wall\_Baru.3dm (24 lantai)", sedangkan engine menaksir 25 lantai. | Hapus angka lantai dari label, atau ambil dari data. Nama file contoh ini model milik Alfian: tetap dipakai sampai Alfian memutuskan sebelum publish. |
+
 ```text
 PROMPT FASE 4b-1 (kamera dan view):
-Branch fase-4b1-kamera dari main setelah 4a di-merge. Baca ulang docs/FASE4_UI_SPEC.md bagian 4.1, 4.7, 4.8, 5, 6 dan mockup 4, 6, 7.
+Merge fase-4a-kerangka ke main dulu. Branch fase-4b1-kamera dari main. Baca docs/RENCANA.md bagian 'Review Fase 4a' dan kerjakan P1, P2, P3 lebih dulu (commit 'fase-4b1: perbaikan review 4a'). Setelah itu baca ulang docs/FASE4_UI_SPEC.md bagian 4.1, 4.7, 4.8, 5, 6 dan mockup 4, 6, 7.
 Kerjakan baris '4b-1' tabel bagian 10: 4 proyeksi (termasuk perspektif 2 titik dengan garis vertikal tegak), tampak 8 arah + Atas, pie menu tahan V, pil bawah kiri dan kanan, view tersimpan (tambah, ganti nama, hapus, ikut .ottv.json), capture PNG 1x/2x/4x dengan cap, gizmo sumbu, semua pintasan bagian 6, palet Ctrl K, daftar pintasan '?', panel Tampilan bagian Kamera.
 Pintasan tidak aktif saat fokus di input. Semua bisa dipakai dengan keyboard.
 Catat di docs/CHANGELOG-fase4.md. Commit per fitur.
