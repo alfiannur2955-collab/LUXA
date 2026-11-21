@@ -56,7 +56,7 @@ export function renderTopbar(state, handlers) {
   cmdBtn.type = 'button';
   cmdBtn.className = 'tbtn';
   cmdBtn.setAttribute('aria-label', 'Cari perintah');
-  cmdBtn.innerHTML = `${icon('search', 17)}<span class="muted" style="font-weight:500;">Cari perintah</span><kbd>Ctrl K</kbd>`;
+  cmdBtn.innerHTML = `${icon('search', 17)}<span class="muted cmd-label" style="font-weight:500;">Cari perintah</span><kbd>Ctrl K</kbd>`;
   cmdBtn.addEventListener('click', () => handlers.onOpenCommandPalette());
 
   const themeBtn = document.createElement('button');

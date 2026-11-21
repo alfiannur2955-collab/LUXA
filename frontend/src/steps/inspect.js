@@ -136,11 +136,16 @@ export function renderInspectScreen(state, handlers) {
   const table = document.createElement('table');
   table.className = 'data-table';
   table.innerHTML = `
+    <colgroup>
+      <col style="width: 39%;" />
+      <col style="width: 39%;" />
+      <col style="width: 22%;" />
+    </colgroup>
     <thead>
       <tr>
         <th scope="col">Grup</th>
         <th scope="col">Klasifikasi</th>
-        <th scope="col" style="text-align:right;">Luas luar</th>
+        <th scope="col" style="text-align:right;">Luas</th>
       </tr>
     </thead>
   `;
