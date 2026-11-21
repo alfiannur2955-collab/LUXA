@@ -167,6 +167,7 @@ _IGNORE_TOKENS_EN = frozenset({
 })
 _IGNORE_TOKENS = _IGNORE_TOKENS_ID | _IGNORE_TOKENS_EN
 _WALL_HEAD_TOKENS = frozenset({"dinding", "wall", "tembok", "ifcwall", "ifcwallstandardcase"})
+_ENVELOPE_INTERIOR_HEAD_TOKENS = _WALL_HEAD_TOKENS | frozenset({"kaca", "glass", "glazing", "jendela", "window"})
 _ROOF_EXPLICIT_TOKENS = frozenset({"atap", "roof", "dak", "ifcroof"})
 
 
@@ -227,12 +228,12 @@ def classify_layer_or_material_with_confidence(
         matched = sorted(all_tokens & _IGNORE_TOKENS)
         return "ignore", 0.92, f"Token non-selubung/abaikan: {', '.join(matched)}"
 
-    # 1b. Ordered Indonesian/English interior wall pattern: 'dalam'/'interior' after 'dinding'/'wall' -> ignore
-    wall_head_indices = [i for i, t in enumerate(all_tokens_seq) if t in _WALL_HEAD_TOKENS]
-    if wall_head_indices:
-        first_wall_idx = wall_head_indices[0]
-        if any(t in ("dalam", "interior") for t in all_tokens_seq[first_wall_idx + 1:]):
-            return "ignore", 0.93, "Dinding interior/dalam (bukan selubung luar)"
+    # 1b. Ordered Indonesian/English interior wall/glazing pattern: 'dalam'/'interior' after dinding/wall/kaca/glass -> ignore
+    env_head_indices = [i for i, t in enumerate(all_tokens_seq) if t in _ENVELOPE_INTERIOR_HEAD_TOKENS]
+    if env_head_indices:
+        first_head_idx = env_head_indices[0]
+        if any(t in ("dalam", "interior") for t in all_tokens_seq[first_head_idx + 1:]):
+            return "ignore", 0.93, "Elemen interior/dalam (bukan selubung luar)"
 
     # 1c. Floor slab ('pelat lantai' / 'plat lantai' / 'floor slab') -> ignore (NOT roof!)
     if not (all_tokens & _ROOF_EXPLICIT_TOKENS):
@@ -318,52 +319,48 @@ def suggest_material_id_for_group(
     default_frame_id: Optional[str],
 ) -> str:
     """
-    Matches a group/layer/material name against known Indonesian architectural materials,
+    Matches a group/layer/material name against generic architectural materials,
     falling back cleanly to the category default.
     """
     s = (group_name or "").lower()
     if category == "glazing":
         if "indoflo" in s or "polos" in s or "clear_float" in s or "clear float" in s:
-            return "glz_asahimas_indoflo_clear_8"
-        if "panasap" in s or "tinted" in s:
-            return "glz_asahimas_panasap_grey_8"
-        if "mulia" in s:
-            return "glz_mulia_tinted_green_8"
+            return "glz_kaca_polos_8"
+        if "panasap" in s or "tinted" in s or "mulia" in s:
+            return "glz_kaca_tinted_8"
         if "stopsol" in s or "reflective" in s or "reflektif" in s:
-            return "glz_asahimas_stopsol_supersilver_8"
+            return "glz_kaca_reflektif_8"
         if "sunergy" in s and ("igu" in s or "double" in s):
-            return "glz_asahimas_sunergy_igu_24"
+            return "glz_igu_lowe_standar"
         if "sunergy" in s:
-            return "glz_asahimas_sunergy_single_8"
-        if "tsunlux" in s or "planibel" in s:
-            return "glz_asahimas_tsunlux_igu_24"
-        if "skn" in s or "154" in s:
-            return "glz_saint_gobain_cool_lite_skn154"
+            return "glz_kaca_lowe_single_8"
+        if "tsunlux" in s or "planibel" in s or "skn" in s or "154" in s:
+            return "glz_igu_lowe_selektif"
         if "bipv" in s or "pv" in s or "solar" in s:
-            return "glz_bipv_solar_facade_agc"
+            return "glz_kaca_bipv_semitransparan"
         if "sage" in s or "electro" in s:
-            return "glz_smart_electrochromic_sageglass"
-        return default_glazing_id or "glz_saint_gobain_xtreme_60_28"
+            return "glz_kaca_elektrokromik"
+        return default_glazing_id or "glz_igu_triple_silver"
 
     if category == "spandrel":
         if "tanpa" in s or "uninsulated" in s:
             return "wal_spandrel_tanpa_insulasi"
-        return default_wall_id or "wal_spandrel_rockwool_nichias_50"
+        return default_wall_id or "wal_spandrel_insulasi_50"
 
     if category in ("wall", "composite_cw"):
         if "bata" in s and "ringan" not in s:
-            return "wal_bata_merah_plester_cat_standar"
+            return "wal_bata_merah_plester"
         if "hebel" in s or "aac" in s or "citicon" in s or "ringan" in s:
-            return "wal_aac_hebel_citicon_100"
+            return "wal_bata_ringan_aac_100"
         if "acp" in s or "alucobond" in s or "seven" in s:
-            return "wal_acp_seven_alucobond_rockwool"
+            return "wal_acp_insulasi_aac"
         if "precast" in s or "beton" in s or "concrete" in s or "wika" in s:
-            return "wal_precast_concrete_wika_120"
+            return "wal_beton_pracetak_120"
         if "pir" in s or "sandwich" in s or "bluescope" in s:
-            return "wal_sandwich_pir_bluescope_50"
-        return default_wall_id or "wal_spandrel_rockwool_nichias_50"
+            return "wal_panel_insulasi_pir_50"
+        return default_wall_id or "wal_spandrel_insulasi_50"
 
-    return default_frame_id or "frm_ykkap_schuco_thermal_break"
+    return default_frame_id or "frm_aluminium_thermal_break"
 
 
 def tessellate_nurbs_surface_with_ladybug(

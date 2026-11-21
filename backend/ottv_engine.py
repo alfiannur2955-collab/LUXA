@@ -31,8 +31,28 @@ from ladybug_geometry.geometry3d.pointvector import Point3D, Vector3D
 
 from materials_and_epw import (
     INDONESIAN_CITY_PRESETS,
+    SC_TO_SHGC_RATIO,
     generate_material_recommendations,
     get_material_by_id,
+    get_material_shgc,
+    migrate_material_id,
+)
+from sni_tables import (
+    SNI_DELTA_T_K,
+    SNI_RTTV_LIMIT_OPAQUE_ONLY_WM2,
+    SNI_RTTV_LIMIT_WITH_SKYLIGHT_WM2,
+    get_sf_for_source,
+    get_sf_source_info,
+    get_sf_table8,
+    get_sni_city_entry,
+    get_tdek_roof,
+    get_tdek_wall,
+    lookup_sceff,
+    lookup_sceff_detailed,
+)
+from template_method import (
+    TemplateShadingRegistry,
+    compute_template_shgc_and_sck,
 )
 from universal_pipeline import (
     RawGroupMesh,
@@ -73,12 +93,14 @@ ORIENTATION_BASE_SF: Dict[str, float] = {item[1]: item[3] for item in SNI_SF_ANC
 @dataclass
 class EnvelopeParameters:
     """Parametric envelope thermal, material, floor section, and climate settings."""
-    # Stage 1: Universal Geometry, Unit & Axis Normalization + v5.0 Intake Profile
-    source_software: str = "archicad"
+    # Stage 1: Universal Geometry, Unit & Axis Normalization
     unit_mode: str = "auto"  # 'auto' | 'm' | 'cm' | 'mm' | 'ft' | 'in'
     up_axis: str = "auto"    # 'auto' | 'Z' | 'Y'
     z_ground_cutoff_m: float = 0.0  # Ground plane Z0 cutoff (excludes basement faces below Z0)
     restore_filtered: List[str] = field(default_factory=list)  # M4/M6: IDs of filtered_items to restore
+    calculation_mode: str = "simulasi"  # 'sni' | 'simulasi'
+    sf_source: str = "template_prodi"  # 'template_prodi' | 'sni2020'
+    sceff_table_mode: str = "terkoreksi"  # 'terkoreksi' | 'ketat_pdf'
 
     # Stage 2: 3-Tier Sub-Element Decomposer & 6-Role Envelope Classification
     auto_split_merged_cw: bool = False
@@ -96,8 +118,7 @@ class EnvelopeParameters:
     section_floor_min: Optional[int] = None
     section_floor_max: Optional[int] = None
 
-    # Stage 4: Layer-Bound Material Assignment & Orientation Overrides
-    use_global_slider_override: bool = False
+    # Stage 4: Layer-Bound Material Assignment & Orientation Overrides (resolved via config_schema.resolve_material)
     orientation_material_overrides: Dict[str, str] = field(default_factory=dict)
 
     # Opaque wall / spandrel parameters
@@ -123,9 +144,11 @@ class EnvelopeParameters:
     disabled_groups: List[str] = field(default_factory=list)
     group_category_overrides: Dict[str, str] = field(default_factory=dict)
     group_material_map: Dict[str, str] = field(default_factory=dict)
-    glazing_material_id: Optional[str] = "glz_saint_gobain_xtreme_60_28"
-    wall_material_id: Optional[str] = "wal_spandrel_rockwool_nichias_50"
-    frame_material_id: Optional[str] = "frm_ykkap_schuco_thermal_break"
+    glazing_material_id: Optional[str] = "glz_igu_triple_silver"
+    wall_material_id: Optional[str] = "wal_spandrel_insulasi_50"
+    frame_material_id: Optional[str] = "frm_aluminium_thermal_break"
+    roof_material_id: Optional[str] = "rf_dak_beton_120_insulasi"
+    custom_materials: List[Dict[str, Any]] = field(default_factory=list)
 
     # Parametric Louver / Shading generator settings (OFF by default so OTTV uses 100% actual modeled geometry)
     enable_parametric_louvers: bool = False
@@ -849,6 +872,47 @@ def _groups_to_tris_shared(
     return np.vstack(chunks) if chunks else np.empty((0, 3, 3), dtype=np.float64)
 
 
+def _compute_face_shortest_dims(
+    p0: np.ndarray,
+    p1: np.ndarray,
+    p2: np.ndarray,
+    p3: np.ndarray,
+    is_quad: np.ndarray,
+    normals: np.ndarray,
+) -> np.ndarray:
+    """
+    Computes the shortest in-plane bounding dimension (m) for each triangle/quad face.
+    Used to distinguish genuine upward-facing skylights (min_dim > 0.30 m) from
+    thin top-edge panel thickness faces (`sisi_tebal_panel`, min_dim <= 0.30 m).
+    """
+    n = len(p0)
+    if n == 0:
+        return np.empty(0, dtype=np.float64)
+    # Candidate edges: e01, e12, e20 (tri) or e23 & e30 (quad)
+    e01 = p1 - p0
+    e12 = p2 - p1
+    e23 = np.where(is_quad[:, None], p3 - p2, p0 - p2)
+    e30 = np.where(is_quad[:, None], p0 - p3, np.zeros_like(p0))
+    edges = np.stack([e01, e12, e23, e30], axis=1)  # (N, 4, 3)
+    lens = np.linalg.norm(edges, axis=2)            # (N, 4)
+    best_e_idx = np.argmax(lens, axis=1)
+    longest_e = edges[np.arange(n), best_e_idx]     # (N, 3)
+    longest_len = np.maximum(1e-9, np.linalg.norm(longest_e, axis=1, keepdims=True))
+    u_vec = longest_e / longest_len
+    v_raw = np.cross(normals, u_vec)
+    v_len = np.maximum(1e-9, np.linalg.norm(v_raw, axis=1, keepdims=True))
+    v_vec = v_raw / v_len
+
+    # For triangles, duplicate p2 in slot 3 so min/max across 4 slots is exact
+    p3_eff = np.where(is_quad[:, None], p3, p2)
+    pts = np.stack([p0, p1, p2, p3_eff], axis=1)    # (N, 4, 3)
+    proj_u = np.einsum("nkc,nc->nk", pts, u_vec)
+    proj_v = np.einsum("nkc,nc->nk", pts, v_vec)
+    du = np.max(proj_u, axis=1) - np.min(proj_u, axis=1)
+    dv = np.max(proj_v, axis=1) - np.min(proj_v, axis=1)
+    return np.minimum(du, dv)
+
+
 def resolve_group_outer_skin_faces(
     rg: RawGroupMesh,
     eff_cat: str,
@@ -896,31 +960,59 @@ def resolve_group_outer_skin_faces(
 
     rf_set = restore_set or set()
     non_vert_id = f"non_vertical::{rg.group_name}"
-    filtered_entry: Optional[Dict[str, Any]] = None
+    edge_thick_id = f"sisi_tebal_panel::{rg.group_name}"
+    filtered_entries: List[Dict[str, Any]] = []
 
     if eff_cat == "glazing" or non_vert_id in rf_set:
         if eff_cat == "glazing":
-            horiz_thin = (np.abs(normals_v[:, 2]) > 0.85) & (areas_v < 0.25)
-            if np.any(horiz_thin) and non_vert_id not in rf_set:
-                filtered_entry = {
+            vert_mask = np.ones(len(areas_v), dtype=bool)
+            # Upward-facing glazing faces (nz > 0.50): only real skylights have shortest dim > 0.30 m;
+            # thin panel-edge thickness faces (<= 0.30 m) go to filtered_items as 'sisi_tebal_panel'.
+            up_glz_idx = np.where(normals_v[:, 2] > 0.50)[0]
+            if len(up_glz_idx) > 0 and edge_thick_id not in rf_set:
+                up_min_dims = _compute_face_shortest_dims(
+                    p0_v[up_glz_idx],
+                    p1_v[up_glz_idx],
+                    p2_v[up_glz_idx],
+                    p3_v[up_glz_idx],
+                    is_quad_v[up_glz_idx],
+                    normals_v[up_glz_idx],
+                )
+                thin_up_idx = up_glz_idx[up_min_dims <= 0.30]
+                if len(thin_up_idx) > 0:
+                    thin_up_mask = np.zeros(len(areas_v), dtype=bool)
+                    thin_up_mask[thin_up_idx] = True
+                    filtered_entries.append({
+                        "id": edge_thick_id,
+                        "group": rg.group_name,
+                        "reason": "sisi_tebal_panel",
+                        "reason_label": "Sisi tebal tepi panel kaca menghadap atas (dimensi terpendek <= 0,3 m)",
+                        "face_count": int(len(thin_up_idx)),
+                        "area_m2": round(float(np.sum(areas_v[thin_up_mask])), 4),
+                        "restored": False,
+                    })
+                    vert_mask &= ~thin_up_mask
+
+            # Downward-facing thin bottom caps of solid glass panes (< 0.25 m2, nz < -0.85)
+            horiz_thin_bot = (normals_v[:, 2] < -0.85) & (areas_v < 0.25) & vert_mask
+            if np.any(horiz_thin_bot) and non_vert_id not in rf_set:
+                filtered_entries.append({
                     "id": non_vert_id,
                     "group": rg.group_name,
                     "reason": "horizontal_edge_cap",
-                    "reason_label": "Sisi horizontal tipis tepi kaca (< 0,25 m2)",
-                    "face_count": int(np.sum(horiz_thin)),
-                    "area_m2": round(float(np.sum(areas_v[horiz_thin])), 4),
+                    "reason_label": "Sisi horizontal tipis tepi bawah kaca (< 0,25 m2)",
+                    "face_count": int(np.sum(horiz_thin_bot)),
+                    "area_m2": round(float(np.sum(areas_v[horiz_thin_bot])), 4),
                     "restored": False,
-                }
-                vert_mask = ~horiz_thin
-            else:
-                vert_mask = np.ones(len(areas_v), dtype=bool)
+                })
+                vert_mask &= ~horiz_thin_bot
         else:
             vert_mask = np.ones(len(areas_v), dtype=bool)
     else:
         vert_mask = np.abs(normals_v[:, 2]) <= 0.85
         n_non_vert = int(np.sum(~vert_mask))
         if n_non_vert > 0:
-            filtered_entry = {
+            filtered_entries.append({
                 "id": non_vert_id,
                 "group": rg.group_name,
                 "reason": "non_vertical_cap",
@@ -928,7 +1020,8 @@ def resolve_group_outer_skin_faces(
                 "face_count": n_non_vert,
                 "area_m2": round(float(np.sum(areas_v[~vert_mask])), 4),
                 "restored": False,
-            }
+            })
+    filtered_entry: Optional[Dict[str, Any]] = filtered_entries[0] if filtered_entries else None
     if not np.any(vert_mask):
         return None
 
@@ -1015,6 +1108,7 @@ def resolve_group_outer_skin_faces(
         "outer_faces": outer_count,
         "outer_area_m2": outer_area,
         "filtered_entry": filtered_entry,
+        "filtered_entries": filtered_entries,
     }
 
 
@@ -1143,6 +1237,253 @@ def compute_panel_heatmap_color(ottv_wm2: float) -> Tuple[str, List[float]]:
 
 
 # ============================================================================
+# 5b. SNI 6389:2020 COMPLIANCE HELPERS (LAMPIRAN A SHADING RATIOS & PASAL 4.4 RTTV)
+# ============================================================================
+
+def _measure_panel_sni_shading_ratios(
+    panel_verts: List[List[float]],
+    panel_normal: List[float],
+    shading_tris: np.ndarray,
+    enable_parametric_louvers: bool = False,
+    louver_depth_m: float = 0.0,
+    louver_spacing_m: float = 1.1,
+    louver_tilt_deg: float = 0.0,
+) -> Tuple[float, float, float]:
+    """
+    Measures SNI 6389:2020 Lampiran A overhang ratio `R1 = P_h / H` (horizontal overhang),
+    vertical fin ratio `R2 = P_v / W` (vertical fins), and overhang tilt angle `phi1_deg`
+    directly from 3D shading triangles positioned in front of the glazing panel.
+    """
+    r1_best = 0.0
+    r2_best = 0.0
+    phi1_best = 0.0
+
+    if enable_parametric_louvers and louver_depth_m > 0.02:
+        r1_best = max(r1_best, float(louver_depth_m) / max(0.25, float(louver_spacing_m)))
+        phi1_best = max(0.0, min(50.0, float(louver_tilt_deg)))
+
+    if shading_tris is None or len(shading_tris) == 0 or len(panel_verts) < 3:
+        return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+
+    pv = np.asarray(panel_verts, dtype=np.float64)
+    n_raw = np.asarray(panel_normal, dtype=np.float64)
+    n_h = np.array([n_raw[0], n_raw[1], 0.0], dtype=np.float64)
+    nh_len = float(np.linalg.norm(n_h))
+    if nh_len < 1e-6:
+        return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+    n_h /= nh_len
+    u_ax = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+    t_ax = np.array([-n_h[1], n_h[0], 0.0], dtype=np.float64)  # right horizontal axis
+
+    # Local panel bounding box in (t, u, d)
+    p_t = pv @ t_ax
+    p_u = pv @ u_ax
+    p_d = pv @ n_h
+    t_c = 0.5 * (float(np.min(p_t)) + float(np.max(p_t)))
+    u_c = 0.5 * (float(np.min(p_u)) + float(np.max(p_u)))
+    d_0 = float(np.mean(p_d))
+    win_w = max(0.05, float(np.max(p_t) - np.min(p_t)))
+    win_h = max(0.05, float(np.max(p_u) - np.min(p_u)))
+    half_w = 0.5 * win_w
+    half_h = 0.5 * win_h
+
+    # Vectorized projection of all shading triangle vertices into panel local frame
+    tri_t = np.einsum("ijk,k->ij", shading_tris, t_ax) - t_c  # (M, 3)
+    tri_u = np.einsum("ijk,k->ij", shading_tris, u_ax) - u_c  # (M, 3)
+    tri_d = np.einsum("ijk,k->ij", shading_tris, n_h) - d_0   # (M, 3)
+
+    d_max = np.max(tri_d, axis=1)
+    d_min = np.min(tri_d, axis=1)
+    t_min = np.min(tri_t, axis=1)
+    t_max = np.max(tri_t, axis=1)
+    u_min = np.min(tri_u, axis=1)
+    u_max = np.max(tri_u, axis=1)
+
+    # Candidate triangles projecting in front of the window plane (within 1.0 m of facade plane)
+    in_front = (d_max > 0.04) & (d_min <= 1.0) & (d_max <= 12.0)
+    if not np.any(in_front):
+        return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+
+    idx_c = np.where(in_front)[0]
+    sub_tris = shading_tris[idx_c]
+    tc = np.cross(sub_tris[:, 1] - sub_tris[:, 0], sub_tris[:, 2] - sub_tris[:, 0])
+    tn_len = np.linalg.norm(tc, axis=1)
+    valid_n = tn_len > 1e-8
+    if not np.any(valid_n):
+        return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+
+    idx_c = idx_c[valid_n]
+    tn_z = np.abs(tc[valid_n, 2] / tn_len[valid_n])
+
+    # 1. Horizontal overhang above top of window (|nz| >= 0.35, spans horizontally across window, sits near top edge)
+    ov_mask = (
+        (tn_z >= 0.35)
+        & (t_max[idx_c] >= -half_w + 0.05)
+        & (t_min[idx_c] <= half_w - 0.05)
+        & (u_min[idx_c] >= half_h - 0.25)
+        & (u_min[idx_c] <= half_h + 0.80)
+    )
+    if np.any(ov_mask):
+        ov_idx = idx_c[ov_mask]
+        proj_h = float(np.max(d_max[ov_idx]))
+        r1_meas = proj_h / win_h
+        if r1_meas > r1_best:
+            r1_best = r1_meas
+            # Estimate downward tilt angle phi1 from overhang Z drop across depth
+            best_i = ov_idx[int(np.argmax(d_max[ov_idx]))]
+            z_span_ov = float(u_max[best_i] - u_min[best_i])
+            d_span_ov = max(0.05, float(d_max[best_i] - max(0.0, d_min[best_i])))
+            phi1_best = max(0.0, min(50.0, math.degrees(math.atan2(z_span_ov, d_span_ov)))) if z_span_ov > 0.02 else 0.0
+
+    # 2. Vertical fin beside left or right edge of window (|nz| < 0.50, spans vertically, near +-half_w)
+    t_mid = 0.5 * (t_min[idx_c] + t_max[idx_c])
+    near_side = (np.abs(t_mid + half_w) <= 0.45) | (np.abs(t_mid - half_w) <= 0.45)
+    fin_mask = (
+        (tn_z < 0.50)
+        & near_side
+        & (u_max[idx_c] >= -half_h + 0.05)
+        & (u_min[idx_c] <= half_h - 0.05)
+    )
+    if np.any(fin_mask):
+        fin_idx = idx_c[fin_mask]
+        proj_v = float(np.max(d_max[fin_idx]))
+        r2_best = max(r2_best, proj_v / win_w)
+
+    return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+
+
+def _compute_sni_rttv(
+    roof_groups: List[RawGroupMesh],
+    skylight_area_m2: float,
+    skylight_u_weighted: float,
+    skylight_sc_weighted: float,
+    params: EnvelopeParameters,
+    sni_city_key: str,
+    z_max_bldg: float,
+) -> Dict[str, Any]:
+    """
+    Computes RTTV (Nilai Perpindahan Termal Atap) strictly per SNI 6389:2020 Pasal 4.4 (hlm. 20-21):
+      RTTV = [ alpha * (A_r * U_r * TD_EQ) + (A_s * U_s * 5.0) + (A_s * SF_roof * SC_s) ] / (A_r + A_s)
+    Limits (Pasal 4.4.1):
+      - With skylight (A_s > 0): <= 35.0 W/m2
+      - Opaque roof only (A_s == 0): <= 10.0 W/m2
+    """
+    from config_schema import resolve_material
+
+    a_opaque_roof = 0.0
+    sum_alpha_ur_tdeq_a = 0.0
+    sum_ur_a = 0.0
+    sum_alpha_a = 0.0
+    sum_mass_a = 0.0
+    sum_tdeq_a = 0.0
+
+    for rg in roof_groups:
+        if rg.group_name in params.disabled_groups or len(rg.faces) == 0:
+            continue
+        vs, fs = rg.vertices, rg.faces
+        p0, p1, p2, p3 = vs[fs[:, 0]], vs[fs[:, 1]], vs[fs[:, 2]], vs[fs[:, 3]]
+        is_q = fs[:, 2] != fs[:, 3]
+        c1 = np.cross(p1 - p0, p2 - p0)
+        a1 = 0.5 * np.linalg.norm(c1, axis=1)
+        c2 = np.cross(p2 - p0, p3 - p0)
+        a2 = np.where(is_q, 0.5 * np.linalg.norm(c2, axis=1), 0.0)
+        areas = a1 + a2
+        n_raw = np.where(is_q[:, None], c1 + c2, c1)
+        n_len = np.linalg.norm(n_raw, axis=1)
+        valid = (areas > 1e-4) & (n_len > 1e-9)
+        if not np.any(valid):
+            continue
+        nz = n_raw[valid, 2] / n_len[valid]
+        cz = np.where(
+            is_q[valid],
+            0.25 * (p0[valid, 2] + p1[valid, 2] + p2[valid, 2] + p3[valid, 2]),
+            (p0[valid, 2] + p1[valid, 2] + p2[valid, 2]) / 3.0,
+        )
+        ar_valid = areas[valid]
+
+        # Keep upward-facing roof surfaces (nz > 0.35). If group mixes floors & roof (e.g. HB_Roof_Floor),
+        # keep only the uppermost roof elevation band so internal floor slabs are not double-counted as roof.
+        up_mask = nz > 0.35
+        if not np.any(up_mask):
+            continue
+        cz_up = cz[up_mask]
+        ar_up = ar_valid[up_mask]
+        if "floor" in rg.group_name.lower() or "lantai" in rg.group_name.lower():
+            top_z = float(np.max(cz_up))
+            top_mask = cz_up >= (top_z - 0.5)
+            ar_up = ar_up[top_mask]
+
+        grp_roof_area = float(np.sum(ar_up))
+        if grp_roof_area <= 1e-4:
+            continue
+
+        rm_res = resolve_material(rg, params, category="roof")
+        rm = rm_res["material"] or {}
+        u_r = float(rm.get("u_value", 0.58))
+        alpha_r = float(rm.get("alpha", 0.50)) if rm.get("alpha") is not None else 0.50
+        mass_r = float(rm.get("massa_kg_m2", 288.0))
+        tdeq_r = get_tdek_roof(mass_r)
+
+        a_opaque_roof += grp_roof_area
+        sum_alpha_ur_tdeq_a += alpha_r * u_r * tdeq_r * grp_roof_area
+        sum_ur_a += u_r * grp_roof_area
+        sum_alpha_a += alpha_r * grp_roof_area
+        sum_mass_a += mass_r * grp_roof_area
+        sum_tdeq_a += tdeq_r * grp_roof_area
+
+    a_sky = max(0.0, float(skylight_area_m2))
+    a_tot = a_opaque_roof + a_sky
+    sf_roof = get_sf_for_source(params.city_preset, "ROOF", params.sf_source)
+
+    if a_tot <= 1e-4:
+        return {
+            "applicable": False,
+            "rttv_wm2": 0.0,
+            "limit_wm2": SNI_RTTV_LIMIT_OPAQUE_ONLY_WM2,
+            "compliant": None,
+            "opaque_roof_area_m2": 0.0,
+            "skylight_area_m2": 0.0,
+            "total_roof_area_m2": 0.0,
+            "srr": 0.0,
+            "sf_roof_wm2": sf_roof,
+            "delta_t_k": SNI_DELTA_T_K,
+            "q_roof_conduction_wm2": 0.0,
+            "q_skylight_conduction_wm2": 0.0,
+            "q_skylight_solar_wm2": 0.0,
+        }
+
+    q_roof_cond = sum_alpha_ur_tdeq_a / a_tot
+    u_s = (skylight_u_weighted / a_sky) if a_sky > 1e-4 else 0.0
+    sc_s = (skylight_sc_weighted / a_sky) if a_sky > 1e-4 else 0.0
+    q_sky_cond = (a_sky * u_s * SNI_DELTA_T_K) / a_tot
+    q_sky_solar = (a_sky * sf_roof * sc_s) / a_tot
+    rttv_wm2 = q_roof_cond + q_sky_cond + q_sky_solar
+    limit = SNI_RTTV_LIMIT_WITH_SKYLIGHT_WM2 if a_sky > 1e-4 else SNI_RTTV_LIMIT_OPAQUE_ONLY_WM2
+
+    return {
+        "applicable": True,
+        "rttv_wm2": round(rttv_wm2, 2),
+        "limit_wm2": limit,
+        "compliant": bool(rttv_wm2 <= limit),
+        "opaque_roof_area_m2": round(a_opaque_roof, 2),
+        "skylight_area_m2": round(a_sky, 2),
+        "total_roof_area_m2": round(a_tot, 2),
+        "srr": round(a_sky / a_tot, 4),
+        "alpha_roof": round(sum_alpha_a / a_opaque_roof, 3) if a_opaque_roof > 1e-4 else 0.0,
+        "u_roof": round(sum_ur_a / a_opaque_roof, 3) if a_opaque_roof > 1e-4 else 0.0,
+        "massa_kg_m2": round(sum_mass_a / a_opaque_roof, 1) if a_opaque_roof > 1e-4 else 0.0,
+        "td_eq_k": round(sum_tdeq_a / a_opaque_roof, 1) if a_opaque_roof > 1e-4 else 0.0,
+        "u_skylight": round(u_s, 3),
+        "sc_skylight": round(sc_s, 3),
+        "sf_roof_wm2": sf_roof,
+        "delta_t_k": SNI_DELTA_T_K,
+        "q_roof_conduction_wm2": round(q_roof_cond, 2),
+        "q_skylight_conduction_wm2": round(q_sky_cond, 2),
+        "q_skylight_solar_wm2": round(q_sky_solar, 2),
+    }
+
+
+# ============================================================================
 # 6. MAIN OTTV ENGINE PIPELINE v2.0 (SNI 6389:2020)
 # ============================================================================
 
@@ -1154,25 +1495,54 @@ def analyze_building_ottv(
     if params is None:
         params = EnvelopeParameters()
 
+    calc_mode = (params.calculation_mode or "simulasi").strip().lower()
+    is_sni_mode = calc_mode == "sni"
+    sf_source = (params.sf_source or "template_prodi").strip().lower()
+    if sf_source not in ("template_prodi", "sni2020"):
+        sf_source = "template_prodi"
+    sceff_table_mode = (params.sceff_table_mode or "terkoreksi").strip().lower()
+    if sceff_table_mode not in ("terkoreksi", "ketat_pdf"):
+        sceff_table_mode = "terkoreksi"
+
+    sni_city_key, sni_city_entry = get_sni_city_entry(params.city_preset)
+    sf_source_info = get_sf_source_info(params.city_preset, sf_source)
+
     # Resolve location / EPW preset
-    if params.custom_epw_info:
-        loc_info = params.custom_epw_info
+    if is_sni_mode:
+        base_loc = INDONESIAN_CITY_PRESETS.get(sni_city_key, INDONESIAN_CITY_PRESETS["jakarta"])
+        loc_info = dict(base_loc)
+        loc_info["id"] = sf_source_info["city_key"]
+        loc_info["city"] = sf_source_info["city_label"]
+        loc_info["sf_source"] = sf_source_info["sf_source"]
+        loc_info["sf_source_label"] = sf_source_info["sf_source_label"]
+        loc_info["sf_table"] = dict(sf_source_info["sf_table"])
+        if sf_source == "sni2020":
+            loc_info["sni_table8_sf"] = dict(sni_city_entry["sf"])
+        loc_info["design_delta_t"] = SNI_DELTA_T_K
+        lat_deg = float(loc_info.get("latitude_deg", params.latitude_deg))
+        lon_deg = float(loc_info.get("longitude_deg", params.longitude_deg))
+        delta_t = SNI_DELTA_T_K
+        sf_mult = 1.0
+        custom_hourly_dni = None
     else:
-        loc_info = INDONESIAN_CITY_PRESETS.get(
-            (params.city_preset or "jakarta").lower(),
-            INDONESIAN_CITY_PRESETS["jakarta"],
-        )
+        if params.custom_epw_info:
+            loc_info = params.custom_epw_info
+        else:
+            loc_info = INDONESIAN_CITY_PRESETS.get(
+                (params.city_preset or "jakarta").lower(),
+                INDONESIAN_CITY_PRESETS["jakarta"],
+            )
+        lat_deg = float(loc_info.get("latitude_deg", params.latitude_deg))
+        lon_deg = float(loc_info.get("longitude_deg", params.longitude_deg))
+        delta_t = float(loc_info.get("design_delta_t", params.delta_t))
+        sf_mult = float(loc_info.get("sf_multiplier", params.sf_climate_multiplier))
+        custom_hourly_dni = loc_info.get("hourly_dni_profile")
 
-    lat_deg = float(loc_info.get("latitude_deg", params.latitude_deg))
-    lon_deg = float(loc_info.get("longitude_deg", params.longitude_deg))
-    delta_t = float(loc_info.get("design_delta_t", params.delta_t))
-    sf_mult = float(loc_info.get("sf_multiplier", params.sf_climate_multiplier))
-    custom_hourly_dni = loc_info.get("hourly_dni_profile")
-
-    # Apply material library specs if selected
-    glz_mat = get_material_by_id(params.glazing_material_id)
-    wal_mat = get_material_by_id(params.wall_material_id)
-    frm_mat = get_material_by_id(params.frame_material_id)
+    # Apply material library specs (including per-model custom_materials)
+    extra_mats = params.custom_materials or []
+    glz_mat = get_material_by_id(params.glazing_material_id, extra_materials=extra_mats)
+    wal_mat = get_material_by_id(params.wall_material_id, extra_materials=extra_mats)
+    frm_mat = get_material_by_id(params.frame_material_id, extra_materials=extra_mats)
 
     # STAGE 1 & STAGE 2: Universal Geometry Normalization, BIM/3DM/OBJ Ingestion & Sub-Element Decomposition
     raw_groups, stage1_audit = load_universal_model_stages_1_and_2(
@@ -1331,6 +1701,9 @@ def analyze_building_ottv(
     panel_normals_list: List[np.ndarray] = []
     extra_face_shading_tris: List[np.ndarray] = []
     basement_panels_excluded = 0
+    skylight_area_m2 = 0.0
+    skylight_u_weighted = 0.0
+    skylight_sc_weighted = 0.0
 
     face_ov_map = params.face_category_overrides or {}
     z_band_ovs = params.face_z_band_overrides or []
@@ -1357,7 +1730,9 @@ def analyze_building_ottv(
         )
         if ext_res is None:
             continue
-        if ext_res["filtered_entry"] is not None:
+        if ext_res.get("filtered_entries"):
+            runtime_filtered_items.extend(ext_res["filtered_entries"])
+        elif ext_res.get("filtered_entry") is not None:
             runtime_filtered_items.append(ext_res["filtered_entry"])
 
         orig_idx_v = ext_res["orig_idx_v"]
@@ -1376,16 +1751,11 @@ def analyze_building_ottv(
         tilt_arr = np.degrees(np.arccos(np.clip(normals_v[:, 2], -1.0, 1.0)))
 
         group_disabled = rg.group_name in params.disabled_groups
-        # STAGE 4: Resolve per-group bound material (with smart initial suggestion)
-        suggested_mat_id = suggest_material_id_for_group(
-            group_name=rg.group_name,
-            category=eff_cat,
-            default_glazing_id=params.glazing_material_id,
-            default_wall_id=params.wall_material_id,
-            default_frame_id=params.frame_material_id,
-        )
-        group_mat_id = params.group_material_map.get(rg.group_name, suggested_mat_id)
-        group_mat = get_material_by_id(group_mat_id)
+        # STAGE 4: Resolve per-group material via single canonical resolve_material()
+        from config_schema import resolve_material
+        resolved_grp = resolve_material(rg, params, category=eff_cat)
+        group_mat_id = resolved_grp["material_id"]
+        group_mat = resolved_grp["material"]
         mat_name = group_mat["name"] if group_mat else (
             glz_mat["name"] if eff_cat == "glazing" and glz_mat else (wal_mat["name"] if wal_mat else "Default SNI")
         )
@@ -1462,27 +1832,64 @@ def analyze_building_ottv(
             az_val = round(float(raw_az[i]), 1)
             tilt_val = round(float(tilt_arr[i]), 1)
             orient_code = classify_sni_orientation(az_val)
-            sf_val = interpolate_sni_solar_factor(az_val, tilt_val, sf_mult)
+            sf_val = get_sf_for_source(params.city_preset, orient_code, sf_source) if is_sni_mode else interpolate_sni_solar_factor(az_val, tilt_val, sf_mult)
 
-            # Resolve panel material (respecting per-face override category if changed from group default)
-            eff_panel_mat_id = group_mat_id
-            eff_panel_mat_name = mat_name
-            if panel_cat != eff_cat and panel_cat in ("glazing", "spandrel", "wall", "composite_cw"):
-                eff_panel_mat_id = suggest_material_id_for_group(
-                    group_name=rg.group_name,
-                    category=panel_cat,
-                    default_glazing_id=params.glazing_material_id,
-                    default_wall_id=params.wall_material_id,
-                    default_frame_id=params.frame_material_id,
+            # Resolve panel material via single canonical resolve_material()
+            if panel_cat != eff_cat or orient_code in params.orientation_material_overrides:
+                res_pm = resolve_material(
+                    rg,
+                    params,
+                    category=panel_cat if panel_cat in ("glazing", "spandrel", "wall", "composite_cw") else eff_cat,
+                    orientation_code=orient_code,
                 )
-                pm_obj = get_material_by_id(eff_panel_mat_id)
-                eff_panel_mat_name = pm_obj["name"] if pm_obj else mat_name
-            if panel_cat in ("glazing", "composite_cw") and orient_code in params.orientation_material_overrides:
-                ov_id = params.orientation_material_overrides[orient_code]
-                ov_mat = get_material_by_id(ov_id)
-                if ov_mat:
-                    eff_panel_mat_id = ov_id
-                    eff_panel_mat_name = ov_mat["name"]
+                eff_panel_mat_id = res_pm["material_id"]
+                eff_panel_mat_name = res_pm["material"]["name"] if res_pm["material"] else mat_name
+            else:
+                eff_panel_mat_id = group_mat_id
+                eff_panel_mat_name = mat_name
+
+            # SNI Pasal 4.4: Upward-facing glazing (nz > 0.50) counts as RTTV skylight ONLY if
+            # shortest in-plane dimension > 0.30 m; thinner faces are recorded as 'sisi_tebal_panel'.
+            if panel_cat == "glazing" and float(normals_v[i, 2]) > 0.50:
+                min_d_i = float(_compute_face_shortest_dims(
+                    p0_v[i:i + 1],
+                    p1_v[i:i + 1],
+                    p2_v[i:i + 1],
+                    p3_v[i:i + 1],
+                    is_quad_v[i:i + 1],
+                    normals_v[i:i + 1],
+                )[0])
+                if min_d_i > 0.30:
+                    if (not group_disabled) and (not is_below_ground) and (not face_non_envelope):
+                        pm_sky = get_material_by_id(eff_panel_mat_id, extra_materials=extra_mats) or glz_mat or {}
+                        a_sky_i = float(areas_v[i])
+                        skylight_area_m2 += a_sky_i
+                        skylight_u_weighted += a_sky_i * float(pm_sky.get("u_value", params.u_fenestration))
+                        if is_sni_mode and sf_source == "template_prodi":
+                            _, sky_sck = compute_template_shgc_and_sck(pm_sky, fallback_sc=params.sc_glass)
+                            skylight_sc_weighted += a_sky_i * sky_sck
+                        else:
+                            skylight_sc_weighted += a_sky_i * float(pm_sky.get("sc", params.sc_glass))
+                else:
+                    # Fallback capture if panel became glazing via per-face override
+                    existing_tp = next(
+                        (it for it in runtime_filtered_items if it.get("id") == f"sisi_tebal_panel::{rg.group_name}"),
+                        None,
+                    )
+                    if existing_tp is None:
+                        runtime_filtered_items.append({
+                            "id": f"sisi_tebal_panel::{rg.group_name}",
+                            "group": rg.group_name,
+                            "reason": "sisi_tebal_panel",
+                            "reason_label": "Sisi tebal tepi panel kaca menghadap atas (dimensi terpendek <= 0,3 m)",
+                            "face_count": 1,
+                            "area_m2": round(float(areas_v[i]), 4),
+                            "restored": False,
+                        })
+                    else:
+                        existing_tp["face_count"] = int(existing_tp["face_count"]) + 1
+                        existing_tp["area_m2"] = round(float(existing_tp["area_m2"]) + float(areas_v[i]), 4)
+                continue
 
             if is_below_ground:
                 verif_label = "Basement (< Z0)"
@@ -1720,8 +2127,72 @@ def analyze_building_ottv(
     sunlit_frac_arr = np.where(total_weights > 1e-3, sunlit_weights / np.maximum(1e-6, total_weights), 0.35)
     shaded_frac_arr = 1.0 - sunlit_frac_arr
 
-    # Direct beam share (0.72) attenuated by shading; diffuse sky (0.28) remains
+    # Direct beam share (0.72) attenuated by shading; diffuse sky (0.28) remains (Simulation mode)
     sc_Display_mult_arr = 0.28 + 0.72 * sunlit_frac_arr
+    panel_r1_arr = np.zeros(num_panels, dtype=np.float64)
+    panel_r2_arr = np.zeros(num_panels, dtype=np.float64)
+    panel_phi1_arr = np.zeros(num_panels, dtype=np.float64)
+    sceff_errata_map: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+    is_template_method = is_sni_mode and (sf_source == "template_prodi")
+    tpl_shading_reg: Optional[TemplateShadingRegistry] = TemplateShadingRegistry() if is_template_method else None
+
+    if is_sni_mode:
+        # SNI 6389:2020 Compliance Mode:
+        # - sf_source == 'template_prodi': exact template BO lookup (scefn..scefsw) via TemplateShadingRegistry
+        # - sf_source == 'sni2020': Lampiran A (Tabel A.5-A.16) with errata mode
+        sni_shade_chunks = []
+        sni_sh_tris_grp = _groups_to_tris(shading_groups + roof_groups)
+        if len(sni_sh_tris_grp) > 0:
+            sni_shade_chunks.append(sni_sh_tris_grp)
+        if extra_face_shading_tris:
+            sni_shade_chunks.append(np.array(extra_face_shading_tris, dtype=np.float64))
+        sni_shading_tris = np.vstack(sni_shade_chunks) if sni_shade_chunks else np.empty((0, 3, 3), dtype=np.float64)
+
+        sc_Display_mult_arr = np.ones(num_panels, dtype=np.float64)
+        for idx_p, p_rec in enumerate(panel_records):
+            if p_rec["element_type"] in ("glazing", "composite_cw"):
+                r1_v, r2_v, phi1_v = _measure_panel_sni_shading_ratios(
+                    panel_verts=p_rec["vertices"],
+                    panel_normal=p_rec["normal"],
+                    shading_tris=sni_shading_tris,
+                    enable_parametric_louvers=params.enable_parametric_louvers,
+                    louver_depth_m=params.louver_depth_m,
+                    louver_spacing_m=params.louver_spacing_m,
+                    louver_tilt_deg=params.louver_tilt_deg,
+                )
+                panel_r1_arr[idx_p] = r1_v
+                panel_r2_arr[idx_p] = r2_v
+                panel_phi1_arr[idx_p] = phi1_v
+                if is_template_method and tpl_shading_reg is not None:
+                    if p_rec.get("active"):
+                        sh_yn, sh_code = tpl_shading_reg.register(r1_v, r2_v, phi1_v)
+                        p_rec["template_shade_yn"] = sh_yn
+                        p_rec["template_shade_code"] = sh_code
+                        sc_Display_mult_arr[idx_p] = tpl_shading_reg.lookup_bo_sceff(
+                            p_rec["orientation_code"],
+                            sh_yn,
+                            sh_code,
+                        )
+                    else:
+                        p_rec["template_shade_yn"] = ""
+                        p_rec["template_shade_code"] = ""
+                        sc_Display_mult_arr[idx_p] = 1.0
+                else:
+                    sc_det = lookup_sceff_detailed(
+                        p_rec["orientation_code"],
+                        r1_horizontal=r1_v,
+                        r2_vertical=r2_v,
+                        tilt_deg=phi1_v,
+                        table_mode=sceff_table_mode,
+                    )
+                    sc_Display_mult_arr[idx_p] = float(sc_det["sc_eff"])
+                    if sc_det.get("used_errata") and p_rec.get("active"):
+                        for c_err in sc_det.get("corrections") or []:
+                            ek = (c_err.get("table"), c_err.get("r1"), c_err.get("r2"), c_err.get("angle_deg"))
+                            if ek not in sceff_errata_map:
+                                sceff_errata_map[ek] = dict(c_err)
+
+    sceff_errata_applied: List[Dict[str, Any]] = list(sceff_errata_map.values())
 
     # Compute per-hour sunlit bitmask (bits 0..8 for hours 08:00..16:00)
     sunlit_bool_mat = front_mask & (hourly_hits < 0.5)
@@ -1735,17 +2206,28 @@ def analyze_building_ottv(
             "code": code,
             "name_id": ORIENTATION_NAMES[code],
             "azimuth_center_deg": ORIENTATION_ANGLES[code],
-            "sni_sf_wm2": round(ORIENTATION_BASE_SF[code] * sf_mult, 1),
+            "sni_sf_wm2": get_sf_for_source(params.city_preset, code, sf_source) if is_sni_mode else round(ORIENTATION_BASE_SF[code] * sf_mult, 1),
             "panel_count": 0,
             "total_area_m2": 0.0,
             "wall_area_m2": 0.0,
             "glazing_area_m2": 0.0,
             "_sum_sf_area": 0.0,
             "_sum_sc_eff_area": 0.0,
+            "_sum_sc_k_area": 0.0,
+            "_sum_sc_sh_area": 0.0,
+            "_sum_r1_area": 0.0,
+            "_sum_r2_area": 0.0,
+            "_sum_alpha_wall": 0.0,
+            "_sum_uw_wall": 0.0,
+            "_sum_tdek_wall": 0.0,
+            "_sum_uf_glz": 0.0,
             "_sum_shaded_area": 0.0,
             "_sum_q_wall_w": 0.0,
             "_sum_q_glass_w": 0.0,
             "_sum_q_solar_w": 0.0,
+            "_wall_combos": {},
+            "_glz_combos": {},
+            "_comp_combos": {},
         }
         for code in ORIENTATION_CODES
     }
@@ -1796,38 +2278,53 @@ def analyze_building_ottv(
 
     u_frame_eff = float(frm_mat["u_value"]) if frm_mat else float(params.u_frame)
     frame_cond_adder = (
-        u_frame_eff * params.frame_area_ratio * delta_t
-        if (params.include_frame_conduction and len(frame_groups) > 0)
-        else 0.0
+        0.0
+        if is_sni_mode
+        else (
+            u_frame_eff * params.frame_area_ratio * delta_t
+            if (params.include_frame_conduction and len(frame_groups) > 0)
+            else 0.0
+        )
     )
+
+    def _wall_tdek_from_mat(mat_dict: Optional[Dict[str, Any]], fallback_td: float) -> float:
+        if mat_dict and mat_dict.get("massa_kg_m2") is not None:
+            return get_tdek_wall(float(mat_dict["massa_kg_m2"]))
+        if mat_dict and mat_dict.get("td_ek") is not None:
+            return float(mat_dict["td_ek"])
+        return float(fallback_td)
 
     for idx, p in enumerate(panel_records):
         if p["is_outer"]:
             total_outer_panels += 1
 
-        # Resolve per-group / per-orientation material parameters (unless global slider override is forced)
-        g_mat = get_material_by_id(p["material_id"])
+        # Resolve per-group / per-orientation material parameters (catalog + per-model custom_materials)
+        g_mat = get_material_by_id(p["material_id"], extra_materials=extra_mats)
         cat = p["element_type"]
 
-        if params.use_global_slider_override:
-            u_f_k = float(params.u_fenestration)
-            sc_1_k = float(params.sc_glass)
-            u_w_k = float(params.u_wall)
-            alpha_k = float(params.alpha_wall)
-            tdek_k = float(params.td_ek)
-        elif cat in ("glazing", "composite_cw"):
-            u_f_k = float(g_mat["u_value"]) if (g_mat and g_mat["category"] == "glazing") else float(glz_mat["u_value"] if glz_mat else params.u_fenestration)
-            sc_1_k = float(g_mat["sc"]) if (g_mat and g_mat.get("sc") is not None) else float(glz_mat["sc"] if glz_mat else params.sc_glass)
+        if cat in ("glazing", "composite_cw"):
+            eff_g_mat = g_mat if (g_mat and g_mat.get("category") == "glazing") else glz_mat
+            u_f_k = float(eff_g_mat["u_value"]) if eff_g_mat else float(params.u_fenestration)
+            if is_template_method:
+                shgc_k, sc_1_k = compute_template_shgc_and_sck(eff_g_mat, fallback_sc=params.sc_glass)
+            else:
+                sc_1_k = float(eff_g_mat["sc"]) if (eff_g_mat and eff_g_mat.get("sc") is not None) else float(params.sc_glass)
+                shgc_k = get_material_shgc(eff_g_mat, fallback_sc=sc_1_k)
             u_w_k = float(wal_mat["u_value"]) if wal_mat else float(params.u_wall)
             alpha_k = float(wal_mat["alpha"]) if wal_mat else float(params.alpha_wall)
-            tdek_k = float(wal_mat["td_ek"]) if wal_mat else float(params.td_ek)
+            tdek_k = _wall_tdek_from_mat(wal_mat, params.td_ek) if is_sni_mode else (float(wal_mat["td_ek"]) if wal_mat else float(params.td_ek))
         else:
             # 'wall' or 'spandrel'
-            u_w_k = float(g_mat["u_value"]) if (g_mat and g_mat["category"] == "wall") else float(wal_mat["u_value"] if wal_mat else params.u_wall)
-            alpha_k = float(g_mat["alpha"]) if (g_mat and g_mat.get("alpha") is not None) else float(wal_mat["alpha"] if wal_mat else params.alpha_wall)
-            tdek_k = float(g_mat["td_ek"]) if (g_mat and g_mat.get("td_ek") is not None) else float(wal_mat["td_ek"] if wal_mat else params.td_ek)
+            eff_w_mat = g_mat if (g_mat and g_mat.get("category") == "wall") else wal_mat
+            u_w_k = float(eff_w_mat["u_value"]) if eff_w_mat else float(params.u_wall)
+            alpha_k = float(eff_w_mat["alpha"]) if (eff_w_mat and eff_w_mat.get("alpha") is not None) else float(params.alpha_wall)
+            tdek_k = _wall_tdek_from_mat(eff_w_mat, params.td_ek) if is_sni_mode else (float(eff_w_mat["td_ek"]) if (eff_w_mat and eff_w_mat.get("td_ek") is not None) else float(params.td_ek))
             u_f_k = float(glz_mat["u_value"]) if glz_mat else float(params.u_fenestration)
-            sc_1_k = float(glz_mat["sc"]) if glz_mat else float(params.sc_glass)
+            if is_template_method:
+                shgc_k, sc_1_k = compute_template_shgc_and_sck(glz_mat, fallback_sc=params.sc_glass)
+            else:
+                sc_1_k = float(glz_mat["sc"]) if glz_mat else float(params.sc_glass)
+                shgc_k = get_material_shgc(glz_mat, fallback_sc=sc_1_k)
 
         if params.wwr_override is not None:
             wwr_k = max(0.0, min(0.95, float(params.wwr_override)))
@@ -1853,9 +2350,17 @@ def analyze_building_ottv(
         solar_exp_wm2 = round(p["sf_wm2"] * sc_eff, 2)
 
         p["wwr_panel"] = round(wwr_k, 3)
-        p["sc_glass"] = round(sc_1_k, 3)
-        p["sc_shading_multiplier"] = round(sc_mult, 3)
-        p["sc_effective"] = round(sc_eff, 3)
+        p["shgc_glass"] = round(shgc_k, 4)
+        p["sc_glass"] = round(sc_1_k, 6)
+        p["sc_shading_multiplier"] = round(sc_mult, 4)
+        p["sc_effective"] = round(sc_eff, 6)
+        p["r1_horizontal"] = round(float(panel_r1_arr[idx]), 3)
+        p["r2_vertical"] = round(float(panel_r2_arr[idx]), 3)
+        p["phi1_tilt_deg"] = round(float(panel_phi1_arr[idx]), 1)
+        p["u_wall_eff"] = round(u_w_k, 4)
+        p["alpha_wall_eff"] = round(alpha_k, 4)
+        p["td_ek_eff"] = round(tdek_k, 2)
+        p["u_fen_eff"] = round(u_f_k, 4)
         p["shaded_fraction"] = round(shaded_frac, 3)
         p["sunlit_mask"] = int(sunlit_mask_arr[idx])
         p["direct_sun_hours"] = int(direct_sun_hours_arr[idx])
@@ -1917,30 +2422,301 @@ def analyze_building_ottv(
             b["glazing_area_m2"] += glz_a
             b["_sum_sf_area"] += p["sf_wm2"] * area
             b["_sum_sc_eff_area"] += sc_eff * (glz_a if glz_a > 1e-4 else area)
+            b["_sum_sc_k_area"] += sc_1_k * glz_a
+            b["_sum_sc_sh_area"] += sc_mult * glz_a
+            b["_sum_r1_area"] += float(panel_r1_arr[idx]) * glz_a
+            b["_sum_r2_area"] += float(panel_r2_arr[idx]) * glz_a
+            b["_sum_alpha_wall"] += alpha_k * wal_a
+            b["_sum_uw_wall"] += u_w_k * wal_a
+            b["_sum_tdek_wall"] += tdek_k * wal_a
+            b["_sum_uf_glz"] += u_f_k * glz_a
             b["_sum_shaded_area"] += shaded_frac * area
             b["_sum_q_wall_w"] += qw_w
             b["_sum_q_glass_w"] += qgc_w
             b["_sum_q_solar_w"] += qsol_w
 
-    # Finalize 8-orientation breakdown
+            # Track exact un-averaged material/shading combinations per orientation for Hitungan Manual
+            uf_row_eff = u_f_k + (frame_cond_adder / delta_t if delta_t > 1e-6 else 0.0)
+            glz_lbl = p.get("material_name") if cat in ("glazing", "composite_cw") else (glz_mat["name"] if glz_mat else "Kaca Standar")
+            wal_lbl = p.get("material_name") if cat not in ("glazing", "composite_cw") else (wal_mat["name"] if wal_mat else "Dinding Standar")
+            r1_p = round(float(panel_r1_arr[idx]), 2)
+            r2_p = round(float(panel_r2_arr[idx]), 2)
+            if wwr_k <= 1e-6:
+                wk = (round(alpha_k, 4), round(u_w_k, 4), round(tdek_k, 2), wal_lbl)
+                wc = b["_wall_combos"].setdefault(wk, {
+                    "wall_name": wal_lbl, "alpha": alpha_k, "u_wall": u_w_k, "td_ek": tdek_k,
+                    "area_m2": 0.0, "sf_sum": 0.0,
+                })
+                wc["area_m2"] += area
+                wc["sf_sum"] += p["sf_wm2"] * area
+            elif wwr_k >= 1.0 - 1e-6:
+                gk = (round(uf_row_eff, 4), round(sc_1_k, 4), round(sc_mult, 4), round(p["sf_wm2"], 2), r1_p, r2_p, glz_lbl)
+                gc = b["_glz_combos"].setdefault(gk, {
+                    "glz_name": glz_lbl, "u_f": uf_row_eff, "sc_k": sc_1_k, "sc_eff": sc_mult,
+                    "sf": p["sf_wm2"], "r1": r1_p, "r2": r2_p, "area_m2": 0.0,
+                })
+                gc["area_m2"] += area
+            else:
+                ck = (
+                    round(alpha_k, 4), round(u_w_k, 4), round(tdek_k, 2),
+                    round(uf_row_eff, 4), round(sc_1_k, 4), round(sc_mult, 4),
+                    round(p["sf_wm2"], 2), round(wwr_k, 4), r1_p, r2_p, wal_lbl, glz_lbl,
+                )
+                cc = b["_comp_combos"].setdefault(ck, {
+                    "wall_name": wal_lbl, "glz_name": glz_lbl,
+                    "alpha": alpha_k, "u_wall": u_w_k, "td_ek": tdek_k,
+                    "u_f": uf_row_eff, "sc_k": sc_1_k, "sc_eff": sc_mult,
+                    "sf": p["sf_wm2"], "wwr": wwr_k, "r1": r1_p, "r2": r2_p, "area_m2": 0.0,
+                })
+                cc["area_m2"] += area
+
+    def _build_manual_row(
+        code_r: str,
+        label_r: str,
+        ao_r: float,
+        wwr_r: float,
+        alpha_r: float,
+        uw_r: float,
+        tdek_r: float,
+        uf_r: float,
+        dt_r: float,
+        sck_r: float,
+        sceff_r: float,
+        sf_r: float,
+        r1_r: float = 0.0,
+        r2_r: float = 0.0,
+        combo_desc: str = "",
+    ) -> Dict[str, Any]:
+        sc_exact = sck_r * sceff_r
+        qw_r = alpha_r * uw_r * (1.0 - wwr_r) * tdek_r
+        qg_r = uf_r * wwr_r * dt_r
+        qs_r = sf_r * wwr_r * sc_exact
+        ottv_r = qw_r + qg_r + qs_r
+        subst_r = (
+            f"({alpha_r:.3f} × {uw_r:.2f} × (1 - {wwr_r:.4f}) × {tdek_r:.1f}) + "
+            f"({uf_r:.2f} × {wwr_r:.4f} × {dt_r:.1f}) + "
+            f"({sf_r:.1f} × {wwr_r:.4f} × {sck_r:.4f} × {sceff_r:.4f}) = {ottv_r:.2f} W/m²"
+            if ao_r > 1e-4 else "Tidak ada bidang fasad pada orientasi ini."
+        )
+        return {
+            "orientation_code": code_r,
+            "label": label_r,
+            "combination": combo_desc or "Standar",
+            "ao_m2": round(ao_r, 4),
+            "wwr": round(wwr_r, 6),
+            "alpha": round(alpha_r, 4),
+            "u_wall": round(uw_r, 4),
+            "td_ek": round(tdek_r, 2),
+            "u_f": round(uf_r, 4),
+            "delta_t": round(dt_r, 2),
+            "sc_k": round(sck_r, 4),
+            "sc_eff": round(sceff_r, 4),
+            "sc": round(sc_exact, 8),
+            "r1_horizontal": round(r1_r, 3),
+            "r2_vertical": round(r2_r, 3),
+            "sf": round(sf_r, 2),
+            "q_wall_wm2": round(qw_r, 4),
+            "q_glass_wm2": round(qg_r, 4),
+            "q_solar_wm2": round(qs_r, 4),
+            "ottv_wm2": round(ottv_r, 4),
+            "formula_substitution": subst_r,
+        }
+
+    # Finalize 8-orientation breakdown (including exact per-combination manual_calc_rows)
     orientation_breakdown: List[Dict[str, Any]] = []
+    manual_calc_rows: List[Dict[str, Any]] = []
     for code in ORIENTATION_CODES:
         b = orientation_buckets[code]
         a_tot = b["total_area_m2"]
         a_glz = b["glazing_area_m2"]
+        a_wal = b["wall_area_m2"]
+        w_combos = list(b["_wall_combos"].values())
+        g_combos = list(b["_glz_combos"].values())
+        c_combos = list(b["_comp_combos"].values())
+        orient_manual_rows: List[Dict[str, Any]] = []
+
         if a_tot > 1e-4:
             wwr_o = a_glz / a_tot
             avg_sf = b["_sum_sf_area"] / a_tot
             avg_sc = b["_sum_sc_eff_area"] / (a_glz if a_glz > 1e-4 else a_tot)
+            avg_sck = b["_sum_sc_k_area"] / a_glz if a_glz > 1e-4 else 0.0
+            avg_sc_sh = b["_sum_sc_sh_area"] / a_glz if a_glz > 1e-4 else 1.0
+            avg_r1 = b["_sum_r1_area"] / a_glz if a_glz > 1e-4 else 0.0
+            avg_r2 = b["_sum_r2_area"] / a_glz if a_glz > 1e-4 else 0.0
+            avg_alpha = b["_sum_alpha_wall"] / a_wal if a_wal > 1e-4 else 0.0
+            avg_uw = b["_sum_uw_wall"] / a_wal if a_wal > 1e-4 else 0.0
+            avg_tdek = b["_sum_tdek_wall"] / a_wal if a_wal > 1e-4 else 0.0
+            avg_uf = (b["_sum_uf_glz"] / a_glz if a_glz > 1e-4 else 0.0) + (
+                frame_cond_adder / delta_t if (a_glz > 1e-4 and delta_t > 1e-6) else 0.0
+            )
             avg_sh = b["_sum_shaded_area"] / a_tot
             qw = b["_sum_q_wall_w"] / a_tot
             qgc = b["_sum_q_glass_w"] / a_tot
             qsol = b["_sum_q_solar_w"] / a_tot
             ottv_o = qw + qgc + qsol
             hw = b["_sum_q_wall_w"] + b["_sum_q_glass_w"] + b["_sum_q_solar_w"]
+
+            # Build un-averaged per-combination rows for Hitungan Manual
+            if not c_combos and len(w_combos) <= 1 and len(g_combos) >= 1:
+                # 0 or 1 wall type + 1..K glass/shading combos: allocate wall area proportionally to glazing area
+                w_item = w_combos[0] if w_combos else None
+                a_w_tot = w_item["area_m2"] if w_item else 0.0
+                a_g_tot = sum(gc["area_m2"] for gc in g_combos)
+                for idx_g, gc in enumerate(sorted(g_combos, key=lambda x: -x["area_m2"])):
+                    share = gc["area_m2"] / a_g_tot if a_g_tot > 1e-9 else (1.0 / len(g_combos))
+                    a_w_j = a_w_tot * share
+                    ao_j = a_w_j + gc["area_m2"]
+                    wwr_j = gc["area_m2"] / ao_j if ao_j > 1e-9 else 0.0
+                    desc_j = (
+                        f"{gc['glz_name']} (R1={gc['r1']:.2f}, R2={gc['r2']:.2f}, SCeff={gc['sc_eff']:.3f})"
+                        if len(g_combos) > 1 or gc["r1"] > 0 or gc["r2"] > 0
+                        else gc["glz_name"]
+                    )
+                    lbl_j = f"{code} ({b['name_id']})" if len(g_combos) == 1 else f"{code} #{idx_g + 1} ({b['name_id']})"
+                    orient_manual_rows.append(_build_manual_row(
+                        code_r=code,
+                        label_r=lbl_j,
+                        ao_r=ao_j,
+                        wwr_r=wwr_j,
+                        alpha_r=w_item["alpha"] if w_item else 0.0,
+                        uw_r=w_item["u_wall"] if w_item else 0.0,
+                        tdek_r=w_item["td_ek"] if w_item else 0.0,
+                        uf_r=gc["u_f"],
+                        dt_r=delta_t,
+                        sck_r=gc["sc_k"],
+                        sceff_r=gc["sc_eff"],
+                        sf_r=gc["sf"],
+                        r1_r=gc["r1"],
+                        r2_r=gc["r2"],
+                        combo_desc=desc_j,
+                    ))
+            elif not c_combos and len(g_combos) == 0 and len(w_combos) >= 1:
+                for idx_w, wc in enumerate(sorted(w_combos, key=lambda x: -x["area_m2"])):
+                    lbl_w = f"{code} ({b['name_id']})" if len(w_combos) == 1 else f"{code} Dinding #{idx_w + 1}"
+                    sf_w = wc["sf_sum"] / wc["area_m2"] if wc["area_m2"] > 1e-9 else b["sni_sf_wm2"]
+                    orient_manual_rows.append(_build_manual_row(
+                        code_r=code,
+                        label_r=lbl_w,
+                        ao_r=wc["area_m2"],
+                        wwr_r=0.0,
+                        alpha_r=wc["alpha"],
+                        uw_r=wc["u_wall"],
+                        tdek_r=wc["td_ek"],
+                        uf_r=0.0,
+                        dt_r=delta_t,
+                        sck_r=0.0,
+                        sceff_r=1.0,
+                        sf_r=sf_w,
+                        combo_desc=wc["wall_name"],
+                    ))
+            elif len(w_combos) == 0 and len(g_combos) == 0 and len(c_combos) >= 1:
+                for idx_c, cc in enumerate(sorted(c_combos, key=lambda x: -x["area_m2"])):
+                    lbl_c = f"{code} ({b['name_id']})" if len(c_combos) == 1 else f"{code} #{idx_c + 1} ({b['name_id']})"
+                    desc_c = f"{cc['glz_name']} / {cc['wall_name']} (R1={cc['r1']:.2f}, R2={cc['r2']:.2f})"
+                    orient_manual_rows.append(_build_manual_row(
+                        code_r=code,
+                        label_r=lbl_c,
+                        ao_r=cc["area_m2"],
+                        wwr_r=cc["wwr"],
+                        alpha_r=cc["alpha"],
+                        uw_r=cc["u_wall"],
+                        tdek_r=cc["td_ek"],
+                        uf_r=cc["u_f"],
+                        dt_r=delta_t,
+                        sck_r=cc["sc_k"],
+                        sceff_r=cc["sc_eff"],
+                        sf_r=cc["sf"],
+                        r1_r=cc["r1"],
+                        r2_r=cc["r2"],
+                        combo_desc=desc_c,
+                    ))
+            else:
+                # General mixed case (multiple wall types + multiple glazing/composite types): separate exact rows
+                seq_i = 0
+                for wc in sorted(w_combos, key=lambda x: -x["area_m2"]):
+                    seq_i += 1
+                    sf_w = wc["sf_sum"] / wc["area_m2"] if wc["area_m2"] > 1e-9 else b["sni_sf_wm2"]
+                    orient_manual_rows.append(_build_manual_row(
+                        code_r=code,
+                        label_r=f"{code} #{seq_i} (Dinding)",
+                        ao_r=wc["area_m2"],
+                        wwr_r=0.0,
+                        alpha_r=wc["alpha"],
+                        uw_r=wc["u_wall"],
+                        tdek_r=wc["td_ek"],
+                        uf_r=0.0,
+                        dt_r=delta_t,
+                        sck_r=0.0,
+                        sceff_r=1.0,
+                        sf_r=sf_w,
+                        combo_desc=f"Dinding: {wc['wall_name']}",
+                    ))
+                for gc in sorted(g_combos, key=lambda x: -x["area_m2"]):
+                    seq_i += 1
+                    orient_manual_rows.append(_build_manual_row(
+                        code_r=code,
+                        label_r=f"{code} #{seq_i} (Kaca)",
+                        ao_r=gc["area_m2"],
+                        wwr_r=1.0,
+                        alpha_r=0.0,
+                        uw_r=0.0,
+                        tdek_r=0.0,
+                        uf_r=gc["u_f"],
+                        dt_r=delta_t,
+                        sck_r=gc["sc_k"],
+                        sceff_r=gc["sc_eff"],
+                        sf_r=gc["sf"],
+                        r1_r=gc["r1"],
+                        r2_r=gc["r2"],
+                        combo_desc=f"Kaca: {gc['glz_name']} (R1={gc['r1']:.2f}, R2={gc['r2']:.2f}, SCeff={gc['sc_eff']:.3f})",
+                    ))
+                for cc in sorted(c_combos, key=lambda x: -x["area_m2"]):
+                    seq_i += 1
+                    orient_manual_rows.append(_build_manual_row(
+                        code_r=code,
+                        label_r=f"{code} #{seq_i} (Komposit)",
+                        ao_r=cc["area_m2"],
+                        wwr_r=cc["wwr"],
+                        alpha_r=cc["alpha"],
+                        uw_r=cc["u_wall"],
+                        tdek_r=cc["td_ek"],
+                        uf_r=cc["u_f"],
+                        dt_r=delta_t,
+                        sck_r=cc["sc_k"],
+                        sceff_r=cc["sc_eff"],
+                        sf_r=cc["sf"],
+                        r1_r=cc["r1"],
+                        r2_r=cc["r2"],
+                        combo_desc=f"Komposit: {cc['glz_name']} + {cc['wall_name']}",
+                    ))
+
+            subst = orient_manual_rows[0]["formula_substitution"] if len(orient_manual_rows) == 1 else (
+                f"Σ(Ao_j × OTTV_j) / Ao = {hw:.1f} / {a_tot:.2f} = {ottv_o:.2f} W/m² ({len(orient_manual_rows)} kombinasi)"
+            )
+            manual_calc_rows.extend(orient_manual_rows)
         else:
-            wwr_o, avg_sf, avg_sc, avg_sh = 0.0, b["sni_sf_wm2"], params.sc_glass, 0.0
+            wwr_o, avg_sf, avg_sc, avg_sh = 0.0, b["sni_sf_wm2"], 0.0, 0.0
+            avg_sck, avg_sc_sh, avg_r1, avg_r2 = 0.0, 1.0, 0.0, 0.0
+            avg_alpha, avg_uw, avg_tdek, avg_uf = 0.0, 0.0, 0.0, 0.0
             qw, qgc, qsol, ottv_o, hw = 0.0, 0.0, 0.0, 0.0, 0.0
+            subst = "Tidak ada bidang fasad pada orientasi ini."
+            empty_row = _build_manual_row(
+                code_r=code,
+                label_r=f"{code} ({b['name_id']})",
+                ao_r=0.0,
+                wwr_r=0.0,
+                alpha_r=0.0,
+                uw_r=0.0,
+                tdek_r=0.0,
+                uf_r=0.0,
+                dt_r=delta_t,
+                sck_r=0.0,
+                sceff_r=1.0,
+                sf_r=b["sni_sf_wm2"],
+                combo_desc="-",
+            )
+            orient_manual_rows.append(empty_row)
+            manual_calc_rows.append(empty_row)
 
         orientation_breakdown.append({
             "code": code,
@@ -1949,17 +2725,38 @@ def analyze_building_ottv(
             "sni_sf_wm2": b["sni_sf_wm2"],
             "panel_count": b["panel_count"],
             "total_area_m2": round(a_tot, 2),
-            "wall_area_m2": round(b["wall_area_m2"], 2),
+            "wall_area_m2": round(a_wal, 2),
             "glazing_area_m2": round(a_glz, 2),
             "wwr": round(wwr_o, 3),
             "avg_sf_interpolated_wm2": round(avg_sf, 2),
-            "avg_sc_effective": round(avg_sc, 3),
+            "avg_sc_effective": round(avg_sc, 4),
             "avg_shaded_ratio": round(avg_sh, 3),
             "q_wall_conduction_wm2": round(qw, 2),
             "q_glass_conduction_wm2": round(qgc, 2),
             "q_solar_radiation_wm2": round(qsol, 2),
             "ottv_orientation_wm2": round(ottv_o, 2),
             "heat_gain_watts": round(hw, 1),
+            "manual_calc": {
+                "ao_m2": round(a_tot, 4),
+                "wwr": round(wwr_o, 6),
+                "alpha": round(avg_alpha, 4),
+                "u_wall": round(avg_uw, 4),
+                "td_ek": round(avg_tdek, 2),
+                "u_f": round(avg_uf, 4),
+                "delta_t": round(delta_t, 2),
+                "sc_k": round(avg_sck, 4),
+                "sc_eff": round(avg_sc_sh, 4),
+                "sc": round(avg_sck * avg_sc_sh, 6) if len(orient_manual_rows) == 1 else round(avg_sc, 6),
+                "r1_horizontal": round(avg_r1, 3),
+                "r2_vertical": round(avg_r2, 3),
+                "sf": round(avg_sf, 2),
+                "q_wall_wm2": round(qw, 4),
+                "q_glass_wm2": round(qgc, 4),
+                "q_solar_wm2": round(qsol, 4),
+                "ottv_wm2": round(ottv_o, 4),
+                "formula_substitution": subst,
+                "rows": orient_manual_rows,
+            },
         })
 
     # Finalize Smart Floor Breakdown (100% Model-Driven)
@@ -2238,19 +3035,73 @@ def analyze_building_ottv(
             },
         })
     is_provisional = len(summary_warnings) > 0
+    if is_sni_mode and sf_source_info.get("warning"):
+        summary_warnings.append({
+            "code": "SF_CITY_FALLBACK",
+            "message": sf_source_info["warning"],
+            "detail": {
+                "requested_city": params.city_preset,
+                "resolved_city": sf_source_info["city_label"],
+                "sf_source": sf_source,
+            },
+        })
+    if is_provisional:
+        eff_status_label = "HASIL SEMENTARA — perlu konfirmasi"
+        eff_compliant = False
+    elif not is_sni_mode:
+        eff_status_label = (
+            "SIMULASI EKSPLORASI — bukan untuk kepatuhan (<= 35 W/m²)"
+            if compliant
+            else "SIMULASI EKSPLORASI — bukan untuk kepatuhan (> 35 W/m²)"
+        )
+        eff_compliant = False
+    elif compliant:
+        eff_status_label = "MEMENUHI SNI 6389:2020 (<= 35 W/m²)"
+        eff_compliant = True
+    else:
+        eff_status_label = "MELEBIHI BATAS SNI 6389:2020 (> 35 W/m²)"
+        eff_compliant = False
+
+    rttv_result = _compute_sni_rttv(
+        roof_groups=roof_groups,
+        skylight_area_m2=skylight_area_m2,
+        skylight_u_weighted=skylight_u_weighted,
+        skylight_sc_weighted=skylight_sc_weighted,
+        params=params,
+        sni_city_key=sni_city_key,
+        z_max_bldg=z_max_bldg,
+    )
+
+    from adapters import detect_file_signature
+    file_sig = detect_file_signature(filepath)
 
     return {
         "filename": filename,
         "format": os.path.splitext(filename)[1].lstrip(".").upper(),
+        "calculation_mode": calc_mode,
+        "is_compliance": bool(is_sni_mode),
+        "sf_source": sf_source if is_sni_mode else "simulasi_epw",
+        "sf_source_label": (
+            sf_source_info["sf_source_label"]
+            if is_sni_mode
+            else f"Interpolasi Kontinu EPW ({loc_info.get('city', 'Jakarta')})"
+        ),
+        "sf_source_info": sf_source_info if is_sni_mode else None,
+        "sceff_table_mode": sceff_table_mode if is_sni_mode else None,
+        "sceff_errata_applied": sceff_errata_applied,
+        "template_shading_registry": tpl_shading_reg.to_dict() if tpl_shading_reg is not None else None,
+        "mode_label": (
+            "Kepatuhan SNI 6389:2020"
+            if is_sni_mode
+            else "Eksplorasi — bukan untuk kepatuhan"
+        ),
         "ottv_total_wm2": ottv_total_wm2,
         "sni_limit_wm2": SNI_6389_LIMIT_WM2,
         "margin_to_limit_wm2": round(SNI_6389_LIMIT_WM2 - ottv_total_wm2, 2),
-        "compliant": bool(compliant),
-        "status_label": (
-            "MEMENUHI SNI 6389:2020 (<= 35 W/m²)"
-            if compliant
-            else "MELEBIHI BATAS SNI 6389:2020 (> 35 W/m²)"
-        ),
+        "compliant": eff_compliant,
+        "status_label": eff_status_label,
+        "warnings": summary_warnings,
+        "rttv": rttv_result,
         "location_info": loc_info,
         "stage1_geometry_audit": {
             "detected_unit": stage1_audit.detected_unit,
@@ -2271,7 +3122,7 @@ def analyze_building_ottv(
             "missing_mesh": stage1_audit.missing_mesh,
             "filtered_items": runtime_filtered_items,
             "exterior_detection_mode": ext_mode,
-            "source_software": params.source_software,
+            "file_signature": file_sig,
             "z_ground_cutoff_m": round(z_ground_cut, 2),
             "basement_panels_excluded": int(basement_panels_excluded),
             "bim_storeys_count": len(stage1_audit.bim_storeys),
@@ -2307,18 +3158,21 @@ def analyze_building_ottv(
                 "recommended_dome_radius": round(recommended_dome_radius, 2),
             },
             "active_materials": {
-                "wall_name": wal_mat["name"] if wal_mat else "Spandrel Glass + Rockwool 50mm + Calcium Silicate",
-                "wall_brand": wal_mat["brand"] if wal_mat else "Nichias Tombo / Bradford",
+                "wall_id": wal_mat["id"] if wal_mat else params.wall_material_id,
+                "wall_name": wal_mat["name"] if wal_mat else "Spandrel Curtain Wall + Insulasi Mineral Wool 50mm + Backpan",
+                "wall_brand": wal_mat["brand"] if wal_mat else "Generik (Nilai Tipikal)",
                 "alpha_wall": round(alpha_glob, 3),
                 "u_wall": round(u_w_glob, 3),
                 "td_ek": round(tdek_glob, 2),
-                "glazing_name": glz_mat["name"] if glz_mat else "Double Glazed IGU Triple-Silver Low-E",
-                "glazing_brand": glz_mat["brand"] if glz_mat else "Saint-Gobain Cool-Lite Xtreme",
+                "glazing_id": glz_mat["id"] if glz_mat else params.glazing_material_id,
+                "glazing_name": glz_mat["name"] if glz_mat else "Kaca Ganda (IGU) Triple-Silver Ultra-Selective 6+12Ar+6mm",
+                "glazing_brand": glz_mat["brand"] if glz_mat else "Generik (Nilai Tipikal)",
                 "u_fenestration": round(u_f_glob, 3),
                 "sc_glass": round(sc_1_glob, 3),
-                "shgc_glass": round(sc_1_glob * 0.87, 3),
+                "shgc_glass": get_material_shgc(glz_mat, fallback_sc=sc_1_glob),
                 "delta_t": round(delta_t, 2),
-                "frame_name": frm_mat["name"] if frm_mat else "Unitized Curtain Wall Thermal-Break Frame",
+                "frame_id": frm_mat["id"] if frm_mat else params.frame_material_id,
+                "frame_name": frm_mat["name"] if frm_mat else "Rangka Aluminium Curtain Wall + Thermal Break",
                 "u_frame": round(u_frame_eff, 3),
                 "louver_depth_m": round(float(params.louver_depth_m), 2),
                 "louver_spacing_m": round(float(params.louver_spacing_m), 2),
@@ -2338,6 +3192,7 @@ def analyze_building_ottv(
         },
         "groups": group_summaries,
         "orientation_breakdown": orientation_breakdown,
+        "manual_calc_rows": manual_calc_rows,
         "orientation_floor_breakdown": orientation_floor_breakdown,
         "floor_breakdown": floor_breakdown,
         "recommendations": recommendations,

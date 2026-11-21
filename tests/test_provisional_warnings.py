@@ -24,6 +24,8 @@ def test_unknown_group_sets_provisional_warning_and_stays_excluded():
     res = analyze_building_ottv(path, "fasad_unitized_24lantai.3dm", EnvelopeParameters())
     summary = res["summary"]
     assert summary["is_provisional"] is True
+    assert res["status_label"] == "HASIL SEMENTARA — perlu konfirmasi"
+    assert res["compliant"] is False
     codes = {w["code"]: w for w in summary["warnings"]}
     assert "UNKNOWN_GROUPS" in codes
     w = codes["UNKNOWN_GROUPS"]
@@ -39,6 +41,8 @@ def test_missing_mesh_sets_provisional_warning():
     res = analyze_building_ottv(path, "tes objek archicad.3dm", EnvelopeParameters())
     summary = res["summary"]
     assert summary["is_provisional"] is True
+    assert res["status_label"] == "HASIL SEMENTARA — perlu konfirmasi"
+    assert res["compliant"] is False
     codes = {w["code"]: w for w in summary["warnings"]}
     assert "MISSING_MESH" in codes
     w = codes["MISSING_MESH"]

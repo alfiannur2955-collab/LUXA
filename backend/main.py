@@ -1,42 +1,47 @@
 """
-OTTV 3D Parametric Studio v3.0 — Universal 5-Stage Gatekeeper FastAPI Backend (SNI 6389:2020)
-=============================================================================================
-Provides REST endpoints for:
-- Dynamic Model Catalog (persisting multiple user-uploaded .3dm, .obj, .ifc, .glb, .gltf,
-  .hbjson, .stl, .ply models alongside reference presets)
-- Stage 1: Universal Geometry, Unit (auto/m/cm/mm/ft/in) & Axis (auto/Z/Y) Normalization
-- Stage 2: 3-Tier Sub-Element Decomposer (Layer::Material + Geometric Auto-Splitter for
-  merged BIM Curtain Walls + Composite WWR Ratio Mode) & 6-Role SNI Classification
-- Stage 3: Model-Driven Dynamic Floor Detection (Auto BIM/Slab/Z-Cluster, Uniform, Custom Zones)
-- Stage 4: Layer-Bound Material Assignment, Orientation Overrides & Indonesian Brand Optimizer
-- Stage 5: Official PUPR Building Envelope Compliance Form v2.0 (.xlsx) Report Generator.
+OTTV 3D Parametric Studio — Unified API v2 (Fase 2: Single Source of Truth)
+===========================================================================
+Provides unified REST endpoints built around Pydantic v2 `ProjectConfig`:
+- `POST   /api/models`                          : Upload 3D model + auto detect_file_signature
+- `GET    /api/models`                          : List uploaded models & reference samples
+- `DELETE /api/models/{model_id}`               : Delete uploaded model & its .ottv.json config
+- `GET    /api/models/{model_id}/config`        : Read-only load of ProjectConfig v2 (migrates v1)
+- `PUT    /api/models/{model_id}/config`        : Explicitly save ProjectConfig v2 to .ottv.json
+- `POST   /api/models/{model_id}/inspect`       : Read-only fast 3D inspection (no raycast, no disk write)
+- `POST   /api/models/{model_id}/analyze`       : Full OTTV analysis -> {analysis_id, ...}
+- `GET    /api/analyses/{analysis_id}/export/{fmt}` : Export xlsx | csv | pdf by analysis_id
+
+All legacy endpoints (/api/analyze/preset, /api/analyze/upload, /api/analyze/commit,
+/api/stage/*) and global mutable state (LAST_ANALYSIS_CACHE, ACTIVE_CUSTOM_EPW) are removed.
 """
 
 from __future__ import annotations
 
+from collections import OrderedDict
 import hashlib
-import json
 import os
 import re
 import shutil
 from typing import Any, Dict, List, Optional, Tuple
+import uuid
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from adapters import (
-    SOFTWARE_PROFILES,
-    ModelIntakeProfile,
+    EXPORT_TIPS_BY_SOURCE,
     build_staging_inspection_payload,
-    get_adapter_for_software,
-    load_staging_config,
-    save_staging_config,
+    detect_file_signature,
+    get_export_tips,
+    get_project_config_path,
+    load_project_config,
+    save_project_config,
     unpack_zip_bundle_if_needed,
 )
-
+from config_schema import InspectRequest, ProjectConfig
 from materials_and_epw import (
     INDONESIAN_CITY_PRESETS,
     add_custom_material,
@@ -49,7 +54,6 @@ from ottv_engine import (
     ORIENTATION_NAMES,
     SNI_6389_LIMIT_WM2,
     SNI_SF_ANCHORS,
-    EnvelopeParameters,
     analyze_building_ottv,
     create_sample_hbjson_preset,
     create_sample_ifc_preset,
@@ -61,29 +65,34 @@ from report_exporter import (
     generate_excel_report,
     generate_pdf_report,
 )
+from universal_pipeline import load_universal_model_stages_1_and_2
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SAMPLES_DIR = os.path.join(BASE_DIR, "samples")
 BENCHMARK_SAMPLES_DIR = os.path.join(SAMPLES_DIR, "benchmark_library")
-LAST_UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 EPW_DIR = os.path.join(BASE_DIR, "epw_samples")
 os.makedirs(SAMPLES_DIR, exist_ok=True)
 os.makedirs(BENCHMARK_SAMPLES_DIR, exist_ok=True)
-os.makedirs(LAST_UPLOAD_DIR, exist_ok=True)
+os.makedirs(UPLOADS_DIR, exist_ok=True)
 os.makedirs(EPW_DIR, exist_ok=True)
 
 ALLOWED_3D_EXTENSIONS = (".3dm", ".obj", ".ifc", ".glb", ".gltf", ".hbjson", ".json", ".stl", ".ply", ".zip")
 
+# Bounded per-analysis store keyed by analysis_id (no single global LAST_ANALYSIS_CACHE)
+MAX_STORED_ANALYSES = 64
+ANALYSIS_STORE: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
+
+
 PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
-    # --- FORMAT: .IFC (BIM Native — Archicad / Revit / buildingSMART / IFC4X3) ---
     "archicad_bim_ifc": {
         "id": "archicad_bim_ifc",
         "title": "ArchiCAD BIM Curtain Wall + Podium (6 Lantai Variatif)",
         "filename": "archicad_bim_curtainwall.ifc",
         "format": "IFC",
-        "source_software": "archicad",
         "is_uploaded": False,
-        "description": "Model BIM IFC2x3 dengan 6 IFCBUILDINGSTOREY (Lobby 4.8m, Podium 4.2m, Tipikal 3.6m), IFCPLATE, IFCMEMBER & IFCSHADINGDEVICE.",
+        "description": "Model BIM IFC2x3 dengan 6 IFCBUILDINGSTOREY, IFCPLATE, IFCMEMBER & IFCSHADINGDEVICE.",
     },
     "bench_ac20_fzk_haus": {
         "id": "bench_ac20_fzk_haus",
@@ -91,9 +100,8 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "AC20_FZK_Haus.ifc",
         "subdir": "benchmark_library",
         "format": "IFC",
-        "source_software": "archicad",
         "is_uploaded": False,
-        "description": "Sampel standar IFC4 STEPtools/Archicad (13×11×6.5m, 2 lantai) dengan elemen interior yang disaring otomatis.",
+        "description": "Sampel standar IFC4 STEPtools/Archicad (13×11×6.5m, 2 lantai).",
     },
     "bench_ac20_institute_var2": {
         "id": "bench_ac20_institute_var2",
@@ -101,9 +109,8 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "AC20_Institute_Var2.ifc",
         "subdir": "benchmark_library",
         "format": "IFC",
-        "source_software": "archicad",
         "is_uploaded": False,
-        "description": "Gedung pendidikan IFC4 5 lantai (44×19×15.4m, 1.428 m²) lengkap dengan bukaan jendela & struktur interior.",
+        "description": "Gedung pendidikan IFC4 5 lantai (44×19×15.4m).",
     },
     "bench_klassiqua_2026": {
         "id": "bench_klassiqua_2026",
@@ -111,9 +118,8 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "Klassiqua_Office_2026_IFC4x3.ifc",
         "subdir": "benchmark_library",
         "format": "IFC",
-        "source_software": "honeybee_generic",
         "is_uploaded": False,
-        "description": "Arketipe gedung kantor modern IFC4.3 (29×15×15m, WWR 63.9%, 1.927 m²).",
+        "description": "Arketipe gedung kantor modern IFC4.3.",
     },
     "bench_klassiqua_1998": {
         "id": "bench_klassiqua_1998",
@@ -121,9 +127,8 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "Klassiqua_Office_1998_IFC4x3.ifc",
         "subdir": "benchmark_library",
         "format": "IFC",
-        "source_software": "honeybee_generic",
         "is_uploaded": False,
-        "description": "Arketipe kantor era 1998 IFC4.3 (28.7×15×14.9m, WWR 69.5%, 1.722 m²).",
+        "description": "Arketipe kantor era 1998 IFC4.3.",
     },
     "bench_klassiqua_1970": {
         "id": "bench_klassiqua_1970",
@@ -131,9 +136,8 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "Klassiqua_Office_1970_IFC4x3.ifc",
         "subdir": "benchmark_library",
         "format": "IFC",
-        "source_software": "honeybee_generic",
         "is_uploaded": False,
-        "description": "Arketipe kantor era 1970 IFC4.3 (28.6×14.9×14.9m, WWR 48.0%).",
+        "description": "Arketipe kantor era 1970 IFC4.3.",
     },
     "bench_iso_wall_window": {
         "id": "bench_iso_wall_window",
@@ -141,9 +145,8 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "ISO_ReferenceView_Wall_Window_IFC4.ifc",
         "subdir": "benchmark_library",
         "format": "IFC",
-        "source_software": "revit",
         "is_uploaded": False,
-        "description": "Sampel sertifikasi buildingSMART IFC4 untuk verifikasi pemotongan IfcOpeningElement pada dinding & jendela.",
+        "description": "Sampel sertifikasi buildingSMART IFC4 untuk pemotongan IfcOpeningElement.",
     },
     "bench_bsi_arch_ifc2x3": {
         "id": "bench_bsi_arch_ifc2x3",
@@ -151,9 +154,8 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "bSI_Simple_Architecture_IFC2x3.ifc",
         "subdir": "benchmark_library",
         "format": "IFC",
-        "source_software": "revit",
         "is_uploaded": False,
-        "description": "Dataset sertifikasi buildingSMART IFC2x3 TC1 (6.2×6.6×6.3m, 2 lantai).",
+        "description": "Dataset sertifikasi buildingSMART IFC2x3 TC1.",
     },
     "bench_bsi_arch_ifc4": {
         "id": "bench_bsi_arch_ifc4",
@@ -161,9 +163,8 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "bSI_Simple_Architecture_IFC4.ifc",
         "subdir": "benchmark_library",
         "format": "IFC",
-        "source_software": "revit",
         "is_uploaded": False,
-        "description": "Dataset sertifikasi buildingSMART IFC4 ADD2 TC1 (6.2×6.6×6.3m, 2 lantai).",
+        "description": "Dataset sertifikasi buildingSMART IFC4 ADD2 TC1.",
     },
     "bench_bsi_arch_ifc43": {
         "id": "bench_bsi_arch_ifc43",
@@ -171,49 +172,41 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "bSI_Simple_Architecture_IFC4x3.ifc",
         "subdir": "benchmark_library",
         "format": "IFC",
-        "source_software": "honeybee_generic",
         "is_uploaded": False,
         "description": "Dataset sertifikasi buildingSMART IFC4.3 ADD2.",
     },
-    # --- FORMAT: .3DM (Rhino 7 / 8 NURBS & Curtain Wall) ---
     "fasad_curtain_wall_baru": {
         "id": "fasad_curtain_wall_baru",
         "title": "Fasad_Curtain_Wall_Baru.3dm — Tower Curtain Wall (24 Lantai)",
         "filename": "Fasad_Curtain_Wall_Baru.3dm",
         "format": "3DM",
-        "source_software": "rhino",
         "is_uploaded": False,
-        "description": "Model Tower Curtain Wall 24 lantai dengan Spandrel, Vision Glass, Crown Glass, Mullion, Transom, & SkyGarden Fins.",
+        "description": "Model Tower Curtain Wall 24 lantai dengan Spandrel, Vision Glass, Mullion, Transom, & Shading Fins.",
     },
     "rhino_nurbs_tower": {
         "id": "rhino_nurbs_tower",
         "title": "Menara NURBS Nusantara — Fasad Lengkung (5 Lantai)",
         "filename": "nusantara_nurbs_tower.3dm",
         "format": "3DM",
-        "source_software": "rhino",
         "is_uploaded": False,
-        "description": "Menara organik 5-tier dengan fasad lengkung NURBS, Low-E Curtain Wall, dan kisi peneduh kinetik.",
+        "description": "Menara organik 5-tier dengan fasad lengkung NURBS.",
     },
-    # --- FORMAT: .OBJ (Wavefront Multi-Material) ---
     "bioclimatic_office_obj": {
         "id": "bioclimatic_office_obj",
         "title": "Kantor Bioklimatik Oktagonal — 8 Orientasi (4 Lantai)",
         "filename": "bioclimatic_office.obj",
         "format": "OBJ",
-        "source_software": "sketchup_mesh",
         "is_uploaded": False,
-        "description": "Gedung kantor 4 lantai 8 orientasi penuh dengan spandrel komposit dan kanopi louver.",
+        "description": "Gedung kantor 4 lantai 8 orientasi penuh dengan spandrel & kanopi louver.",
     },
-    # --- FORMAT: .GLB (glTF 2.0 PBR Mesh) ---
     "bench_khronos_glass_glb": {
         "id": "bench_khronos_glass_glb",
         "title": "Khronos PBR Transmission Glass Sample (.glb)",
         "filename": "Khronos_Glass_Transmission.glb",
         "subdir": "benchmark_library",
         "format": "GLB",
-        "source_software": "sketchup_mesh",
         "is_uploaded": False,
-        "description": "Sampel resmi Khronos glTF 2.0 untuk pengujian transparansi material kaca PBR & transformasi SceneGraph.",
+        "description": "Sampel resmi Khronos glTF 2.0 (uji material PBR).",
     },
     "bench_khronos_box_glb": {
         "id": "bench_khronos_box_glb",
@@ -221,19 +214,16 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "Khronos_Textured_Box.glb",
         "subdir": "benchmark_library",
         "format": "GLB",
-        "source_software": "sketchup_mesh",
         "is_uploaded": False,
-        "description": "Sampel standar Khronos glTF 2.0 untuk pengujian sumbu Y-Up -> Z-Up dan normal luar.",
+        "description": "Sampel standar Khronos glTF 2.0 untuk pengujian sumbu Y-Up -> Z-Up.",
     },
-    # --- FORMAT: .HBJSON (Ladybug / Honeybee Thermal Models) ---
     "honeybee_zone_hbjson": {
         "id": "honeybee_zone_hbjson",
         "title": "Model Termal SNI 6389 Honeybee (3 Lantai)",
         "filename": "sni6389_thermal_model.hbjson",
         "format": "HBJSON",
-        "source_software": "honeybee_generic",
         "is_uploaded": False,
-        "description": "Model energi Honeybee JSON dengan definisi Face, Aperture kaca, dan Outdoor Shades.",
+        "description": "Model energi Honeybee JSON dengan Face, Aperture kaca, dan Outdoor Shades.",
     },
     "bench_hb_multizone_office": {
         "id": "bench_hb_multizone_office",
@@ -241,7 +231,6 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "Honeybee_MultiZone_Office_3F.hbjson",
         "subdir": "benchmark_library",
         "format": "HBJSON",
-        "source_software": "honeybee_generic",
         "is_uploaded": False,
         "description": "Sampel resmi Ladybug Tools (10×10×9m, 3 lantai, 240 m², WWR 20%).",
     },
@@ -251,9 +240,8 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "Honeybee_Office_Floor_30x30m.hbjson",
         "subdir": "benchmark_library",
         "format": "HBJSON",
-        "source_software": "honeybee_generic",
         "is_uploaded": False,
-        "description": "Lantai kantor tipikal 30×30×3m dari Ladybug Tools (360 m², WWR 35%).",
+        "description": "Lantai kantor tipikal 30×30×3m dari Ladybug Tools.",
     },
     "bench_hb_single_family": {
         "id": "bench_hb_single_family",
@@ -261,9 +249,8 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "Honeybee_Single_Family_Home.hbjson",
         "subdir": "benchmark_library",
         "format": "HBJSON",
-        "source_software": "honeybee_generic",
         "is_uploaded": False,
-        "description": "Sampel rumah tinggal resmi Ladybug Tools (6.7×15.2×4m, 90 m²).",
+        "description": "Sampel rumah tinggal resmi Ladybug Tools.",
     },
     "bench_hb_patient_room": {
         "id": "bench_hb_patient_room",
@@ -271,23 +258,25 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "filename": "Honeybee_Patient_Room.hbjson",
         "subdir": "benchmark_library",
         "format": "HBJSON",
-        "source_software": "honeybee_generic",
         "is_uploaded": False,
-        "description": "Sampel ruang rawat rumah sakit resmi Ladybug Tools (5×10.5×3m, 90 m²).",
+        "description": "Sampel ruang rawat rumah sakit resmi Ladybug Tools.",
     },
 }
 
-# Store latest custom EPW & latest analysis result for instant report downloads
-ACTIVE_CUSTOM_EPW: Optional[Dict[str, Any]] = None
-LAST_ANALYSIS_CACHE: Optional[Dict[str, Any]] = None
-
 
 def _slugify_filename(filename: str) -> str:
-    """Collision-free deterministic model_id (e.g. 'Foo bar.ifc' != 'Foo_bar.ifc')."""
+    """Collision-free deterministic model_id."""
     clean = filename.strip()
     slug = re.sub(r"[^a-zA-Z0-9_.-]+", "_", clean)
     h6 = hashlib.sha1(clean.encode("utf-8")).hexdigest()[:6]
     return f"upload_{slug}_{h6}"
+
+
+def _store_analysis_record(analysis_id: str, record: Dict[str, Any]) -> None:
+    ANALYSIS_STORE[analysis_id] = record
+    ANALYSIS_STORE.move_to_end(analysis_id)
+    while len(ANALYSIS_STORE) > MAX_STORED_ANALYSES:
+        ANALYSIS_STORE.popitem(last=False)
 
 
 def ensure_sample_files() -> Dict[str, str]:
@@ -319,7 +308,6 @@ def ensure_sample_files() -> Dict[str, str]:
         create_sample_hbjson_preset(p_hb)
     paths["honeybee_zone_hbjson"] = p_hb
 
-    # Include all verified real benchmark/training library samples
     for pid, pdef in PRESET_DEFINITIONS.items():
         if pid in paths:
             continue
@@ -331,62 +319,107 @@ def ensure_sample_files() -> Dict[str, str]:
     return paths
 
 
-def get_dynamic_model_catalog() -> Tuple[List[Dict[str, Any]], Dict[str, Tuple[str, str]]]:
+def _resolve_model_path_readonly(model_id: str) -> Tuple[str, str]:
+    """Read-only lookup of a model's `(filepath, display_filename)` without touching disk."""
+    # 1. Check reference samples first (strictly read-only check on existing files)
+    if model_id in PRESET_DEFINITIONS:
+        pdef = PRESET_DEFINITIONS[model_id]
+        subdir = pdef.get("subdir")
+        cand = os.path.join(SAMPLES_DIR, subdir, pdef["filename"]) if subdir else os.path.join(SAMPLES_DIR, pdef["filename"])
+        if os.path.isfile(cand):
+            return cand, pdef["filename"]
+
+    # 2. Check uploaded files in UPLOADS_DIR (read-only)
+    if os.path.isdir(UPLOADS_DIR):
+        for fname in os.listdir(UPLOADS_DIR):
+            ext = os.path.splitext(fname.lower())[1]
+            if ext not in ALLOWED_3D_EXTENSIONS:
+                continue
+            fpath = os.path.join(UPLOADS_DIR, fname)
+            if not os.path.isfile(fpath):
+                continue
+            if _slugify_filename(fname) == model_id:
+                if ext == ".zip":
+                    b_slug = re.sub(r"[^a-zA-Z0-9._-]+", "_", os.path.splitext(fname)[0]).strip("_") or "bundle"
+                    b_dir = os.path.join(UPLOADS_DIR, f"_bundle_{b_slug}")
+                    if os.path.isdir(b_dir):
+                        for root, _, files in os.walk(b_dir):
+                            for bf in sorted(files):
+                                if os.path.splitext(bf.lower())[1] in ALLOWED_3D_EXTENSIONS and not bf.lower().endswith(".zip"):
+                                    return os.path.join(root, bf), bf
+                return fpath, fname
+
+    raise HTTPException(status_code=404, detail=f"Model '{model_id}' tidak ditemukan.")
+
+
+def get_dynamic_model_catalog(readonly: bool = False) -> Tuple[List[Dict[str, Any]], Dict[str, Tuple[str, str]]]:
     """
-    Returns `(catalog_list, id_to_path_and_filename_map)` combining all user-uploaded
-    models in `LAST_UPLOAD_DIR` and built-in reference presets.
+    Returns `(catalog_list, id_to_path_and_filename_map)` combining uploaded models
+    and reference samples. When `readonly=True`, guarantees zero disk writes.
     """
-    sample_paths = ensure_sample_files()
+    if readonly:
+        sample_paths: Dict[str, str] = {}
+        for pid, pdef in PRESET_DEFINITIONS.items():
+            subdir = pdef.get("subdir")
+            cand = os.path.join(SAMPLES_DIR, subdir, pdef["filename"]) if subdir else os.path.join(SAMPLES_DIR, pdef["filename"])
+            if os.path.isfile(cand):
+                sample_paths[pid] = cand
+    else:
+        sample_paths = ensure_sample_files()
+
     catalog: List[Dict[str, Any]] = []
     path_map: Dict[str, Tuple[str, str]] = {}
 
-    # 1. Scan user-uploaded models in `uploads/` sorted newest-first
-    if os.path.isdir(LAST_UPLOAD_DIR):
+    if os.path.isdir(UPLOADS_DIR):
         up_files = []
-        for fname in os.listdir(LAST_UPLOAD_DIR):
+        for fname in os.listdir(UPLOADS_DIR):
             ext = os.path.splitext(fname.lower())[1]
             if ext in ALLOWED_3D_EXTENSIONS:
-                fpath = os.path.join(LAST_UPLOAD_DIR, fname)
+                fpath = os.path.join(UPLOADS_DIR, fname)
                 if os.path.isfile(fpath):
                     up_files.append((os.path.getmtime(fpath), fname, fpath, ext))
         up_files.sort(key=lambda x: x[0], reverse=True)
 
-        for idx, (_, fname, fpath, ext) in enumerate(up_files):
+        for _, fname, fpath, ext in up_files:
             model_id = _slugify_filename(fname)
             size_mb = round(os.path.getsize(fpath) / (1024.0 * 1024.0), 2)
             fmt = ext.lstrip(".").upper()
             resolved_path = fpath
             resolved_name = fname
             if ext == ".zip":
-                try:
-                    resolved_path, resolved_name, _ = unpack_zip_bundle_if_needed(fpath, LAST_UPLOAD_DIR)
-                    fmt = f"ZIP→{os.path.splitext(resolved_name)[1].lstrip('.').upper()}"
-                except Exception:
-                    continue
-            entry = {
+                if readonly:
+                    try:
+                        resolved_path, resolved_name = _resolve_model_path_readonly(model_id)
+                        fmt = f"ZIP→{os.path.splitext(resolved_name)[1].lstrip('.').upper()}"
+                    except HTTPException:
+                        continue
+                else:
+                    try:
+                        resolved_path, resolved_name, _ = unpack_zip_bundle_if_needed(fpath, UPLOADS_DIR)
+                        fmt = f"ZIP→{os.path.splitext(resolved_name)[1].lstrip('.').upper()}"
+                    except Exception:
+                        continue
+            cfg_exists = os.path.isfile(get_project_config_path(UPLOADS_DIR, model_id, create_dir=False))
+            catalog.append({
                 "id": model_id,
                 "title": f"[Unggahan] {fname} ({fmt} · {size_mb} MB)",
                 "filename": resolved_name,
                 "format": fmt,
                 "size_mb": size_mb,
                 "is_uploaded": True,
-                "has_staging_config": load_staging_config(LAST_UPLOAD_DIR, model_id) is not None,
+                "has_config": cfg_exists,
                 "description": f"Model kustom yang diunggah pengguna ({fname}).",
-            }
-            catalog.append(entry)
+            })
             if model_id not in path_map:
                 path_map[model_id] = (resolved_path, resolved_name)
-            if idx == 0:
-                # Backward-compatible alias for `last_upload`
-                path_map["last_upload"] = (resolved_path, resolved_name)
 
-    # 2. Add reference & training benchmark presets (with file size metadata)
     for pid, pdef in PRESET_DEFINITIONS.items():
         if pid in sample_paths:
             spath = sample_paths[pid]
             item = dict(pdef)
             if os.path.isfile(spath):
                 item["size_mb"] = round(os.path.getsize(spath) / (1024.0 * 1024.0), 2)
+            item["has_config"] = os.path.isfile(get_project_config_path(UPLOADS_DIR, pid, create_dir=False))
             catalog.append(item)
             path_map[pid] = (spath, pdef["filename"])
 
@@ -394,8 +427,8 @@ def get_dynamic_model_catalog() -> Tuple[List[Dict[str, Any]], Dict[str, Tuple[s
 
 
 app = FastAPI(
-    title="OTTV 3D Parametric Studio v5.0 API (Multi-Adapter BIM-Native SNI 6389:2020)",
-    version="5.0.0",
+    title="OTTV 3D Parametric Studio API v2 (SNI 6389:2020)",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -407,106 +440,18 @@ app.add_middleware(
 )
 
 
-class PresetAnalyzeRequest(BaseModel):
-    preset_id: str = Field(default="fasad_curtain_wall_baru")
-    # Stage 1: Geometry, Unit, Axis, Intake Profile & Ground Cutoff
-    source_software: str = Field(default="archicad")
-    unit_mode: str = Field(default="auto")
-    up_axis: str = Field(default="auto")
-    exterior_detection_mode: str = Field(default="auto")
-    z_ground_cutoff_m: float = Field(default=0.0, ge=0.0, le=200.0)
-    # Stage 2: 3-Tier Sub-Element Decomposer & Role Classification
-    auto_split_merged_cw: bool = Field(default=False)
-    groups_to_auto_split: List[str] = Field(default_factory=list)
-    frame_width_threshold_m: float = Field(default=0.28, ge=0.05, le=1.20)
-    spandrel_height_threshold_m: float = Field(default=1.15, ge=0.30, le=2.80)
-    group_wwr_map: Dict[str, float] = Field(default_factory=dict)
-    face_category_overrides: Dict[str, str] = Field(default_factory=dict)
-    face_z_band_overrides: List[Dict[str, Any]] = Field(default_factory=list)
-    # Stage 3: Dynamic Floor Detection
-    floor_mode: str = Field(default="auto")
-    floor_height_m: float = Field(default=3.60, ge=2.20, le=10.00)
-    custom_floor_zones: List[Dict[str, Any]] = Field(default_factory=list)
-    section_floor_min: Optional[int] = Field(default=None)
-    section_floor_max: Optional[int] = Field(default=None)
-    # Stage 4: Material Binding & Orientation Overrides
-    use_global_slider_override: bool = Field(default=False)
-    orientation_material_overrides: Dict[str, str] = Field(default_factory=dict)
-    alpha_wall: float = Field(default=0.42, ge=0.10, le=0.95)
-    u_wall: float = Field(default=0.62, ge=0.15, le=5.50)
-    td_ek: float = Field(default=15.0, ge=8.0, le=18.0)
-    u_fenestration: float = Field(default=1.10, ge=0.40, le=6.00)
-    delta_t: float = Field(default=5.0, ge=1.0, le=12.0)
-    sc_glass: float = Field(default=0.23, ge=0.08, le=1.00)
-    wwr_override: Optional[float] = Field(default=None, ge=0.05, le=0.95)
-    include_frame_conduction: bool = Field(default=True)
-    u_frame: float = Field(default=2.10, ge=0.50, le=7.00)
-    frame_area_ratio: float = Field(default=0.08, ge=0.0, le=0.35)
-    outer_skin_only: bool = Field(default=True)
-    disabled_groups: List[str] = Field(default_factory=list)
-    group_category_overrides: Dict[str, str] = Field(default_factory=dict)
-    group_material_map: Dict[str, str] = Field(default_factory=dict)
-    glazing_material_id: Optional[str] = Field(default="glz_saint_gobain_xtreme_60_28")
-    wall_material_id: Optional[str] = Field(default="wal_spandrel_rockwool_nichias_50")
-    frame_material_id: Optional[str] = Field(default="frm_ykkap_schuco_thermal_break")
-    enable_parametric_louvers: bool = Field(default=False)
-    louver_depth_m: float = Field(default=0.65, ge=0.0, le=2.50)
-    louver_spacing_m: float = Field(default=1.10, ge=0.25, le=2.50)
-    louver_tilt_deg: float = Field(default=22.0, ge=0.0, le=60.0)
-    nurbs_u_div: int = Field(default=4, ge=2, le=28)
-    nurbs_v_div: int = Field(default=2, ge=2, le=20)
-    north_angle_deg: float = Field(default=0.0, ge=0.0, le=360.0)
-    city_preset: str = Field(default="jakarta")
-    design_month: int = Field(default=9, ge=1, le=12)
-
-
-class StageInspectRequest(BaseModel):
-    model_id: str
-    source_software: str = Field(default="archicad")
-    expected_format: str = Field(default=".ifc")
-    geometry_scope: str = Field(default="facade_only")
-    element_structure: str = Field(default="separated")
-    unit_mode: str = Field(default="auto")
-    massing_type: str = Field(default="complex_nonconvex")
-    up_axis: str = Field(default="auto")
-    z_ground_cutoff_m: float = Field(default=0.0, ge=0.0, le=200.0)
-    auto_split_merged_cw: bool = Field(default=False)
-    groups_to_auto_split: List[str] = Field(default_factory=list)
-    frame_width_threshold_m: float = Field(default=0.28, ge=0.05, le=1.20)
-    spandrel_height_threshold_m: float = Field(default=1.15, ge=0.30, le=2.80)
-    group_category_overrides: Dict[str, str] = Field(default_factory=dict)
-    disabled_groups: List[str] = Field(default_factory=list)
-    group_wwr_map: Dict[str, float] = Field(default_factory=dict)
-    face_category_overrides: Dict[str, str] = Field(default_factory=dict)
-    face_z_band_overrides: List[Dict[str, Any]] = Field(default_factory=list)
-
-
-class StageCommitRequest(StageInspectRequest):
-    # Optional thermal/location settings passed from Studio on commit
-    floor_mode: str = Field(default="auto")
-    floor_height_m: float = Field(default=3.60, ge=2.20, le=10.00)
-    custom_floor_zones: List[Dict[str, Any]] = Field(default_factory=list)
-    glazing_material_id: Optional[str] = Field(default="glz_saint_gobain_xtreme_60_28")
-    wall_material_id: Optional[str] = Field(default="wal_spandrel_rockwool_nichias_50")
-    frame_material_id: Optional[str] = Field(default="frm_ykkap_schuco_thermal_break")
-    group_material_map: Dict[str, str] = Field(default_factory=dict)
-    north_angle_deg: float = Field(default=0.0, ge=0.0, le=360.0)
-    city_preset: str = Field(default="jakarta")
-    design_month: int = Field(default=9, ge=1, le=12)
-    outer_skin_only: bool = Field(default=True)
-    exterior_detection_mode: Optional[str] = Field(default=None)
-
-
 class CustomMaterialRequest(BaseModel):
     name: str
     brand: str = "Spesifikasi Kustom Proyek"
-    category: str = "glazing"  # 'glazing' | 'wall' | 'frame'
+    category: str = "glazing"  # 'glazing' | 'wall' | 'frame' | 'roof'
     technology: str = "Custom Specification"
     u_value: float = 1.80
     sc: Optional[float] = 0.32
     vlt: Optional[float] = 0.50
     alpha: Optional[float] = 0.45
-    td_ek: Optional[float] = 12.0
+    massa_kg_m2: float = 150.0
+    sumber: str = ""
+    status: str = "nilai_tipikal"
     thickness_mm: float = 24.0
     market_availability: str = "Tersedia di Indonesia"
     description: str = "Material kustom yang ditambahkan melalui Studio."
@@ -517,96 +462,28 @@ def on_startup() -> None:
     ensure_sample_files()
 
 
+# ============================================================================
+# HEALTH, CATALOGS & EXPORT TIPS
+# ============================================================================
+
 @app.get("/api/health")
 def get_health() -> Dict[str, Any]:
     return {
         "status": "ok",
-        "version": "5.0.0",
+        "api_version": 2,
         "standard": "SNI 6389:2020",
         "sni_limit_wm2": SNI_6389_LIMIT_WM2,
         "sf_table_wm2": ORIENTATION_BASE_SF,
         "orientation_names": ORIENTATION_NAMES,
         "supported_formats": list(ALLOWED_3D_EXTENSIONS) + [".epw"],
-        "software_adapters": list(SOFTWARE_PROFILES.keys()),
     }
 
 
-@app.get("/api/intake/profiles")
-def get_intake_profiles() -> Dict[str, Any]:
+@app.get("/api/export-tips")
+def list_export_tips() -> Dict[str, Any]:
     return {
-        "profiles": list(SOFTWARE_PROFILES.values()),
-        "profiles_by_id": SOFTWARE_PROFILES,
+        "sources": list(EXPORT_TIPS_BY_SOURCE.values()),
         "allowed_extensions": list(ALLOWED_3D_EXTENSIONS),
-    }
-
-
-@app.get("/api/presets")
-def list_presets() -> Dict[str, Any]:
-    catalog, _ = get_dynamic_model_catalog()
-    return {
-        "presets": catalog,
-        "sni_sf_anchors": [
-            {"azimuth_deg": a, "code": c, "name": n, "sf_wm2": sf}
-            for a, c, n, sf in SNI_SF_ANCHORS
-        ],
-    }
-
-
-@app.delete("/api/models/{model_id}")
-def delete_uploaded_model(model_id: str) -> Dict[str, Any]:
-    """Deletes a user-uploaded model, its .ottv.json staging config, and any unpacked .zip bundle."""
-    if model_id in PRESET_DEFINITIONS:
-        raise HTTPException(
-            status_code=400,
-            detail="Model sampel referensi bawaan tidak dapat dihapus. Hanya model unggahan pengguna yang dapat dihapus.",
-        )
-
-    deleted_files: List[str] = []
-    if os.path.isdir(LAST_UPLOAD_DIR):
-        for fname in list(os.listdir(LAST_UPLOAD_DIR)):
-            fpath = os.path.join(LAST_UPLOAD_DIR, fname)
-            if not os.path.isfile(fpath):
-                continue
-            if _slugify_filename(fname) == model_id:
-                os.remove(fpath)
-                deleted_files.append(fname)
-                # Also remove extracted .zip bundle directory if present
-                if fname.lower().endswith(".zip"):
-                    b_slug = re.sub(r"[^a-zA-Z0-9._-]+", "_", os.path.splitext(fname)[0]).strip("_") or "bundle"
-                    b_dir = os.path.join(LAST_UPLOAD_DIR, f"_bundle_{b_slug}")
-                    if os.path.isdir(b_dir):
-                        shutil.rmtree(b_dir, ignore_errors=True)
-                # Also remove companion .mtl if same base name
-                base_no_ext = os.path.splitext(fname)[0]
-                mtl_path = os.path.join(LAST_UPLOAD_DIR, f"{base_no_ext}.mtl")
-                if os.path.isfile(mtl_path):
-                    try:
-                        os.remove(mtl_path)
-                    except OSError:
-                        pass
-
-    if not deleted_files:
-        raise HTTPException(status_code=404, detail=f"Model unggahan '{model_id}' tidak ditemukan.")
-
-    # Remove saved .ottv.json staging config
-    cfg_path = os.path.join(LAST_UPLOAD_DIR, ".staging_configs", f"{re.sub(r'[^a-zA-Z0-9._-]+', '_', model_id).strip('_')}.ottv.json")
-    if os.path.isfile(cfg_path):
-        try:
-            os.remove(cfg_path)
-        except OSError:
-            pass
-
-    # Clear cached analysis if it belonged to the deleted model (prevents stale export/state!)
-    global LAST_ANALYSIS_CACHE
-    if LAST_ANALYSIS_CACHE is not None and LAST_ANALYSIS_CACHE.get("preset_id") == model_id:
-        LAST_ANALYSIS_CACHE = None
-
-    catalog, _ = get_dynamic_model_catalog()
-    return {
-        "status": "deleted",
-        "deleted_model_id": model_id,
-        "deleted_files": deleted_files,
-        "available_models": catalog,
     }
 
 
@@ -618,6 +495,7 @@ def list_materials() -> Dict[str, Any]:
         "glazing_materials": [m for m in mats if m["category"] == "glazing"],
         "wall_materials": [m for m in mats if m["category"] == "wall"],
         "frame_materials": [m for m in mats if m["category"] == "frame"],
+        "roof_materials": [m for m in mats if m["category"] == "roof"],
     }
 
 
@@ -629,21 +507,35 @@ def create_custom_material_endpoint(req: CustomMaterialRequest) -> Dict[str, Any
 
 @app.get("/api/locations")
 def list_locations() -> Dict[str, Any]:
+    from sni_tables import SNI_TABLE_8_SOLAR_FACTOR, TEMPLATE_PRODI_SF_TABLE
+
+    sni_cities = [
+        {"id": slug, "city": entry["city"], "sf": entry["sf"]}
+        for slug, entry in SNI_TABLE_8_SOLAR_FACTOR.items()
+    ]
+    template_prodi_cities = [
+        {"id": slug, "city": entry["label"], "sf": entry["sf"]}
+        for slug, entry in TEMPLATE_PRODI_SF_TABLE.items()
+    ]
     return {
         "cities": list(INDONESIAN_CITY_PRESETS.values()),
-        "active_custom_epw": ACTIVE_CUSTOM_EPW,
+        "sni_cities": sni_cities,
+        "template_prodi_cities": template_prodi_cities,
+        "sni_sf_anchors": [
+            {"azimuth_deg": a, "code": c, "name": n, "sf_wm2": sf}
+            for a, c, n, sf in SNI_SF_ANCHORS
+        ],
     }
 
 
-@app.post("/api/locations/upload-epw")
-async def upload_epw_file(file: UploadFile = File(...)) -> Dict[str, Any]:
-    global ACTIVE_CUSTOM_EPW
+@app.post("/api/locations/parse-epw")
+async def parse_epw_endpoint(file: UploadFile = File(...)) -> Dict[str, Any]:
+    """Stateless EPW parser: returns parsed EPW object to store inside ProjectConfig.settings.custom_epw."""
     raw_bytes = await file.read()
     text = raw_bytes.decode("utf-8", errors="ignore")
     try:
         parsed = parse_epw_content(text, file.filename or "custom.epw")
-        ACTIVE_CUSTOM_EPW = parsed
-        return {"status": "ok", "location": parsed}
+        return {"status": "ok", "custom_epw": parsed}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Gagal membaca file EPW: {exc}") from exc
 
@@ -656,206 +548,28 @@ def download_sample_epw(city_id: str) -> FileResponse:
     return FileResponse(epw_path, filename=f"IDN_{city_key}_SNI6389.epw", media_type="text/plain")
 
 
-@app.get("/api/presets/{preset_id}/download")
-def download_preset_file(preset_id: str) -> FileResponse:
-    _, path_map = get_dynamic_model_catalog()
-    if preset_id not in path_map:
-        raise HTTPException(status_code=404, detail=f"Model '{preset_id}' tidak ditemukan.")
-    filepath, filename = path_map[preset_id]
-    return FileResponse(filepath, filename=filename, media_type="application/octet-stream")
-
-
-@app.post("/api/analyze/preset")
-def analyze_preset(req: PresetAnalyzeRequest) -> Dict[str, Any]:
-    global LAST_ANALYSIS_CACHE
-    catalog, path_map = get_dynamic_model_catalog()
-    if req.preset_id not in path_map:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Model '{req.preset_id}' tidak ditemukan atau sudah dihapus. Pilih model aktif yang tersedia.",
-        )
-    target_path, target_name = path_map[req.preset_id]
-    resolved_id = req.preset_id
-
-    params = EnvelopeParameters(
-        source_software=req.source_software,
-        unit_mode=req.unit_mode,
-        up_axis=req.up_axis,
-        exterior_detection_mode=req.exterior_detection_mode,
-        z_ground_cutoff_m=req.z_ground_cutoff_m,
-        auto_split_merged_cw=req.auto_split_merged_cw,
-        groups_to_auto_split=req.groups_to_auto_split,
-        frame_width_threshold_m=req.frame_width_threshold_m,
-        spandrel_height_threshold_m=req.spandrel_height_threshold_m,
-        group_wwr_map=req.group_wwr_map,
-        face_category_overrides=req.face_category_overrides,
-        face_z_band_overrides=req.face_z_band_overrides,
-        floor_mode=req.floor_mode,
-        floor_height_m=req.floor_height_m,
-        custom_floor_zones=req.custom_floor_zones,
-        section_floor_min=req.section_floor_min,
-        section_floor_max=req.section_floor_max,
-        use_global_slider_override=req.use_global_slider_override,
-        orientation_material_overrides=req.orientation_material_overrides,
-        alpha_wall=req.alpha_wall,
-        u_wall=req.u_wall,
-        td_ek=req.td_ek,
-        u_fenestration=req.u_fenestration,
-        delta_t=req.delta_t,
-        sc_glass=req.sc_glass,
-        wwr_override=req.wwr_override,
-        include_frame_conduction=req.include_frame_conduction,
-        u_frame=req.u_frame,
-        frame_area_ratio=req.frame_area_ratio,
-        outer_skin_only=req.outer_skin_only,
-        disabled_groups=req.disabled_groups,
-        group_category_overrides=req.group_category_overrides,
-        group_material_map=req.group_material_map,
-        glazing_material_id=req.glazing_material_id,
-        wall_material_id=req.wall_material_id,
-        frame_material_id=req.frame_material_id,
-        enable_parametric_louvers=req.enable_parametric_louvers,
-        louver_depth_m=req.louver_depth_m,
-        louver_spacing_m=req.louver_spacing_m,
-        louver_tilt_deg=req.louver_tilt_deg,
-        nurbs_u_div=req.nurbs_u_div,
-        nurbs_v_div=req.nurbs_v_div,
-        north_angle_deg=req.north_angle_deg,
-        city_preset=req.city_preset,
-        design_month=req.design_month,
-        custom_epw_info=ACTIVE_CUSTOM_EPW if req.city_preset == "custom_epw" else None,
-    )
-
-    try:
-        res = analyze_building_ottv(target_path, target_name, params)
-        res["preset_id"] = resolved_id
-        res["available_models"] = catalog
-        LAST_ANALYSIS_CACHE = res
-        return res
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.post("/api/analyze/upload")
-async def analyze_uploaded_file(
-    file: UploadFile = File(...),
-    unit_mode: str = Form("auto"),
-    up_axis: str = Form("auto"),
-    exterior_detection_mode: str = Form("auto"),
-    auto_split_merged_cw: bool = Form(False),
-    frame_width_threshold_m: float = Form(0.28),
-    spandrel_height_threshold_m: float = Form(1.15),
-    floor_mode: str = Form("auto"),
-    floor_height_m: float = Form(3.60),
-    use_global_slider_override: bool = Form(False),
-    alpha_wall: float = Form(0.42),
-    u_wall: float = Form(0.62),
-    td_ek: float = Form(15.0),
-    u_fenestration: float = Form(1.10),
-    delta_t: float = Form(5.0),
-    sc_glass: float = Form(0.23),
-    wwr_override: Optional[float] = Form(None),
-    include_frame_conduction: bool = Form(True),
-    u_frame: float = Form(2.10),
-    frame_area_ratio: float = Form(0.08),
-    outer_skin_only: bool = Form(True),
-    glazing_material_id: Optional[str] = Form("glz_saint_gobain_xtreme_60_28"),
-    wall_material_id: Optional[str] = Form("wal_spandrel_rockwool_nichias_50"),
-    frame_material_id: Optional[str] = Form("frm_ykkap_schuco_thermal_break"),
-    enable_parametric_louvers: bool = Form(False),
-    louver_depth_m: float = Form(0.65),
-    louver_spacing_m: float = Form(1.10),
-    louver_tilt_deg: float = Form(22.0),
-    nurbs_u_div: int = Form(4),
-    nurbs_v_div: int = Form(2),
-    north_angle_deg: float = Form(0.0),
-    city_preset: str = Form("jakarta"),
-    design_month: int = Form(9),
-) -> Dict[str, Any]:
-    global LAST_ANALYSIS_CACHE
-    raw_name = os.path.basename(file.filename or "uploaded_model.3dm")
-    ext = os.path.splitext(raw_name.lower())[1]
-    if ext not in ALLOWED_3D_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Format file '{ext}' tidak didukung. Gunakan {', '.join(ALLOWED_3D_EXTENSIONS)}.",
-        )
-
-    saved_path = os.path.join(LAST_UPLOAD_DIR, raw_name)
-    content = await file.read()
-    with open(saved_path, "wb") as out_f:
-        out_f.write(content)
-
-    model_id = _slugify_filename(raw_name)
-    catalog, _ = get_dynamic_model_catalog()
-
-    params = EnvelopeParameters(
-        unit_mode=unit_mode,
-        up_axis=up_axis,
-        exterior_detection_mode=exterior_detection_mode,
-        auto_split_merged_cw=auto_split_merged_cw,
-        frame_width_threshold_m=frame_width_threshold_m,
-        spandrel_height_threshold_m=spandrel_height_threshold_m,
-        floor_mode=floor_mode,
-        floor_height_m=floor_height_m,
-        use_global_slider_override=use_global_slider_override,
-        alpha_wall=alpha_wall,
-        u_wall=u_wall,
-        td_ek=td_ek,
-        u_fenestration=u_fenestration,
-        delta_t=delta_t,
-        sc_glass=sc_glass,
-        wwr_override=wwr_override,
-        include_frame_conduction=include_frame_conduction,
-        u_frame=u_frame,
-        frame_area_ratio=frame_area_ratio,
-        outer_skin_only=outer_skin_only,
-        glazing_material_id=glazing_material_id,
-        wall_material_id=wall_material_id,
-        frame_material_id=frame_material_id,
-        enable_parametric_louvers=enable_parametric_louvers,
-        louver_depth_m=louver_depth_m,
-        louver_spacing_m=louver_spacing_m,
-        louver_tilt_deg=louver_tilt_deg,
-        nurbs_u_div=nurbs_u_div,
-        nurbs_v_div=nurbs_v_div,
-        north_angle_deg=north_angle_deg,
-        city_preset=city_preset,
-        design_month=design_month,
-        custom_epw_info=ACTIVE_CUSTOM_EPW if city_preset == "custom_epw" else None,
-    )
-
-    try:
-        result = analyze_building_ottv(saved_path, raw_name, params)
-        result["preset_id"] = model_id
-        result["available_models"] = catalog
-        LAST_ANALYSIS_CACHE = result
-        return result
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
 # ============================================================================
-# v5.0 PROFILE-DRIVEN MULTI-ADAPTER STAGING & COMMIT ENDPOINTS (VIEW 1 -> VIEW 2)
+# UNIFIED MODELS & CONFIG ENDPOINTS
 # ============================================================================
 
-@app.post("/api/stage/upload")
-async def stage_upload_file(
-    file: UploadFile = File(...),
-    source_software: str = Form("archicad"),
-    expected_format: str = Form(".ifc"),
-    geometry_scope: str = Form("facade_only"),
-    element_structure: str = Form("separated"),
-    unit_mode: str = Form("auto"),
-    massing_type: str = Form("complex_nonconvex"),
-    up_axis: str = Form("auto"),
-    z_ground_cutoff_m: float = Form(0.0),
-) -> Dict[str, Any]:
+@app.get("/api/models")
+def list_models() -> Dict[str, Any]:
+    catalog, _ = get_dynamic_model_catalog(readonly=True)
+    return {
+        "models": catalog,
+        "sni_sf_anchors": [
+            {"azimuth_deg": a, "code": c, "name": n, "sf_wm2": sf}
+            for a, c, n, sf in SNI_SF_ANCHORS
+        ],
+    }
+
+
+@app.post("/api/models")
+async def upload_model(file: UploadFile = File(...)) -> Dict[str, Any]:
     """
-    Phase A (Fast < 3s): Saves uploaded file (auto-unpacks .zip .obj+.mtl bundles),
-    routes through the user's chosen Software Specialist Adapter, runs fast geometric
-    audit + Mismatch Detection + 3D Staging Preview (ZERO solar raycasting), and
-    auto-saves `.ottv.json` staging config.
+    Uploads a 3D model file, auto-detects its format/software via `detect_file_signature`,
+    runs fast Stage 1 detection (unit, axis, bbox, missing_mesh), and returns `model_id`
+    + detection summary + export tips. Does NOT require `source_software`.
     """
     raw_name = os.path.basename(file.filename or "uploaded_model.ifc")
     ext = os.path.splitext(raw_name.lower())[1]
@@ -865,266 +579,279 @@ async def stage_upload_file(
             detail=f"Format file '{ext}' tidak didukung. Gunakan {', '.join(ALLOWED_3D_EXTENSIONS)}.",
         )
 
-    saved_path = os.path.join(LAST_UPLOAD_DIR, raw_name)
+    saved_path = os.path.join(UPLOADS_DIR, raw_name)
     content = await file.read()
     with open(saved_path, "wb") as out_f:
         out_f.write(content)
 
     try:
-        resolved_path, resolved_name, unpack_notes = unpack_zip_bundle_if_needed(saved_path, LAST_UPLOAD_DIR)
+        resolved_path, resolved_name, unpack_notes = unpack_zip_bundle_if_needed(saved_path, UPLOADS_DIR)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     model_id = _slugify_filename(raw_name)
-    catalog, _ = get_dynamic_model_catalog()
-
-    profile = ModelIntakeProfile(
-        source_software=source_software,
-        expected_format=expected_format or ext,
-        geometry_scope=geometry_scope,
-        element_structure=element_structure,
-        unit_mode=unit_mode,
-        massing_type=massing_type,
-        up_axis=up_axis,
-        z_ground_cutoff_m=float(z_ground_cutoff_m or 0.0),
-    )
+    sig = detect_file_signature(resolved_path)
+    tips_info = get_export_tips(sig.get("detected_software"), sig.get("actual_ext"))
 
     try:
-        staged = build_staging_inspection_payload(
-            filepath=resolved_path,
-            display_filename=resolved_name,
-            model_id=model_id,
-            profile=profile,
-            auto_split_merged_cw=(element_structure == "merged_single_layer"),
-        )
-        if unpack_notes:
-            staged["adapter_notes"] = unpack_notes + staged.get("adapter_notes", [])
-        staged["available_models"] = catalog
-        staged["face_z_band_overrides"] = []
+        raw_groups, audit = load_universal_model_stages_1_and_2(filepath=resolved_path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Gagal membaca model 3D: {exc}") from exc
 
-        # Auto-save initial .ottv.json staging config
-        save_staging_config(LAST_UPLOAD_DIR, model_id, {
+    saved_cfg = load_project_config(UPLOADS_DIR, model_id)
+    default_cfg = saved_cfg if saved_cfg is not None else ProjectConfig()
+    default_cfg.model.file = resolved_name
+
+    catalog, _ = get_dynamic_model_catalog(readonly=True)
+    return {
+        "model_id": model_id,
+        "filename": resolved_name,
+        "file_signature": sig,
+        "export_tips": tips_info,
+        "unpack_notes": unpack_notes,
+        "detection": {
+            "geometry_kernel": audit.geometry_kernel,
+            "detected_unit": audit.detected_unit,
+            "applied_unit": audit.applied_unit,
+            "unit_source": audit.unit_source,
+            "unit_needs_confirmation": audit.unit_needs_confirmation,
+            "detected_up_axis": audit.detected_up_axis,
+            "applied_up_axis": audit.applied_up_axis,
+            "normalized_span_m": audit.normalized_span_m,
+            "z_ground_offset_m": audit.z_ground_offset_m,
+            "group_count": len(raw_groups),
+            "unknown_groups": [rg.group_name for rg in raw_groups if rg.default_category == "unknown"],
+            "missing_mesh": audit.missing_mesh,
+            "filtered_items": audit.filtered_items,
+            "bim_storeys_count": len(audit.bim_storeys),
+            "notes": audit.notes,
+        },
+        "config": default_cfg.model_dump(mode="json"),
+        "available_models": catalog,
+    }
+
+
+@app.get("/api/models/{model_id}/download")
+def download_model_file(model_id: str) -> FileResponse:
+    filepath, filename = _resolve_model_path_readonly(model_id)
+    return FileResponse(filepath, filename=filename, media_type="application/octet-stream")
+
+
+@app.get("/api/models/{model_id}/config")
+def get_model_config(model_id: str) -> Dict[str, Any]:
+    """Read-only retrieval of saved ProjectConfig v2 (migrates legacy v1 in memory if present)."""
+    _, filename = _resolve_model_path_readonly(model_id)
+    saved = load_project_config(UPLOADS_DIR, model_id)
+    if saved is None:
+        default_cfg = ProjectConfig()
+        default_cfg.model.file = filename
+        return {
             "model_id": model_id,
-            "filename": resolved_name,
-            "profile": profile.to_dict(),
-            "auto_split_merged_cw": (element_structure == "merged_single_layer"),
-            "groups_to_auto_split": [],
-            "frame_width_threshold_m": 0.28,
-            "spandrel_height_threshold_m": 1.15,
-            "group_category_overrides": {},
-            "disabled_groups": [],
-            "group_wwr_map": {},
-            "face_category_overrides": {},
-            "face_z_band_overrides": [],
-        })
-        return staged
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Gagal staging inspeksi model: {exc}") from exc
+            "saved": False,
+            "config": default_cfg.model_dump(mode="json"),
+        }
+    return {
+        "model_id": model_id,
+        "saved": True,
+        "config": saved.model_dump(mode="json"),
+    }
 
 
-@app.post("/api/stage/inspect")
-def stage_inspect_existing(req: StageInspectRequest) -> Dict[str, Any]:
-    """
-    Fast Phase-A re-inspection for an already uploaded or preset model whenever the
-    user switches Software Adapter, changes Unit/Up-Axis/Z0, toggles Auto-Split Tier 2,
-    or updates group/face roles in View 1.
-    """
-    catalog, path_map = get_dynamic_model_catalog()
-    if req.model_id not in path_map:
-        raise HTTPException(status_code=404, detail=f"Model '{req.model_id}' tidak ditemukan.")
-    target_path, target_name = path_map[req.model_id]
-
-    profile = ModelIntakeProfile(
-        source_software=req.source_software,
-        expected_format=req.expected_format,
-        geometry_scope=req.geometry_scope,
-        element_structure=req.element_structure,
-        unit_mode=req.unit_mode,
-        massing_type=req.massing_type,
-        up_axis=req.up_axis,
-        z_ground_cutoff_m=req.z_ground_cutoff_m,
-    )
-
-    try:
-        staged = build_staging_inspection_payload(
-            filepath=target_path,
-            display_filename=target_name,
-            model_id=req.model_id,
-            profile=profile,
-            group_category_overrides=req.group_category_overrides,
-            disabled_groups=req.disabled_groups,
-            group_wwr_map=req.group_wwr_map,
-            face_category_overrides=req.face_category_overrides,
-            auto_split_merged_cw=req.auto_split_merged_cw,
-            groups_to_auto_split=req.groups_to_auto_split,
-            frame_width_threshold_m=req.frame_width_threshold_m,
-            spandrel_height_threshold_m=req.spandrel_height_threshold_m,
-        )
-        staged["available_models"] = catalog
-        staged["face_z_band_overrides"] = req.face_z_band_overrides
-
-        save_staging_config(LAST_UPLOAD_DIR, req.model_id, {
-            "model_id": req.model_id,
-            "filename": target_name,
-            "profile": profile.to_dict(),
-            "auto_split_merged_cw": req.auto_split_merged_cw,
-            "groups_to_auto_split": req.groups_to_auto_split,
-            "frame_width_threshold_m": req.frame_width_threshold_m,
-            "spandrel_height_threshold_m": req.spandrel_height_threshold_m,
-            "group_category_overrides": req.group_category_overrides,
-            "disabled_groups": req.disabled_groups,
-            "group_wwr_map": req.group_wwr_map,
-            "face_category_overrides": req.face_category_overrides,
-            "face_z_band_overrides": req.face_z_band_overrides,
-        })
-        return staged
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Gagal inspeksi ulang model: {exc}") from exc
+@app.put("/api/models/{model_id}/config")
+def put_model_config(model_id: str, config: ProjectConfig) -> Dict[str, Any]:
+    """Explicitly persists ProjectConfig (version=2) to `.ottv.json` on disk."""
+    _, filename = _resolve_model_path_readonly(model_id)
+    cfg = config.model_copy(deep=True)
+    cfg.version = 2
+    if not cfg.model.file:
+        cfg.model.file = filename
+    saved_path = save_project_config(UPLOADS_DIR, model_id, cfg)
+    return {
+        "status": "saved",
+        "model_id": model_id,
+        "config_path": os.path.basename(saved_path),
+        "config": cfg.model_dump(mode="json"),
+    }
 
 
-@app.get("/api/stage/config/{model_id}")
-def get_saved_staging_config(model_id: str) -> Dict[str, Any]:
-    cfg = load_staging_config(LAST_UPLOAD_DIR, model_id)
-    if cfg is None:
-        return {"found": False, "model_id": model_id, "config": None}
-    return {"found": True, "model_id": model_id, "config": cfg}
-
-
-@app.post("/api/stage/config/{model_id}")
-def save_custom_staging_config(model_id: str, config: Dict[str, Any]) -> Dict[str, Any]:
-    config["model_id"] = model_id
-    save_staging_config(LAST_UPLOAD_DIR, model_id, config)
-    return {"status": "ok", "model_id": model_id, "config": config}
-
-
-@app.post("/api/analyze/commit")
-def commit_staged_model_to_ottv(req: StageCommitRequest) -> Dict[str, Any]:
-    """
-    Phase B: Commits a verified Staging Inspection configuration (View 1 -> View 2),
-    saves its `.ottv.json` mapping, runs full SNI 6389:2020 OTTV + 3-Layer Exterior Skin
-    + Full-Building & Neighbor Shading Solar Raycasting, and returns the complete result.
-    """
-    global LAST_ANALYSIS_CACHE
-    catalog, path_map = get_dynamic_model_catalog()
-    if req.model_id not in path_map:
-        raise HTTPException(status_code=404, detail=f"Model '{req.model_id}' tidak ditemukan.")
-    target_path, target_name = path_map[req.model_id]
-
-    profile = ModelIntakeProfile(
-        source_software=req.source_software,
-        expected_format=req.expected_format,
-        geometry_scope=req.geometry_scope,
-        element_structure=req.element_structure,
-        unit_mode=req.unit_mode,
-        massing_type=req.massing_type,
-        up_axis=req.up_axis,
-        z_ground_cutoff_m=req.z_ground_cutoff_m,
-    )
-    adapter = get_adapter_for_software(profile.source_software)
-    actual_ext = os.path.splitext(target_path.lower())[1]
-    eff_cfg = adapter.resolve_effective_settings(profile, actual_ext)
-
-    # Save verified config for future reuse
-    save_staging_config(LAST_UPLOAD_DIR, req.model_id, {
-        "model_id": req.model_id,
-        "filename": target_name,
-        "profile": profile.to_dict(),
-        "auto_split_merged_cw": req.auto_split_merged_cw or eff_cfg["auto_split_merged_cw"],
-        "groups_to_auto_split": req.groups_to_auto_split,
-        "frame_width_threshold_m": req.frame_width_threshold_m,
-        "spandrel_height_threshold_m": req.spandrel_height_threshold_m,
-        "group_category_overrides": req.group_category_overrides,
-        "disabled_groups": req.disabled_groups,
-        "group_wwr_map": req.group_wwr_map,
-        "face_category_overrides": req.face_category_overrides,
-        "face_z_band_overrides": req.face_z_band_overrides,
-    })
-
-    ext_det_mode = req.exterior_detection_mode or eff_cfg["exterior_detection_mode"]
-
-    params = EnvelopeParameters(
-        source_software=req.source_software,
-        unit_mode=eff_cfg["unit_mode"],
-        up_axis=eff_cfg["up_axis"],
-        exterior_detection_mode=ext_det_mode,
-        z_ground_cutoff_m=req.z_ground_cutoff_m,
-        auto_split_merged_cw=(req.auto_split_merged_cw or eff_cfg["auto_split_merged_cw"]),
-        groups_to_auto_split=req.groups_to_auto_split,
-        frame_width_threshold_m=req.frame_width_threshold_m,
-        spandrel_height_threshold_m=req.spandrel_height_threshold_m,
-        group_wwr_map=req.group_wwr_map,
-        group_category_overrides=req.group_category_overrides,
-        disabled_groups=req.disabled_groups,
-        face_category_overrides=req.face_category_overrides,
-        face_z_band_overrides=req.face_z_band_overrides,
-        floor_mode=req.floor_mode,
-        floor_height_m=req.floor_height_m,
-        custom_floor_zones=req.custom_floor_zones,
-        glazing_material_id=req.glazing_material_id,
-        wall_material_id=req.wall_material_id,
-        frame_material_id=req.frame_material_id,
-        group_material_map=req.group_material_map,
-        north_angle_deg=req.north_angle_deg,
-        city_preset=req.city_preset,
-        design_month=req.design_month,
-        outer_skin_only=req.outer_skin_only,
-        custom_epw_info=ACTIVE_CUSTOM_EPW if req.city_preset == "custom_epw" else None,
-    )
-
-    try:
-        result = analyze_building_ottv(target_path, target_name, params)
-        result["preset_id"] = req.model_id
-        result["available_models"] = catalog
-        result["intake_profile"] = profile.to_dict()
-        LAST_ANALYSIS_CACHE = result
-        return result
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Gagal menghitung OTTV setelah inspeksi: {exc}") from exc
-
-
-def _get_or_compute_analysis() -> Dict[str, Any]:
-    global LAST_ANALYSIS_CACHE
-    if LAST_ANALYSIS_CACHE is None:
+@app.delete("/api/models/{model_id}")
+def delete_uploaded_model(model_id: str) -> Dict[str, Any]:
+    """Deletes a user-uploaded model, its .ottv.json config, and any unpacked .zip bundle."""
+    if model_id in PRESET_DEFINITIONS:
         raise HTTPException(
             status_code=400,
-            detail="Tidak ada model aktif saat ini. Pilih model dari katalog atau impor model terlebih dahulu sebelum mengunduh laporan.",
+            detail="Model sampel referensi bawaan tidak dapat dihapus. Hanya model unggahan pengguna yang dapat dihapus.",
         )
-    return LAST_ANALYSIS_CACHE
+
+    deleted_files: List[str] = []
+    if os.path.isdir(UPLOADS_DIR):
+        for fname in list(os.listdir(UPLOADS_DIR)):
+            fpath = os.path.join(UPLOADS_DIR, fname)
+            if not os.path.isfile(fpath):
+                continue
+            if _slugify_filename(fname) == model_id:
+                os.remove(fpath)
+                deleted_files.append(fname)
+                if fname.lower().endswith(".zip"):
+                    b_slug = re.sub(r"[^a-zA-Z0-9._-]+", "_", os.path.splitext(fname)[0]).strip("_") or "bundle"
+                    b_dir = os.path.join(UPLOADS_DIR, f"_bundle_{b_slug}")
+                    if os.path.isdir(b_dir):
+                        shutil.rmtree(b_dir, ignore_errors=True)
+                base_no_ext = os.path.splitext(fname)[0]
+                mtl_path = os.path.join(UPLOADS_DIR, f"{base_no_ext}.mtl")
+                if os.path.isfile(mtl_path):
+                    try:
+                        os.remove(mtl_path)
+                    except OSError:
+                        pass
+
+    if not deleted_files:
+        raise HTTPException(status_code=404, detail=f"Model unggahan '{model_id}' tidak ditemukan.")
+
+    cfg_path = get_project_config_path(UPLOADS_DIR, model_id, create_dir=False)
+    if os.path.isfile(cfg_path):
+        try:
+            os.remove(cfg_path)
+        except OSError:
+            pass
+
+    # Purge any in-memory analyses belonging to this deleted model
+    for aid in [k for k, v in ANALYSIS_STORE.items() if v.get("model_id") == model_id]:
+        ANALYSIS_STORE.pop(aid, None)
+
+    catalog, _ = get_dynamic_model_catalog(readonly=True)
+    return {
+        "status": "deleted",
+        "deleted_model_id": model_id,
+        "deleted_files": deleted_files,
+        "available_models": catalog,
+    }
 
 
-@app.api_route("/api/export/excel", methods=["GET", "POST"])
-def export_excel_endpoint() -> Response:
-    data = _get_or_compute_analysis()
-    xlsx_bytes = generate_excel_report(data)
+@app.post("/api/models/{model_id}/inspect")
+def inspect_model(
+    model_id: str,
+    req: Optional[InspectRequest] = Body(default=None),
+) -> Dict[str, Any]:
+    """
+    Strictly READ-ONLY fast 3D inspection (ZERO solar raycasting, ZERO disk writes).
+    Accepts `model` + `roles` (+ optional `advanced`), or falls back to saved config / defaults.
+    """
+    target_path, target_name = _resolve_model_path_readonly(model_id)
+    eff_req: InspectRequest
+    if req is not None:
+        eff_req = req
+    else:
+        saved = load_project_config(UPLOADS_DIR, model_id)
+        eff_req = InspectRequest(
+            model=saved.model,
+            roles=saved.roles,
+            advanced=saved.advanced,
+        ) if saved is not None else InspectRequest()
+
+    try:
+        return build_staging_inspection_payload(
+            filepath=target_path,
+            display_filename=target_name,
+            model_id=model_id,
+            config=eff_req,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Gagal inspeksi model: {exc}") from exc
+
+
+@app.post("/api/models/{model_id}/analyze")
+def analyze_model(
+    model_id: str,
+    config: Optional[ProjectConfig] = Body(default=None),
+) -> Dict[str, Any]:
+    """
+    Runs full OTTV analysis using unified `ProjectConfig`, stores the result under
+    a unique `analysis_id`, and returns `{analysis_id, model_id, config, ...}`.
+    Does NOT mutate saved `.ottv.json` on disk (explicit save is `PUT /api/models/{id}/config`).
+    """
+    target_path, target_name = _resolve_model_path_readonly(model_id)
+
+    if config is not None:
+        eff_cfg = config.model_copy(deep=True)
+    else:
+        saved = load_project_config(UPLOADS_DIR, model_id)
+        eff_cfg = saved if saved is not None else ProjectConfig()
+
+    if not eff_cfg.model.file:
+        eff_cfg.model.file = target_name
+
+    params = eff_cfg.to_envelope_parameters()
+    try:
+        result = analyze_building_ottv(target_path, target_name, params)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    analysis_id = uuid.uuid4().hex
+    payload = dict(result)
+    payload["analysis_id"] = analysis_id
+    payload["model_id"] = model_id
+    payload["config"] = eff_cfg.model_dump(mode="json")
+
+    _store_analysis_record(analysis_id, payload)
+    return payload
+
+
+@app.get("/api/analyses/{analysis_id}/export/{fmt}")
+def export_analysis_report(analysis_id: str, fmt: str) -> Response:
+    """Exports an analysis report (`xlsx` | `csv` | `pdf`) strictly by `analysis_id`."""
+    data = ANALYSIS_STORE.get(analysis_id)
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Analisis '{analysis_id}' tidak ditemukan atau sudah kedaluwarsa.",
+        )
+
+    fmt_lo = fmt.strip().lower()
     base = os.path.splitext(data.get("filename", "OTTV_Report"))[0]
-    return Response(
-        content=xlsx_bytes,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="Laporan_OTTV_PUPR_{base}_SNI6389.xlsx"'},
-    )
+    short_id = analysis_id[:8]
 
+    if fmt_lo == "xlsx":
+        xlsx_bytes = generate_excel_report(data)
+        return Response(
+            content=xlsx_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="Laporan_OTTV_{base}_{short_id}_SNI6389.xlsx"'},
+        )
+    if fmt_lo == "csv":
+        csv_bytes = generate_csv_report(data)
+        return Response(
+            content=csv_bytes,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="Laporan_OTTV_{base}_{short_id}_SNI6389.csv"'},
+        )
+    if fmt_lo == "template_prodi":
+        from report_template_map import export_template_prodi_xlsx
 
-@app.api_route("/api/export/csv", methods=["GET", "POST"])
-def export_csv_endpoint() -> Response:
-    data = _get_or_compute_analysis()
-    csv_bytes = generate_csv_report(data)
-    base = os.path.splitext(data.get("filename", "OTTV_Report"))[0]
-    return Response(
-        content=csv_bytes,
-        media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="Laporan_OTTV_{base}_SNI6389.csv"'},
-    )
-
-
-@app.api_route("/api/export/pdf", methods=["GET", "POST"])
-def export_pdf_endpoint() -> Response:
-    data = _get_or_compute_analysis()
-    pdf_bytes = generate_pdf_report(data)
-    base = os.path.splitext(data.get("filename", "OTTV_Report"))[0]
-    return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="Laporan_OTTV_{base}_SNI6389.pdf"'},
+        try:
+            tpl_bytes, tpl_warnings, _ = export_template_prodi_xlsx(data)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        headers = {
+            "Content-Disposition": f'attachment; filename="Template_Prodi_OTTV_{base}_{short_id}.xlsx"',
+        }
+        if tpl_warnings:
+            headers["X-Template-Warnings"] = " | ".join(tpl_warnings)[:1000]
+        return Response(
+            content=tpl_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=headers,
+        )
+    if fmt_lo == "pdf":
+        pdf_bytes = generate_pdf_report(data)
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="Laporan_OTTV_{base}_{short_id}_SNI6389.pdf"'},
+        )
+    raise HTTPException(
+        status_code=400,
+        detail=f"Format ekspor '{fmt}' tidak didukung. Gunakan 'xlsx', 'template_prodi', 'csv', atau 'pdf'.",
     )
 
 

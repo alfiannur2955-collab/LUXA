@@ -15,8 +15,14 @@ frontend/dist/
 # User runtime uploads & staging configs
 backend/uploads/
 
+# Dokumen standar PDF berhak cipta (tidak boleh ikut commit/publish)
+docs/*.pdf
+
 # OS & editor clutter
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+
+# Korpus uji model (lisensi pihak ketiga / model mahasiswa) — jangan di-commit
+corpus/

@@ -83,6 +83,11 @@ def test_wall_followed_by_dalam_or_interior_is_ignore():
     assert classify_layer_or_material_role("Wall Interior") == "ignore"
     assert classify_layer_or_material_role("Wall_Dalam_L2") == "ignore"
     assert classify_layer_or_material_role("Dinding Interior") == "ignore"
+    # Interior glass partitions ('kaca dalam' / 'partisi kaca') -> ignore
+    assert classify_layer_or_material_role("kaca dalam") == "ignore"
+    assert classify_layer_or_material_role("Kaca_Dalam_L2") == "ignore"
+    assert classify_layer_or_material_role("partisi kaca") == "ignore"
+    assert classify_layer_or_material_role("Partisi_Kaca_Kantor") == "ignore"
     # 'Dinding_Lantai2' still stays wall
     assert classify_layer_or_material_role("Dinding_Lantai2") == "wall"
 
