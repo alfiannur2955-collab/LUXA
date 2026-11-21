@@ -7,6 +7,7 @@
 
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
+import { makeTermTip } from '../ui/tooltips.js';
 import { renderInteractiveCompass } from '../viewer/compass.js';
 import { renderFormulaPill } from '../viewer/formulaPill.js';
 import {
@@ -197,16 +198,23 @@ export function renderResultsScreen(state, handlers) {
   heroHead.style.alignItems = 'baseline';
   heroHead.style.gap = '6px';
 
+  const tooltipsOn = (state.workspace?.preset || 'belajar') === 'belajar';
+
   const heroTitle = document.createElement('h2');
   heroTitle.id = 'ot-title';
   heroTitle.className = 'lbl';
   heroTitle.style.fontSize = '13px';
-  heroTitle.textContent = 'OTTV total';
+  heroTitle.append(makeTermTip('OTTV', 'OTTV', tooltipsOn), document.createTextNode(' total'));
 
   const heroMeta = document.createElement('span');
   heroMeta.className = 'lbl num';
   heroMeta.style.fontWeight = '500';
-  heroMeta.textContent = `WWR ${fmtId(wwrPct, 1)}% · SC ${fmtId(avgSc, 3)}`;
+  heroMeta.append(
+    makeTermTip('WWR', 'WWR', tooltipsOn),
+    document.createTextNode(` ${fmtId(wwrPct, 1)}% · `),
+    makeTermTip('SC', 'SC', tooltipsOn),
+    document.createTextNode(` ${fmtId(avgSc, 3)}`),
+  );
 
   heroHead.append(heroTitle, heroMeta);
 
@@ -400,11 +408,15 @@ export function renderResultsScreen(state, handlers) {
       const l = document.createElement('div');
       l.className = 'lbl';
       if (labelTxt === 'Uf') {
-        l.innerHTML = 'U<sub>f</sub>';
+        l.appendChild(makeTermTip('Uf', 'U<sub>f</sub>', tooltipsOn));
       } else if (labelTxt === 'Uw') {
-        l.innerHTML = 'U<sub>w</sub>';
+        l.appendChild(makeTermTip('Uw', 'U<sub>w</sub>', tooltipsOn));
       } else if (labelTxt === 'TDek') {
-        l.innerHTML = 'TD<sub>ek</sub>';
+        l.appendChild(makeTermTip('TDek', 'TD<sub>ek</sub>', tooltipsOn));
+      } else if (labelTxt === 'α') {
+        l.appendChild(makeTermTip('alpha', 'α', tooltipsOn));
+      } else if (labelTxt === 'SF' || labelTxt === 'SC') {
+        l.appendChild(makeTermTip(labelTxt, labelTxt, tooltipsOn));
       } else {
         l.textContent = labelTxt;
       }
@@ -571,7 +583,7 @@ export function renderResultsScreen(state, handlers) {
   const rtTitle = document.createElement('h2');
   rtTitle.id = 'rt-title';
   rtTitle.style.fontSize = '14px';
-  rtTitle.textContent = 'Komposisi panas & RTTV';
+  rtTitle.append(document.createTextNode('Komposisi panas & '), makeTermTip('RTTV', 'RTTV', tooltipsOn));
 
   const compGrid = document.createElement('div');
   compGrid.className = 'num';

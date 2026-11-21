@@ -767,6 +767,39 @@ const panelBuilders = createRailPanelBuilders({
     setState({ needsRecompute: Boolean(getState().analysisData) });
     saveProjectAutosave(getState());
   },
+  onChangeOrientationMaterial: (code, materialId) => {
+    updateConfig((cfg) => {
+      if (!materialId) {
+        delete cfg.settings.orientation_material_overrides[code];
+      } else {
+        cfg.settings.orientation_material_overrides[code] = materialId;
+      }
+    });
+    setState({ needsRecompute: Boolean(getState().analysisData) });
+    saveProjectAutosave(getState());
+  },
+  onUploadEpw: async (file) => {
+    try {
+      const parsed = await engine.parseEpw(file);
+      updateConfig((cfg) => {
+        cfg.settings.custom_epw = parsed?.epw_info || parsed;
+      });
+      setState({ needsRecompute: Boolean(getState().analysisData) });
+      saveProjectAutosave(getState());
+      showToast(`File cuaca EPW dimuat (${parsed?.epw_info?.city || file.name}).`, 'ok', 2800);
+    } catch (err) {
+      showToast(err.message || 'Gagal membaca file cuaca EPW.', 'fail');
+    }
+  },
+  onClearCustomEpw: () => {
+    updateConfig((cfg) => {
+      cfg.settings.custom_epw = null;
+    });
+    setState({ needsRecompute: Boolean(getState().analysisData) });
+    saveProjectAutosave(getState());
+    showToast('File cuaca EPW kustom dihapus; kembali ke tabel kota SNI.', 'ok', 2400);
+  },
+  onOpenShortcuts: () => setState({ shortcutsModalOpen: true, activeRailCard: null }),
   onChangeSfSource: (sfSource) => {
     updateConfig((cfg) => {
       cfg.settings.sf_source = sfSource;

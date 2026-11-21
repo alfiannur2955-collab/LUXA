@@ -1531,6 +1531,69 @@ kbd {
 }
 
 /* ============================================================================
+ * Fase 4c: SNI Term Tooltips (`ui/tooltips.js`)
+ * ============================================================================ */
+
+.term-tip-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.term-tip-btn {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--line-strong);
+}
+
+.term-tip-btn:hover,
+.term-tip-btn:focus-visible {
+  color: var(--ink);
+  text-decoration-color: var(--sun);
+}
+
+.term-tip-pop {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  z-index: 45;
+  width: 240px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 16px;
+  color: var(--ink-muted);
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+}
+
+.term-tip-wrap:hover .term-tip-pop,
+.term-tip-wrap:focus-within .term-tip-pop,
+.term-tip-wrap.is-open .term-tip-pop {
+  display: block;
+}
+
+.term-tip-ref {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  color: var(--ink);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+/* ============================================================================
  * Fase 4b-1: Bottom Pills (.vbar), Popovers, Axis Gizmo, Pie Menu, Modals
  * ============================================================================ */
 
