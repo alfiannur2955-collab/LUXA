@@ -8,6 +8,7 @@
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
 import { renderInteractiveCompass } from '../viewer/compass.js';
+import { renderFormulaPill } from '../viewer/formulaPill.js';
 import {
   ORIENTATION_CODES,
   orientationToCssColor,
@@ -58,6 +59,12 @@ export function renderResultsScreen(state, handlers) {
       onRecompute: handlers.onRecompute,
     }),
   );
+
+  // Draggable & expandable Formula Pill (top-right, left of compass: top 16px, right 76px, height 52px)
+  const formulaPill = renderFormulaPill(state, {
+    onToggleExpand: handlers.onToggleFormulaPill,
+  });
+  if (formulaPill) viewerSec.appendChild(formulaPill);
 
   // Legend (lifted cleanly above bottom pills; shifts right if Tampilan card is open)
   const legend = document.createElement('div');

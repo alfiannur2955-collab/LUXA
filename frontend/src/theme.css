@@ -1135,6 +1135,103 @@ kbd {
   font-size: 12.5px;
 }
 
+/* Draggable & expandable Formula Pill (top: 16px, right: 76px, height: 52px) */
+.formula-pill-wrap {
+  position: absolute;
+  top: 16px;
+  right: 76px;
+  z-index: 13;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.formula-pill-bar {
+  height: 52px;
+  border-radius: 16px;
+  padding: 0 5px 0 2px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.formula-pill-grip {
+  border: 0;
+  background: transparent;
+  min-width: 28px;
+  height: 40px;
+  padding: 0;
+  cursor: grab;
+  touch-action: none;
+}
+
+.formula-pill-grip.is-dragging {
+  cursor: grabbing;
+}
+
+.formula-pill-sym {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.formula-pill-sym sub {
+  font-size: 10px;
+  line-height: 0;
+}
+
+.formula-pill-val {
+  font-weight: 700;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.formula-pill-toggle {
+  height: 40px;
+  padding: 0 11px;
+}
+
+.formula-pill-sheet {
+  width: min(350px, calc(100vw - 48px));
+  padding: 12px 14px;
+  border-radius: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.formula-eq-line {
+  font-size: 14px;
+  line-height: 20px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: var(--glass-thin);
+  border: 1px solid var(--glass-edge);
+}
+
+.formula-rows {
+  display: grid;
+  gap: 6px;
+}
+
+.formula-term-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.formula-sum-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13.5px;
+  padding-top: 2px;
+}
+
 /* ============================================================================
  * Fase 4b-1: Bottom Pills (.vbar), Popovers, Axis Gizmo, Pie Menu, Modals
  * ============================================================================ */

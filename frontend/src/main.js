@@ -843,6 +843,7 @@ function renderApp(state) {
         vbarHandlers,
         onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
         onChangeNorth: handleChangeNorthAngle,
+        onToggleFormulaPill: (open) => setState({ formulaPillExpanded: Boolean(open) }),
         onChangeHeatmapGranularity: (gran) => setState({ heatmapGranularity: gran }),
         onPickPanel: (panel, additive) => {
           if (!panel) {
