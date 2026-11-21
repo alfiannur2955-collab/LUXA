@@ -2126,40 +2126,51 @@ def load_universal_model_stages_1_and_2(
     else:
         raise ValueError(f"Format file '{ext}' tidak didukung.")
 
-    # Merge chunks per group — ZERO-DESTRUCTIVE for all surface groups (0% area loss!)
+    # M8: Merge chunks per group — if a group contains mixed categories, split into per-category sub-groups!
     raw_groups: List[RawGroupMesh] = []
-    for g_idx, (g_name, chunks) in enumerate(groups_map.items()):
-        v_list = []
-        f_list = []
-        v_offset = 0
-        cat = chunks[0][2]
-        src_layer = chunks[0][3]
-        src_mat = chunks[0][4]
-        is_ext_g = chunks[0][5]
-        u_bim_g = chunks[0][6]
-        for v_arr, f_arr, _, _, _, _, _ in chunks:
-            v_list.append(v_arr)
-            f_list.append(f_arr + v_offset)
-            v_offset += len(v_arr)
-        v_merged = np.vstack(v_list)
-        f_merged = np.vstack(f_list)
-
-        # M5: NEVER stride-delete polygons from RawGroupMesh (preserves 100% geometry for
-        # area & visual display; any raycast simplification happens only on raycast buffers).
-
-        raw_groups.append(
-            RawGroupMesh(
-                group_id=f"R-{g_idx + 1}",
-                group_name=g_name,
-                source_layer=src_layer,
-                source_material=src_mat,
-                default_category=cat,
-                vertices=v_merged,
-                faces=f_merged,
-                is_external_bim=is_ext_g,
-                thermal_u_bim=u_bim_g,
+    g_counter = 0
+    for g_name, chunks in groups_map.items():
+        by_cat: Dict[str, List[Tuple[np.ndarray, np.ndarray, str, str, str, Optional[bool], Optional[float]]]] = {}
+        for ch in chunks:
+            by_cat.setdefault(ch[2], []).append(ch)
+        is_mixed = len(by_cat) > 1
+        if is_mixed:
+            audit.notes.append(
+                f"M8: Grup '{g_name}' memiliki kategori campur ({', '.join(sorted(by_cat.keys()))}) -> dipecah per kategori."
             )
-        )
+        for sub_cat, sub_chunks in by_cat.items():
+            g_counter += 1
+            eff_g_name = f"{g_name} :: {sub_cat}" if is_mixed else g_name
+            v_list = []
+            f_list = []
+            v_offset = 0
+            src_layer = sub_chunks[0][3]
+            src_mat = sub_chunks[0][4]
+            is_ext_g = sub_chunks[0][5]
+            u_bim_g = sub_chunks[0][6]
+            for v_arr, f_arr, _, _, _, _, _ in sub_chunks:
+                v_list.append(v_arr)
+                f_list.append(f_arr + v_offset)
+                v_offset += len(v_arr)
+            v_merged = np.vstack(v_list)
+            f_merged = np.vstack(f_list)
+
+            # M5: NEVER stride-delete polygons from RawGroupMesh (preserves 100% geometry for
+            # area & visual display; any raycast simplification happens only on raycast buffers).
+
+            raw_groups.append(
+                RawGroupMesh(
+                    group_id=f"R-{g_counter}",
+                    group_name=eff_g_name,
+                    source_layer=src_layer,
+                    source_material=src_mat,
+                    default_category=sub_cat,
+                    vertices=v_merged,
+                    faces=f_merged,
+                    is_external_bim=is_ext_g,
+                    thermal_u_bim=u_bim_g,
+                )
+            )
 
     if not raw_groups:
         raise ValueError("Tidak ditemukan geometri 3D pada file yang diunggah.")
