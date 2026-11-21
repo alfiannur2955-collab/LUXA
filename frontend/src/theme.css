@@ -716,6 +716,31 @@ kbd {
   background: var(--surface-sunken);
 }
 
+.group-pick-btn {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border-radius: 6px;
+  text-align: left;
+  font-weight: 500;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-pick-btn:hover {
+  background: var(--surface-sunken);
+}
+
+.group-pick-btn[aria-pressed="true"] {
+  font-weight: 700;
+  color: var(--sun);
+}
+
 .swatch {
   display: inline-block;
   width: 10px;

@@ -158,23 +158,24 @@ export function renderInspectScreen(state, handlers) {
   for (const g of groups) {
     renderedNames.add(g.group_name);
     const effCat = overrides[g.group_name] || g.category || 'wall';
+    const isSelected = state.selectedGroup === g.group_name;
     const tr = document.createElement('tr');
-    if (state.selectedGroup === g.group_name) {
+    if (isSelected) {
       tr.classList.add('is-selected');
     }
-    tr.style.cursor = 'pointer';
-    tr.addEventListener('click', (e) => {
-      if (e.target.tagName === 'SELECT') return;
-      handlers.onSelectGroup(state.selectedGroup === g.group_name ? null : g.group_name);
-    });
+    tr.setAttribute('aria-selected', isSelected ? 'true' : 'false');
 
     const tdName = document.createElement('td');
-    tdName.style.maxWidth = '115px';
-    tdName.style.overflow = 'hidden';
-    tdName.style.textOverflow = 'ellipsis';
-    tdName.style.whiteSpace = 'nowrap';
-    tdName.title = g.group_name;
-    tdName.textContent = g.group_name;
+    const nameBtn = document.createElement('button');
+    nameBtn.type = 'button';
+    nameBtn.className = 'group-pick-btn';
+    nameBtn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+    nameBtn.title = g.group_name;
+    nameBtn.textContent = g.group_name;
+    nameBtn.addEventListener('click', () => {
+      handlers.onSelectGroup(isSelected ? null : g.group_name);
+    });
+    tdName.appendChild(nameBtn);
 
     const tdRole = document.createElement('td');
     const roleWrap = document.createElement('div');

@@ -162,7 +162,7 @@ export function renderUploadScreen(state, handlers) {
       id: 'fasad_curtain_wall_baru',
       icon: 'layers',
       name: 'Menara curtain wall',
-      meta: 'Fasad_Curtain_Wall_Baru.3dm (24 lantai)',
+      meta: 'Fasad_Curtain_Wall_Baru.3dm',
     },
   ];
 
