@@ -624,6 +624,8 @@ def build_staging_inspection_payload(
             "detected_unit": audit.detected_unit,
             "applied_unit": audit.applied_unit,
             "scale_factor_to_m": audit.scale_factor_to_m,
+            "unit_source": audit.unit_source,
+            "unit_needs_confirmation": audit.unit_needs_confirmation,
             "detected_up_axis": audit.detected_up_axis,
             "applied_up_axis": audit.applied_up_axis,
             "normalized_span_m": audit.normalized_span_m,

@@ -88,6 +88,8 @@ class Stage1GeometryAudit:
     detected_unit: str = "m"
     applied_unit: str = "m"
     scale_factor_to_m: float = 1.0
+    unit_source: str = "header"  # 'header' | 'user' | 'bbox_guess'
+    unit_needs_confirmation: bool = False
     detected_up_axis: str = "Z"
     applied_up_axis: str = "Z"
     raw_span_xyz: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
@@ -2206,32 +2208,54 @@ def load_universal_model_stages_1_and_2(
     audit.raw_span_xyz = [round(float(x), 2) for x in raw_span]
     max_raw_span = float(np.max(raw_span))
 
-    # Resolve unit scale to meters (also run BBox sanity guard even on IfcOpenShell if IFC header unit was broken!)
+    # M10: Resolve unit scale to meters & flag `unit_needs_confirmation=True` whenever unit is guessed from BBox!
     eff_unit = (unit_mode or "auto").lower()
+    has_authoritative_unit_header = ext in (".3dm", ".ifc", ".hbjson", ".json")
     if coords_already_in_meters and eff_unit == "auto":
         if max_raw_span > 1500.0:
             scale_to_m = 0.001
             audit.applied_unit = "mm"
             audit.scale_factor_to_m = 0.001
-            audit.notes.append(f"Koordinat IFC ({max_raw_span:.0f}) masih dalam milimeter meski header berbeda -> otomatis diskalakan ke meter.")
+            audit.unit_source = "bbox_guess"
+            audit.unit_needs_confirmation = True
+            audit.notes.append(f"Koordinat IFC ({max_raw_span:.0f}) masih dalam milimeter meski header berbeda -> ditebak mm (mohon konfirmasi).")
         else:
             scale_to_m = 1.0
             audit.applied_unit = audit.detected_unit
             audit.scale_factor_to_m = UNIT_SCALE_TO_METERS.get(audit.detected_unit, 1.0)
+            audit.unit_source = "header"
+            audit.unit_needs_confirmation = False
     else:
         if eff_unit == "auto":
-            if audit.detected_unit in UNIT_SCALE_TO_METERS and audit.detected_unit != "m":
+            if has_authoritative_unit_header and audit.detected_unit in UNIT_SCALE_TO_METERS:
                 eff_unit = audit.detected_unit
+                audit.unit_source = "header"
+                audit.unit_needs_confirmation = False
             elif max_raw_span > 3500.0:
                 eff_unit = "mm"
-                audit.notes.append(f"Dimensi mentah ({max_raw_span:.0f}) terdeteksi milimeter (mm) -> otomatis dikonversi ke meter.")
+                audit.unit_source = "bbox_guess"
+                audit.unit_needs_confirmation = True
+                audit.notes.append(f"Dimensi mentah ({max_raw_span:.0f}) ditebak milimeter (mm) dari BBox -> mohon konfirmasi satuan.")
             elif max_raw_span > 650.0:
                 eff_unit = "cm"
-                audit.notes.append(f"Dimensi mentah ({max_raw_span:.0f}) terdeteksi sentimeter (cm) -> otomatis dikonversi ke meter.")
+                audit.unit_source = "bbox_guess"
+                audit.unit_needs_confirmation = True
+                audit.notes.append(f"Dimensi mentah ({max_raw_span:.0f}) ditebak sentimeter (cm) dari BBox -> mohon konfirmasi satuan.")
             else:
                 eff_unit = "m"
+                if ext in (".obj", ".stl", ".ply"):
+                    audit.unit_source = "bbox_guess"
+                    audit.unit_needs_confirmation = True
+                else:
+                    audit.unit_source = "header"
+                    audit.unit_needs_confirmation = False
         elif eff_unit not in UNIT_SCALE_TO_METERS:
             eff_unit = "m"
+            audit.unit_source = "user"
+            audit.unit_needs_confirmation = False
+        else:
+            audit.unit_source = "user"
+            audit.unit_needs_confirmation = False
 
         scale_to_m = UNIT_SCALE_TO_METERS[eff_unit]
         if coords_already_in_meters:

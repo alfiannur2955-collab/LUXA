@@ -2011,6 +2011,8 @@ def analyze_building_ottv(
             "detected_unit": stage1_audit.detected_unit,
             "applied_unit": stage1_audit.applied_unit,
             "scale_factor_to_m": stage1_audit.scale_factor_to_m,
+            "unit_source": stage1_audit.unit_source,
+            "unit_needs_confirmation": stage1_audit.unit_needs_confirmation,
             "detected_up_axis": stage1_audit.detected_up_axis,
             "applied_up_axis": stage1_audit.applied_up_axis,
             "raw_span_xyz": stage1_audit.raw_span_xyz,
