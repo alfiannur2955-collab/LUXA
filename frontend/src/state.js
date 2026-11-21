@@ -86,6 +86,11 @@ export function mergeConfig(partial) {
     settings: {
       ...base.settings,
       ...(partial.settings || {}),
+      // Legacy v2 configs before R4 persisted default 3.6 even in auto mode; treat as unset unless uniform
+      floor_height_m:
+        (partial.settings?.floor_mode || 'auto') === 'auto' && partial.settings?.floor_height_m === 3.6
+          ? null
+          : partial.settings?.floor_height_m ?? base.settings.floor_height_m,
       custom_materials: [...(partial.settings?.custom_materials || [])],
       orientation_material_overrides: { ...(partial.settings?.orientation_material_overrides || {}) },
       custom_floor_zones: [...(partial.settings?.custom_floor_zones || [])],

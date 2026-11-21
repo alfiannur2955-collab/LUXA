@@ -2691,7 +2691,9 @@ def build_dynamic_floor_levels(
         if named_floors:
             return named_floors, "nama_layer"
 
-    # 1d. USER INPUT (`expected_floors` in Confirm card OR explicit `floor_height_m`)
+    # 1d. USER INPUT (`expected_floors` in Confirm card)
+    # Note: `floor_height_m` in `auto` mode may come from legacy saved configs (3.6);
+    # explicit uniform height is handled above when `floor_mode == 'uniform'`.
     if expected_floors is not None and int(expected_floors) >= 1:
         n_user = max(1, min(160, int(expected_floors)))
         fh_u = total_h / n_user
@@ -2699,23 +2701,6 @@ def build_dynamic_floor_levels(
         for fl in range(1, n_user + 1):
             z0 = z_min_bldg + (fl - 1) * fh_u
             z1 = z_max_bldg if fl == n_user else (z_min_bldg + fl * fh_u)
-            floor_defs.append({
-                "floor_number": fl,
-                "floor_label": f"L{fl}",
-                "zone_type": "Tipikal",
-                "z_min": round(z0, 2),
-                "z_max": round(z1, 2),
-                "height_m": round(max(0.5, z1 - z0), 2),
-            })
-        return floor_defs, "isian_pengguna"
-
-    if floor_height_m is not None:
-        fh_u = max(2.2, min(10.0, float(floor_height_m)))
-        n_u = max(1, min(160, int(math.ceil((total_h - 0.05) / fh_u))))
-        floor_defs = []
-        for fl in range(1, n_u + 1):
-            z0 = z_min_bldg + (fl - 1) * fh_u
-            z1 = min(z_max_bldg, z_min_bldg + fl * fh_u)
             floor_defs.append({
                 "floor_number": fl,
                 "floor_label": f"L{fl}",

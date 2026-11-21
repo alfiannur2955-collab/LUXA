@@ -359,7 +359,7 @@ export function renderConfirmScreen(state, handlers) {
       sub: floorSourceLabel,
       onToggleEdit: rerender,
       editorEl: floorEditor,
-      extraContent: floorExtra,
+      alwaysShowExtraEl: floorExtra,
     }),
   );
 
