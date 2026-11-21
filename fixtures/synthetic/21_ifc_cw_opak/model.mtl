@@ -1,0 +1,12 @@
+# Synthetic OTTV test materials
+newmtl Paint_-_Orange
+Kd 0.880 0.420 0.140
+d 1.000
+
+newmtl Glass_-_Clear
+Kd 0.480 0.760 0.920
+d 0.300
+
+newmtl Atap_Beton
+Kd 0.550 0.560 0.580
+d 1.000

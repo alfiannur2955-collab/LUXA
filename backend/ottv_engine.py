@@ -839,9 +839,10 @@ def detect_exterior_faces_raycast(
 
     is_outer = escaped_horiz.copy()
 
-    # 4. Enclosed 4-sided Courtyard check: if not confirmed_inner and still blocked horizontally,
-    #    check if open to sky above (no roof slab overhead)
-    still_blocked = (~confirmed_inner) & (~escaped_horiz)
+    # 4. Enclosed 4-sided Courtyard check: if not confirmed_inner and still blocked horizontally
+    #    across a genuine open courtyard span (> 1.80 m, NOT a narrow double-skin facade cavity <= 1.80 m),
+    #    check if open to sky above (no roof slab overhead).
+    still_blocked = (~confirmed_inner) & (~escaped_horiz) & (t_center > 1.80)
     if np.any(still_blocked) and len(roof_tris) > 0:
         idx_sb = np.where(still_blocked)[0]
         sky_origins = centroids[idx_sb] + n_h[idx_sb] * 0.45
@@ -993,19 +994,53 @@ def resolve_group_outer_skin_faces(
                     })
                     vert_mask &= ~thin_up_mask
 
-            # Downward-facing thin bottom caps of solid glass panes (< 0.25 m2, nz < -0.85)
-            horiz_thin_bot = (normals_v[:, 2] < -0.85) & (areas_v < 0.25) & vert_mask
-            if np.any(horiz_thin_bot) and non_vert_id not in rf_set:
+            # Downward-facing glazing caps/soffits (nz < -0.50):
+            # - Thin bottom edges (shortest dim <= 0.30 m) -> 'sisi_tebal_panel' (same rule as top edge)
+            # - Downward horizontal soffits (nz < -0.85) -> 'horizontal_edge_cap' (never facade or skylight)
+            dn_glz_idx = np.where((normals_v[:, 2] < -0.50) & vert_mask)[0]
+            if len(dn_glz_idx) > 0:
+                dn_min_dims = _compute_face_shortest_dims(
+                    p0_v[dn_glz_idx],
+                    p1_v[dn_glz_idx],
+                    p2_v[dn_glz_idx],
+                    p3_v[dn_glz_idx],
+                    is_quad_v[dn_glz_idx],
+                    normals_v[dn_glz_idx],
+                )
+                thin_dn_idx = dn_glz_idx[dn_min_dims <= 0.30]
+                if len(thin_dn_idx) > 0 and edge_thick_id not in rf_set:
+                    thin_dn_mask = np.zeros(len(areas_v), dtype=bool)
+                    thin_dn_mask[thin_dn_idx] = True
+                    existing_et = next((e for e in filtered_entries if e["id"] == edge_thick_id), None)
+                    if existing_et is not None:
+                        existing_et["face_count"] += int(len(thin_dn_idx))
+                        existing_et["area_m2"] = round(
+                            float(existing_et["area_m2"]) + float(np.sum(areas_v[thin_dn_mask])), 4
+                        )
+                    else:
+                        filtered_entries.append({
+                            "id": edge_thick_id,
+                            "group": rg.group_name,
+                            "reason": "sisi_tebal_panel",
+                            "reason_label": "Sisi tebal tepi panel kaca (dimensi terpendek <= 0,3 m)",
+                            "face_count": int(len(thin_dn_idx)),
+                            "area_m2": round(float(np.sum(areas_v[thin_dn_mask])), 4),
+                            "restored": False,
+                        })
+                    vert_mask &= ~thin_dn_mask
+
+            horiz_bot = (normals_v[:, 2] < -0.85) & vert_mask
+            if np.any(horiz_bot) and non_vert_id not in rf_set:
                 filtered_entries.append({
                     "id": non_vert_id,
                     "group": rg.group_name,
                     "reason": "horizontal_edge_cap",
-                    "reason_label": "Sisi horizontal tipis tepi bawah kaca (< 0,25 m2)",
-                    "face_count": int(np.sum(horiz_thin_bot)),
-                    "area_m2": round(float(np.sum(areas_v[horiz_thin_bot])), 4),
+                    "reason_label": "Sisi horizontal menghadap bawah pada kaca (nz < -0,85)",
+                    "face_count": int(np.sum(horiz_bot)),
+                    "area_m2": round(float(np.sum(areas_v[horiz_bot])), 4),
                     "restored": False,
                 })
-                vert_mask &= ~horiz_thin_bot
+                vert_mask &= ~horiz_bot
         else:
             vert_mask = np.ones(len(areas_v), dtype=bool)
     else:
@@ -1313,11 +1348,18 @@ def _measure_panel_sni_shading_ratios(
         return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
 
     idx_c = idx_c[valid_n]
-    tn_z = np.abs(tc[valid_n, 2] / tn_len[valid_n])
+    tn_unit = tc[valid_n] / tn_len[valid_n, None]
+    tn_z = np.abs(tn_unit[:, 2])
 
     # 1. Horizontal overhang above top of window (|nz| >= 0.35, spans horizontally across window, sits near top edge)
+    #    Exclude narrow horizontal top/bottom caps of extruded vertical fins by verifying
+    #    that candidate overhang triangles cover a meaningful fraction (>= 35%) of window width.
+    ov_cand_t_span = t_max[idx_c] - t_min[idx_c]
+    ov_cand_d_span = np.maximum(0.0, d_max[idx_c] - np.maximum(0.0, d_min[idx_c]))
+    not_fin_cap = ~((ov_cand_t_span < 0.08) & (ov_cand_d_span > 2.5 * np.maximum(1e-4, ov_cand_t_span)))
     ov_mask = (
         (tn_z >= 0.35)
+        & not_fin_cap
         & (t_max[idx_c] >= -half_w + 0.05)
         & (t_min[idx_c] <= half_w - 0.05)
         & (u_min[idx_c] >= half_h - 0.25)
@@ -1325,29 +1367,84 @@ def _measure_panel_sni_shading_ratios(
     )
     if np.any(ov_mask):
         ov_idx = idx_c[ov_mask]
-        proj_h = float(np.max(d_max[ov_idx]))
-        r1_meas = proj_h / win_h
-        if r1_meas > r1_best:
-            r1_best = r1_meas
-            # Estimate downward tilt angle phi1 from overhang Z drop across depth
-            best_i = ov_idx[int(np.argmax(d_max[ov_idx]))]
-            z_span_ov = float(u_max[best_i] - u_min[best_i])
-            d_span_ov = max(0.05, float(d_max[best_i] - max(0.0, d_min[best_i])))
-            phi1_best = max(0.0, min(50.0, math.degrees(math.atan2(z_span_ov, d_span_ov)))) if z_span_ov > 0.02 else 0.0
+        # Compute union horizontal coverage clipped to [-half_w, +half_w]
+        iv_list = sorted(
+            (max(-half_w, float(t_min[i])), min(half_w, float(t_max[i])))
+            for i in ov_idx
+            if float(t_max[i]) > -half_w and float(t_min[i]) < half_w
+        )
+        ov_cov_w = 0.0
+        if iv_list:
+            cur_a, cur_b = iv_list[0]
+            for ia, ib in iv_list[1:]:
+                if ia <= cur_b + 0.05:
+                    cur_b = max(cur_b, ib)
+                else:
+                    ov_cov_w += max(0.0, cur_b - cur_a)
+                    cur_a, cur_b = ia, ib
+            ov_cov_w += max(0.0, cur_b - cur_a)
+        if ov_cov_w >= 0.35 * win_w:
+            proj_h = float(np.max(d_max[ov_idx]))
+            r1_meas = proj_h / win_h
+            if r1_meas > r1_best:
+                r1_best = r1_meas
+                # Estimate downward tilt angle phi1 from overhang Z drop across depth
+                best_i = ov_idx[int(np.argmax(d_max[ov_idx]))]
+                z_span_ov = float(u_max[best_i] - u_min[best_i])
+                d_span_ov = max(0.05, float(d_max[best_i] - max(0.0, d_min[best_i])))
+                phi1_best = max(0.0, min(50.0, math.degrees(math.atan2(z_span_ov, d_span_ov)))) if z_span_ov > 0.02 else 0.0
 
-    # 2. Vertical fin beside left or right edge of window (|nz| < 0.50, spans vertically, near +-half_w)
+    # 2. Vertical fins beside OR periodically spaced across window (|nz| < 0.50, normal along +-t_ax)
+    #    Clusters distinct fin positions along t to measure true fin-to-fin spacing W_fin on ribbon windows,
+    #    falling back to win_w when only side-edge fins exist.
+    tn_dot_t = np.abs(tn_unit @ t_ax)
     t_mid = 0.5 * (t_min[idx_c] + t_max[idx_c])
-    near_side = (np.abs(t_mid + half_w) <= 0.45) | (np.abs(t_mid - half_w) <= 0.45)
+    in_fin_band = (t_mid >= -half_w - 0.45) & (t_mid <= half_w + 0.45)
     fin_mask = (
         (tn_z < 0.50)
-        & near_side
+        & (tn_dot_t >= 0.50)
+        & in_fin_band
         & (u_max[idx_c] >= -half_h + 0.05)
         & (u_min[idx_c] <= half_h - 0.05)
     )
     if np.any(fin_mask):
-        fin_idx = idx_c[fin_mask]
-        proj_v = float(np.max(d_max[fin_idx]))
-        r2_best = max(r2_best, proj_v / win_w)
+        fin_local = np.where(fin_mask)[0]
+        fin_idx = idx_c[fin_local]
+        fin_ts = t_mid[fin_local]
+        fin_ds = d_max[fin_idx]
+
+        # Cluster close fin faces (e.g. both sides of a 2 cm extruded solid fin) within 0.12 m
+        order = np.argsort(fin_ts)
+        clusters: List[Tuple[float, float]] = []  # (mean_t, max_d)
+        cur_ts: List[float] = [float(fin_ts[order[0]])]
+        cur_d = float(fin_ds[order[0]])
+        for oi in order[1:]:
+            tv = float(fin_ts[oi])
+            dv = float(fin_ds[oi])
+            if tv - cur_ts[-1] <= 0.12:
+                cur_ts.append(tv)
+                cur_d = max(cur_d, dv)
+            else:
+                clusters.append((float(np.mean(cur_ts)), cur_d))
+                cur_ts = [tv]
+                cur_d = dv
+        clusters.append((float(np.mean(cur_ts)), cur_d))
+
+        proj_v = max(c[1] for c in clusters)
+        if len(clusters) >= 3:
+            spacings = [clusters[k + 1][0] - clusters[k][0] for k in range(len(clusters) - 1)]
+            valid_sp = [s for s in spacings if s >= 0.15]
+            eff_w = float(np.median(valid_sp)) if valid_sp else win_w
+            r2_best = max(r2_best, proj_v / max(0.05, eff_w))
+        elif len(clusters) == 2:
+            sp = clusters[1][0] - clusters[0][0]
+            eff_w = min(win_w, sp) if sp >= 0.15 else win_w
+            r2_best = max(r2_best, proj_v / max(0.05, eff_w))
+        else:
+            # Single fin: only applies if adjacent to left or right edge of the window
+            t0 = clusters[0][0]
+            if abs(t0 + half_w) <= 0.45 or abs(t0 - half_w) <= 0.45:
+                r2_best = max(r2_best, proj_v / win_w)
 
     return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
 

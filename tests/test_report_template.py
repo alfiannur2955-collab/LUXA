@@ -119,9 +119,17 @@ def test_fill_template_prodi_preserves_validations_and_populates_cells(fixture_n
     assert mat["C32"].value is not None
     assert 0.10 <= float(mat["D32"].value) <= 0.90  # SHGC
     assert 0.50 <= float(mat["E32"].value) <= 7.00  # U glazing
-    # Unshaded models MUST have Mat!F32 and Mat!G32 cleared
-    assert mat["F32"].value in (None, "")
-    assert mat["G32"].value in (None, "")
+    # Mat!F32:G56 MUST NEVER contain legacy 'none'; shaded rows use 'yes' + SH/SV/SE code, unshaded rows are blank
+    for r_f in range(32, 57):
+        f_val = mat[f"F{r_f}"].value
+        g_val = mat[f"G{r_f}"].value
+        assert str(f_val or "").lower() != "none"
+        assert str(g_val or "").lower() != "none"
+        if f_val == "yes":
+            assert str(g_val or "").startswith(("SH", "SV", "SE")), f"Invalid shading code Mat!G{r_f}={g_val}"
+        else:
+            assert f_val in (None, "")
+            assert g_val in (None, "")
 
     # 4. Verify orientation sheets rows 65..89: total area conservation & H <= C*D clamp
     total_tpl_facade_area = 0.0
@@ -150,7 +158,7 @@ def test_fill_template_prodi_preserves_validations_and_populates_cells(fixture_n
         f_items = analysis["stage1_geometry_audit"]["filtered_items"]
         tp_items = [it for it in f_items if it.get("reason") == "sisi_tebal_panel"]
         assert len(tp_items) == 1
-        assert tp_items[0]["face_count"] == 1972
+        assert tp_items[0]["face_count"] == 3944  # 1972 sisi atas + 1972 sisi bawah panel kaca solid (B3)
 
 
 def test_upward_glazing_min_dim_threshold_skylight_vs_sisi_tebal_panel():

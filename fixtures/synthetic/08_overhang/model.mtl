@@ -1,0 +1,16 @@
+# Synthetic OTTV test materials
+newmtl Dinding_Bata
+Kd 0.760 0.720 0.680
+d 1.000
+
+newmtl Kaca_Jendela
+Kd 0.480 0.760 0.920
+d 0.300
+
+newmtl Atap_Beton
+Kd 0.550 0.560 0.580
+d 1.000
+
+newmtl Peneduh_Overhang
+Kd 0.620 0.440 0.250
+d 1.000

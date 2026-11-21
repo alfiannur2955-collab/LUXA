@@ -271,6 +271,13 @@ def classify_layer_or_material_with_confidence(
         matched = sorted(mat_tokens & _FRAME_TOKENS)
         return "frame", 0.92, f"Token rangka/logam pada material: {', '.join(matched)}"
 
+    # 5b. Explicit Roof tokens ('atap'/'roof'/'dak'/'ifcroof') beat generic masonry material tokens
+    #     like 'beton'/'concrete' (e.g. 'Atap Beton', 'Dak Beton', 'Concrete Roof') unless paired
+    #     with an explicit vertical wall head token ('dinding'/'wall'/'tembok'/'parapet').
+    if (all_tokens & _ROOF_EXPLICIT_TOKENS) and not (all_tokens & (_WALL_HEAD_TOKENS | {"parapet"})):
+        matched = sorted(all_tokens & _ROOF_EXPLICIT_TOKENS)
+        return "roof", 0.94, f"Token atap eksplisit: {', '.join(matched)}"
+
     # 6. Explicit Solid Masonry / Cladding / Wall tokens (beats 'lantai'/'floor' in e.g. 'Dinding_Lantai2'!)
     #    Exclude 'wall' if it ONLY came from 'curtain wall' without solid wall indicators.
     wall_hits = (all_tokens & _WALL_TOKENS) - ({"wall"} if has_cw_ctx and not (all_tokens & (_WALL_TOKENS - {"wall"})) else set())
@@ -598,10 +605,25 @@ def _clean_solid_bim_element_faces(
     sliver_thresh = 0.12 if category in ("glazing", "spandrel") else 0.08
     is_thin_edge = is_vert & (w_xy <= sliver_thresh) & (areas < 0.25 * max_vert_area)
 
-    # M6: For glazing, only horizontal thin edge caps (area < 25% max_vert_area) are panel edges;
-    # genuine tilted/skylight glazing faces are ALWAYS preserved!
+    # M6: For glazing, horizontal thin edge caps (top/bottom panel thickness <= 14 cm, rotation-invariant!)
+    # are panel edges; genuine tilted/skylight glazing faces are ALWAYS preserved!
     if category == "glazing":
-        is_cap = (~is_vert) & (areas < 0.25 * max_vert_area) & (min_elem_dim <= 0.14)
+        e01 = p1 - p0
+        e12 = p2 - p1
+        e23 = np.where(is_q[valid, None], p3 - p2, p0 - p2)
+        e30 = np.where(is_q[valid, None], p0 - p3, np.zeros_like(p0))
+        edges_b = np.stack([e01, e12, e23, e30], axis=1)
+        elens_b = np.linalg.norm(edges_b, axis=2)
+        best_e = edges_b[np.arange(len(quads)), np.argmax(elens_b, axis=1)]
+        u_b = best_e / np.maximum(1e-9, np.linalg.norm(best_e, axis=1, keepdims=True))
+        v_raw_b = np.cross(normals, u_b)
+        v_b = v_raw_b / np.maximum(1e-9, np.linalg.norm(v_raw_b, axis=1, keepdims=True))
+        p3_eff_b = np.where(is_q[valid, None], p3, p2)
+        pts_b = np.stack([p0, p1, p2, p3_eff_b], axis=1)
+        du_b = np.max(np.einsum("nkc,nc->nk", pts_b, u_b), axis=1) - np.min(np.einsum("nkc,nc->nk", pts_b, u_b), axis=1)
+        dv_b = np.max(np.einsum("nkc,nc->nk", pts_b, v_b), axis=1) - np.min(np.einsum("nkc,nc->nk", pts_b, v_b), axis=1)
+        face_min_dim = np.minimum(du_b, dv_b)
+        is_cap = (~is_vert) & (areas < 0.25 * max_vert_area) & ((min_elem_dim <= 0.14) | (face_min_dim <= 0.14))
     elif category == "spandrel" or min_elem_dim <= 0.14:
         is_cap = ~is_vert
     else:

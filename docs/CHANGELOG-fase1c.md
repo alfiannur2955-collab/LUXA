@@ -17,3 +17,34 @@ Branch: `fase-1c-ragam-model`
 
 ### Sampel IFC4 (`backend/samples/archicad_bim_curtainwall.ifc`)
 - Mengganti generator `create_sample_ifc_preset` di `backend/universal_pipeline.py` dan file `backend/samples/archicad_bim_curtainwall.ifc` ke skema **IFC4** resmi via `ifcopenshell.api` sehingga seluruh 6 entitas `IfcShadingDevice` terparsir oleh `IfcOpenShell` dan menghasilkan $SC_{eff} \approx 0.82\text{–}0.85$ (tidak lagi `1.0`).
+
+### B2 — Klasifikasi `"Atap Beton"` / `"Dak Beton"` / `"Concrete Roof"` Salah Masuk `wall`
+- **Terungkap oleh:** Kasus sintetis `01_kotak_m` s.d. `21_ifc_cw_opak` (non-IFC `.3dm`/`.obj`/`.glb`), khususnya `06_courtyard` (hilang 640 m² karena `roof_tris` kosong) dan `16_skylight` (RTTV meleset ke `104.8 W/m²` karena atap opak tidak terdeteksi).
+- **Masalah:** Di `backend/universal_pipeline.py` (`classify_layer_or_material_with_confidence`), aturan token dinding (`_WALL_TOKENS`, termasuk `beton`/`concrete`) dieksekusi lebih awal daripada token atap (`_ROOF_TOKENS`). Akibatnya nama seperti `"Atap Beton"`, `"Dak Beton"`, atau `"Concrete Roof"` diklasifikasikan sebagai `wall` (lalu disaring sebagai bidang horizontal non-vertikal), sehingga `roof_groups` kosong pada format non-IFC.
+- **Perbaikan:** Menambahkan aturan `5b` sebelum aturan dinding: bila terdapat token atap eksplisit (`atap`, `roof`, `dak`, `ifcroof`) tanpa token kepala dinding (`dinding`, `wall`, `tembok`, `parapet`, `ifcwall`), peran dikembalikan sebagai `'roof'` (confidence `0.94`).
+
+### B3 — Sisi Bawah Ketebalan Kaca Solid (`nz < -0.50`) Bocor ke OTTV Utara pada Kaca Tebal & Model Terputar
+- **Terungkap oleh:** Kasus sintetis `17_kaca_tebal` (`U.glazing = 134.4 m²`, selisih `+6.4 m²`) dan `04_kotak_putar30.ifc` (`U.glazing = 4.0 m²` tak terduga).
+- **Masalah:**
+  1. Di `backend/ottv_engine.py` (`resolve_group_outer_skin_faces`), penyaring sisi bawah kaca hanya memeriksa `(nz < -0.85) & (areas < 0.25)`. Panel jendela pita panjang (`20–30 m × 0.02 m`) memiliki luas sisi bawah `0.40–0.60 m² >= 0.25 m²`, sehingga lolos dengan normal `(0, 0, -1)` dan terhitung sebagai orientasi Utara (`atan2(0, 0) = 0°`).
+  2. Di `backend/universal_pipeline.py` (`_clean_solid_bim_element_faces`), deteksi ketebalan tipis `min_elem_dim <= 0.14` memakai bounding box sejajar sumbu dunia (*world AABB*), sehingga gagal ketika kaca diputar 30° (`04_kotak_putar30.ifc`).
+- **Perbaikan:**
+  1. Di `resolve_group_outer_skin_faces`, menerapkan pemeriksaan dimensi terpendek bidang (`<= 0.30 m` -> `sisi_tebal_panel`) untuk sisi kaca menghadap bawah (`nz < -0.50`) serta menyaring semua bidang horizontal menghadap bawah (`nz < -0.85` -> `horizontal_edge_cap`).
+  2. Di `_clean_solid_bim_element_faces`, menambahkan perhitungan dimensi terpendek in-plane yang invarian terhadap rotasi (`face_min_dim <= 0.14`).
+
+### B4 — Pengukuran Rasio Sirip Vertikal (`R2`) pada Jendela Pita & False-Positive Overhang dari Tutup Atas Sirip Solid
+- **Terungkap oleh:** Kasus sintetis `09_sirip` (`.3dm`/`.obj`/`.glb` mendapat `SCeff = 1.0`, sedangkan `.ifc` over-shaded `17.57 W/m²` vs analitis `18.66 W/m²`).
+- **Masalah:** Di `backend/ottv_engine.py` (`_measure_panel_sni_shading_ratios`):
+  1. Sirip vertikal hanya dicari tepat di tepi kiri/kanan panel (`±half_w`) dan dibagi lebar penuh jendela (`win_w = 20–30 m`), sehingga sirip berjarak `1.5 m` di depan jendela pita menghasilkan `R2 = 0.03` (diabaikan).
+  2. Tutup horizontal tipis (`2 cm`) di ujung atas sirip vertikal solid IFC (`IfcShadingDevice`) memiliki `|nz| >= 0.35`, sehingga salah dideteksi sebagai overhang horizontal (`R1`).
+- **Perbaikan:**
+  1. Penyaring overhang (`R1`) kini mengecualikan tutup tipis sirip vertikal dan mensyaratkan cakupan lebar horizontal `>= 35%` lebar jendela.
+  2. Pengukuran sirip vertikal (`R2`) kini menyaring segitiga sirip berdasarkan arah normal (`|tn · t_ax| >= 0.50`), mengelompokkan posisi `t` sirip (toleransi `0.12 m` untuk dua sisi sirip solid), dan menghitung jarak antar-sirip (`median` bila `>= 3` sirip) sehingga `R2 = P_v / W_fin` akurat pada jendela pita maupun jendela tunggal (dan turut memperbaiki deteksi sirip vertikal pada `fasad_unitized_24lantai.3dm`).
+
+### B5 — Rongga Double-Skin Facade (`<= 1.80 m`) Salah Dianggap Courtyard Terbuka
+- **Terungkap oleh:** Kasus sintetis `10_double_skin` (`.3dm`/`.obj`/`.glb` menghasilkan `3302.4 m²` = kulit luar + dinding dalam, seharusnya `1702.4 m²`).
+- **Masalah:** Di `backend/ottv_engine.py` (`detect_exterior_faces_raycast`), Langkah 4 (pemeriksaan courtyard terbuka ke langit) mempromosikan semua bidang yang terhalang horizontal namun tidak beratap langsung di depannya, tanpa membedakan antara courtyard nyata (lebar `> 1.80 m`, mis. `10 m` pada `06_courtyard`) dan celah rongga fasad ganda (`0.80 m` pada `10_double_skin`).
+- **Perbaikan:** Membatasi promosi courtyard pada Langkah 4 hanya untuk bidang dengan jarak halangan depan `t_center > 1.80 m`.
+
+### Catatan Konvensi `north_angle_deg` (Kasus 4)
+- Di engine (`ottv_engine.py`), `north_angle_deg` didefinisikan sebagai azimut **Utara Sejati searah jarum jam dari sumbu +Y model** (`azimuth = (raw_deg - north_angle_deg) % 360`). Dengan demikian, memutar bangunan 30° searah jarum jam (`04_kotak_putar30`, sisi `U->TL`, `T->TGR`, `S->BD`, `B->BL`) secara geometris ekuivalen dengan geometri `01_kotak_m` + `north_angle_deg = 330°` (Utara Sejati diputar 30° berlawanan jarum jam). Diverifikasi di `tests/test_synthetic.py::test_case04_north_angle_equivalence`.
