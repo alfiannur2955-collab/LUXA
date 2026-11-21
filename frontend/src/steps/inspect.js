@@ -9,6 +9,7 @@ import { collectAcceptedProvisionalFlags, evaluateConfirmGate } from '../state.j
 import { fmtId } from '../ui/escapeHtml.js';
 import { compassDialSvg, icon } from '../ui/icons.js';
 import { CATEGORY_LABELS, categorySwatchStyle } from '../viewer/modes.js';
+import { renderViewerBottomBar } from '../viewer/vbar.js';
 import { viewer } from '../viewer/viewer.js';
 
 const ROLE_OPTIONS = [
@@ -90,9 +91,9 @@ export function renderInspectScreen(state, handlers) {
   compass.innerHTML = compassDialSvg(northDeg);
   viewerSec.appendChild(compass);
 
-  // Legend
+  // Legend (lifted cleanly above bottom pills)
   const legend = document.createElement('div');
-  legend.className = 'legend num';
+  legend.className = 'legend legend-lifted num';
   const legendParts = [
     `<span class="legend-item"><i class="swatch" style="background:var(--data-glazing);"></i>Kaca ${fmtId(glazingArea, 1)} m²</span>`,
     `<span class="legend-item"><i class="swatch" style="background:var(--data-wall);"></i>Dinding ${fmtId(wallArea, 1)} m²</span>`,
@@ -109,6 +110,10 @@ export function renderInspectScreen(state, handlers) {
   }
   legend.innerHTML = legendParts.join('');
   viewerSec.appendChild(legend);
+
+  if (handlers.vbarHandlers) {
+    viewerSec.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
+  }
 
   // Right Top: Grup terdeteksi
   const groupsCard = document.createElement('section');

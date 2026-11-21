@@ -8,6 +8,7 @@
 import { fmtId } from '../ui/escapeHtml.js';
 import { compassDialSvg, icon } from '../ui/icons.js';
 import { ottvToHeatCssVar } from '../viewer/modes.js';
+import { renderViewerBottomBar } from '../viewer/vbar.js';
 import { viewer } from '../viewer/viewer.js';
 
 const CANONICAL_ORIENTATIONS = ['U', 'TL', 'T', 'TG', 'S', 'BD', 'B', 'BL'];
@@ -72,9 +73,9 @@ export function renderResultsScreen(state, handlers) {
   compass.innerHTML = compassDialSvg(northDeg);
   viewerSec.appendChild(compass);
 
-  // Legend
+  // Legend (lifted cleanly above bottom pills)
   const legend = document.createElement('div');
-  legend.className = 'legend';
+  legend.className = 'legend legend-lifted';
   if (isHeat) {
     legend.innerHTML = `
       <span style="color:var(--ink);">OTTV per arah</span>
@@ -94,6 +95,10 @@ export function renderResultsScreen(state, handlers) {
     `;
   }
   viewerSec.appendChild(legend);
+
+  if (handlers.vbarHandlers) {
+    viewerSec.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
+  }
 
   // Right column (300px)
   const side = document.createElement('div');
