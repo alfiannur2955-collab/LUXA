@@ -2183,6 +2183,62 @@ def analyze_building_ottv(
         },
     }
 
+    # Build provisional status & structured warnings (Fase 1b)
+    summary_warnings: List[Dict[str, Any]] = []
+    if unknown_groups:
+        unk_names = [rg.group_name for rg in unknown_groups]
+        summary_warnings.append({
+            "code": "UNKNOWN_GROUPS",
+            "message": (
+                f"{len(unk_names)} grup belum dikenali perannya ('unknown') dan tidak dihitung "
+                f"dalam OTTV: {', '.join(unk_names)}."
+            ),
+            "detail": {
+                "count": len(unk_names),
+                "groups": [
+                    {
+                        "group_name": rg.group_name,
+                        "face_count": int(len(rg.faces)),
+                    }
+                    for rg in unknown_groups
+                ],
+            },
+        })
+    if stage1_audit.missing_mesh:
+        total_missing_faces = sum(int(item.get("face_count", 0)) for item in stage1_audit.missing_mesh)
+        per_group_summary = ", ".join(
+            f"{item.get('group', '?')} ({int(item.get('face_count', 0))} face)"
+            for item in stage1_audit.missing_mesh
+        )
+        summary_warnings.append({
+            "code": "MISSING_MESH",
+            "message": (
+                f"{total_missing_faces} permukaan Brep/Surface tidak memiliki render mesh sehingga "
+                f"tidak ikut dihitung: {per_group_summary}. Hasil OTTV bersifat sementara sampai "
+                "file disimpan ulang dengan render mesh."
+            ),
+            "detail": {
+                "total_face_count": int(total_missing_faces),
+                "items": stage1_audit.missing_mesh,
+            },
+        })
+    if stage1_audit.unit_needs_confirmation:
+        span_txt = " x ".join(f"{x:.2f} m" for x in stage1_audit.normalized_span_m)
+        summary_warnings.append({
+            "code": "UNIT_NEEDS_CONFIRMATION",
+            "message": (
+                f"Satuan model ditebak otomatis sebagai '{stage1_audit.applied_unit}' "
+                f"(dimensi hasil: {span_txt}). Mohon konfirmasi satuan model pada tahap Periksa Model."
+            ),
+            "detail": {
+                "detected_unit": stage1_audit.detected_unit,
+                "applied_unit": stage1_audit.applied_unit,
+                "unit_source": stage1_audit.unit_source,
+                "normalized_span_m": [round(float(x), 2) for x in stage1_audit.normalized_span_m],
+            },
+        })
+    is_provisional = len(summary_warnings) > 0
+
     return {
         "filename": filename,
         "format": os.path.splitext(filename)[1].lstrip(".").upper(),
@@ -2225,6 +2281,8 @@ def analyze_building_ottv(
         "floor_detection_method": floor_detection_method,
         "dynamic_floor_presets": dynamic_floor_presets,
         "summary": {
+            "is_provisional": is_provisional,
+            "warnings": summary_warnings,
             "total_detected_panels": len(panel_records),
             "outer_panel_count": total_outer_panels,
             "active_panel_count": total_active_panels,

@@ -119,7 +119,7 @@ _SHADING_TOKENS_EN = frozenset({
 })
 _SHADING_TOKENS = _SHADING_TOKENS_ID | _SHADING_TOKENS_EN
 
-_SPANDREL_TOKENS_ID = frozenset({"spandrel", "parapet"})
+_SPANDREL_TOKENS_ID = frozenset({"spandrel"})
 _SPANDREL_TOKENS_EN = frozenset({"spandrel", "backpan", "shadowbox"})
 _SPANDREL_TOKENS = _SPANDREL_TOKENS_ID | _SPANDREL_TOKENS_EN
 
@@ -134,18 +134,19 @@ _GLAZING_TOKENS_EN = frozenset({
 _GLAZING_TOKENS = _GLAZING_TOKENS_ID | _GLAZING_TOKENS_EN
 _GLAZING_MAT_QUALIFIERS = frozenset({"clear", "tinted"})
 
-_WALL_TOKENS_ID = frozenset({"dinding", "tembok", "bata", "beton", "plester", "hebel", "fasad"})
+_WALL_TOKENS_ID = frozenset({"dinding", "tembok", "bata", "beton", "plester", "hebel", "fasad", "grc", "parapet"})
 _WALL_TOKENS_EN = frozenset({
     "wall", "cladding", "acp", "alucobond", "precast", "concrete", "masonry",
     "brick", "aac", "plaster", "verputz", "facade", "ifcwall", "ifcwallstandardcase",
+    "grc", "parapet",
 })
 _WALL_TOKENS = _WALL_TOKENS_ID | _WALL_TOKENS_EN
-_SOLID_MASONRY_TOKENS = frozenset({"bata", "brick", "masonry", "concrete", "beton", "precast", "hebel", "aac"})
+_SOLID_MASONRY_TOKENS = frozenset({"bata", "brick", "masonry", "concrete", "beton", "precast", "hebel", "aac", "grc"})
 
 _FRAME_TOKENS_ID = frozenset({"rangka", "kusen", "profil"})
 _FRAME_TOKENS_EN = frozenset({
     "mullion", "transom", "frame", "ring", "rings", "profile", "stiffener",
-    "sash", "aluminium", "aluminum", "metal", "ifcmember", "railing",
+    "sash", "aluminium", "aluminum", "metal", "ifcmember",
 })
 _FRAME_TOKENS = _FRAME_TOKENS_ID | _FRAME_TOKENS_EN
 
@@ -154,13 +155,19 @@ _ROOF_TOKENS_EN = frozenset({"roof", "slab", "ceiling", "ifcslab", "ifcroof"})
 _ROOF_TOKENS = _ROOF_TOKENS_ID | _ROOF_TOKENS_EN
 _FLOOR_ONLY_TOKENS = frozenset({"floor", "lantai"})
 
-_IGNORE_TOKENS_ID = frozenset({"interior", "partisi", "tapak", "tanah", "furnitur", "perabot"})
+_IGNORE_TOKENS_ID = frozenset({
+    "interior", "partisi", "tapak", "tanah", "furnitur", "perabot",
+    "pagar", "kolom", "balok",
+})
 _IGNORE_TOKENS_EN = frozenset({
     "interior", "partition", "site", "terrain", "earthworks", "ground", "soil",
     "furniture", "furnishing", "virtual", "spatialzone", "core",
     "ifcsite", "ifcspace", "ifcfurnishingelement", "natur", "erde",
+    "railing", "balustrade", "column", "beam", "ifccolumn", "ifcbeam",
 })
 _IGNORE_TOKENS = _IGNORE_TOKENS_ID | _IGNORE_TOKENS_EN
+_WALL_HEAD_TOKENS = frozenset({"dinding", "wall", "tembok", "ifcwall", "ifcwallstandardcase"})
+_ROOF_EXPLICIT_TOKENS = frozenset({"atap", "roof", "dak", "ifcroof"})
 
 
 def _tokenize_label(text: str) -> List[str]:
@@ -205,15 +212,34 @@ def classify_layer_or_material_with_confidence(
     mat_seg = segments[-1] if len(segments) > 1 else ""
     layer_seg = " ".join(segments[:-1]) if len(segments) > 1 else segments[0]
 
-    mat_tokens = set(_tokenize_label(mat_seg))
-    layer_tokens = set(_tokenize_label(layer_seg))
-    ctx_tokens = set(_tokenize_label(ctx))
+    mat_tokens_seq = _tokenize_label(mat_seg)
+    layer_tokens_seq = _tokenize_label(layer_seg)
+    ctx_tokens_seq = _tokenize_label(ctx)
+    all_tokens_seq = layer_tokens_seq + mat_tokens_seq + ctx_tokens_seq
+
+    mat_tokens = set(mat_tokens_seq)
+    layer_tokens = set(layer_tokens_seq)
+    ctx_tokens = set(ctx_tokens_seq)
     all_tokens = mat_tokens | layer_tokens | ctx_tokens
 
-    # 1. Explicit Ignore (Interior, Site, Terrain, Partition, Core as whole token — never 'score' or 'background'!)
+    # 1. Explicit Ignore (Interior, Site, Terrain, Partition, Core, Railing/Balustrade/Pagar, Kolom/Balok)
     if all_tokens & _IGNORE_TOKENS:
         matched = sorted(all_tokens & _IGNORE_TOKENS)
         return "ignore", 0.92, f"Token non-selubung/abaikan: {', '.join(matched)}"
+
+    # 1b. Ordered Indonesian/English interior wall pattern: 'dalam'/'interior' after 'dinding'/'wall' -> ignore
+    wall_head_indices = [i for i, t in enumerate(all_tokens_seq) if t in _WALL_HEAD_TOKENS]
+    if wall_head_indices:
+        first_wall_idx = wall_head_indices[0]
+        if any(t in ("dalam", "interior") for t in all_tokens_seq[first_wall_idx + 1:]):
+            return "ignore", 0.93, "Dinding interior/dalam (bukan selubung luar)"
+
+    # 1c. Floor slab ('pelat lantai' / 'plat lantai' / 'floor slab') -> ignore (NOT roof!)
+    if not (all_tokens & _ROOF_EXPLICIT_TOKENS):
+        if (("pelat" in all_tokens or "plat" in all_tokens) and "lantai" in all_tokens) or (
+            "floor" in all_tokens and ("slab" in all_tokens or "ifcslab" in all_tokens)
+        ):
+            return "ignore", 0.92, "Pelat lantai internal (bukan atap)"
 
     # 2. Explicit Shading devices ('fin'/'fins' as exact token, never inside 'finish')
     if all_tokens & _SHADING_TOKENS:
@@ -1495,7 +1521,8 @@ def load_universal_model_stages_1_and_2(
                 g_name = layer_name
                 src_mat = "Default"
 
-            cat = "glazing" if m_transp > 0.15 else classify_layer_or_material_role(f"{g_name} {layer_name} {mat_name}")
+            base_cat = classify_layer_or_material_role(f"{g_name} {layer_name} {mat_name}")
+            cat = "ignore" if base_cat == "ignore" else ("glazing" if m_transp > 0.15 else base_cat)
 
             if isinstance(geom, rhino3dm.InstanceReference):
                 iref_id = str(geom.ParentIdefId)
@@ -1703,7 +1730,8 @@ def load_universal_model_stages_1_and_2(
             v_arr = np.asarray(tm.vertices, dtype=np.float64)
             f_in = np.asarray(tm.faces, dtype=np.int64)
             f_arr = _merge_coplanar_tris_to_quads(v_arr, f_in[:, :3]) if f_in.shape[1] == 3 else f_in[:, :4]
-            cat = "glazing" if is_pbr_glass else classify_layer_or_material_role(f"{node_name} {mat_name}")
+            base_cat = classify_layer_or_material_role(f"{node_name} {mat_name}")
+            cat = "ignore" if base_cat == "ignore" else ("glazing" if is_pbr_glass else base_cat)
             _add_chunk(g_name, node_name, mat_name or "Default", cat, v_arr, f_arr)
 
     # ------------------------------------------------------------------------

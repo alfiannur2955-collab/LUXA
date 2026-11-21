@@ -58,3 +58,42 @@ def test_shading_and_frame_token_precision():
     # 'fin' inside 'Finish' must NOT trigger shading!
     assert classify_layer_or_material_role("Finish - Wall :: Metal - Aluminium") == "frame"
     assert classify_layer_or_material_role("CW_Mullion_Transom") == "frame"
+
+
+def test_railing_balustrade_pagar_are_ignore():
+    assert classify_layer_or_material_role("Railing") == "ignore"
+    assert classify_layer_or_material_role("Railing Kaca") == "ignore"
+    assert classify_layer_or_material_role("Glass Railing") == "ignore"
+    assert classify_layer_or_material_role("Balustrade_Glass_Balkon") == "ignore"
+    assert classify_layer_or_material_role("Pagar_Besi") == "ignore"
+
+
+def test_floor_slab_pelat_lantai_are_ignore_not_roof():
+    for label in ("pelat lantai", "Pelat_Lantai_2", "plat lantai", "Plat_Lantai_Tipikal", "floor slab", "Floor_Slab_L3"):
+        role = classify_layer_or_material_role(label)
+        assert role == "ignore", f"{label} expected ignore, got {role}"
+        assert role != "roof"
+    # Roof slab still stays roof
+    assert classify_layer_or_material_role("Roof_Podium_Slab") == "roof"
+
+
+def test_wall_followed_by_dalam_or_interior_is_ignore():
+    assert classify_layer_or_material_role("Dinding Dalam") == "ignore"
+    assert classify_layer_or_material_role("Dinding_Bata_Dalam") == "ignore"
+    assert classify_layer_or_material_role("Wall Interior") == "ignore"
+    assert classify_layer_or_material_role("Wall_Dalam_L2") == "ignore"
+    assert classify_layer_or_material_role("Dinding Interior") == "ignore"
+    # 'Dinding_Lantai2' still stays wall
+    assert classify_layer_or_material_role("Dinding_Lantai2") == "wall"
+
+
+def test_grc_and_parapet_are_wall():
+    assert classify_layer_or_material_role("GRC") == "wall"
+    assert classify_layer_or_material_role("Panel_GRC_Fasad") == "wall"
+    assert classify_layer_or_material_role("Parapet") == "wall"
+    assert classify_layer_or_material_role("Dinding_Parapet") == "wall"
+
+
+def test_structural_columns_and_beams_are_ignore():
+    for label in ("Kolom_Beton", "Column_Structural", "Balok_Induk", "Steel_Beam", "IfcColumn", "IfcBeam"):
+        assert classify_layer_or_material_role(label) == "ignore", f"{label} should be ignore"

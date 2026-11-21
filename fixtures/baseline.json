@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "fixture_count": 5,
+  "fixture_count": 6,
   "fixtures": {
     "archicad_bim_curtainwall.ifc": {
       "filename": "archicad_bim_curtainwall.ifc",
@@ -253,6 +253,127 @@
         "BL": {
           "ottv_wm2": 3.91,
           "area_m2": 16.18
+        }
+      }
+    },
+    "fasad_unitized_24lantai.glb": {
+      "filename": "fasad_unitized_24lantai.glb",
+      "group_count": 9,
+      "groups": [
+        {
+          "group_name": "01_Vision_Glass",
+          "category": "glazing",
+          "face_count": 7976
+        },
+        {
+          "group_name": "02_Crown_Louver_Glass",
+          "category": "shading",
+          "face_count": 312
+        },
+        {
+          "group_name": "03_Spandrel_Panel",
+          "category": "spandrel",
+          "face_count": 7920
+        },
+        {
+          "group_name": "04_Frame_Mullion_Vertical",
+          "category": "frame",
+          "face_count": 17820
+        },
+        {
+          "group_name": "05_Frame_Transom_Horizontal",
+          "category": "frame",
+          "face_count": 17820
+        },
+        {
+          "group_name": "06_Unitized_Shading_Fin_Ring",
+          "category": "shading",
+          "face_count": 23142
+        },
+        {
+          "group_name": "07_Vertical_Biophilic_Louver",
+          "category": "shading",
+          "face_count": 3576
+        },
+        {
+          "group_name": "08_Structure_Slab_Core",
+          "category": "ignore",
+          "face_count": 492
+        },
+        {
+          "group_name": "09_SkyGarden_Planter_Greenery",
+          "category": "unknown",
+          "face_count": 78
+        }
+      ],
+      "bbox": {
+        "min": [
+          -21.0,
+          -15.0,
+          -0.6
+        ],
+        "max": [
+          21.0,
+          15.0,
+          100.0
+        ],
+        "span": [
+          42.0,
+          30.0,
+          100.6
+        ],
+        "normalized_span_m": [
+          42.0,
+          30.0,
+          100.6
+        ]
+      },
+      "z_ground_offset_m": 0.12,
+      "slivers_removed": 0,
+      "outer_area_by_role": {
+        "frame": 0.0,
+        "glazing": 7041.09,
+        "ignore": 0.0,
+        "shading": 0.0,
+        "spandrel": 2381.51,
+        "unknown": 0.0
+      },
+      "total_envelope_area_m2": 9421.8,
+      "total_floors": 28,
+      "wwr": 0.747,
+      "ottv_total_wm2": 24.49,
+      "ottv_by_orientation": {
+        "U": {
+          "ottv_wm2": 18.15,
+          "area_m2": 2333.09
+        },
+        "TL": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        },
+        "T": {
+          "ottv_wm2": 22.18,
+          "area_m2": 2402.67
+        },
+        "TGR": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        },
+        "S": {
+          "ottv_wm2": 15.32,
+          "area_m2": 2280.29
+        },
+        "BD": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        },
+        "B": {
+          "ottv_wm2": 41.65,
+          "area_m2": 2405.76
+        },
+        "BL": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
         }
       }
     },

@@ -28,12 +28,13 @@ Cakupan: `backend/universal_pipeline.py`, `backend/adapters/__init__.py`, deteks
 | Fixture | Grup (Base → Kini) | Luas Selubung m² (Base → Kini) | WWR (Base → Kini) | OTTV W/m² (Base → Kini) | Jumlah Selisih |
 | --- | :---: | :---: | :---: | :---: | :---: |
 | `archicad_bim_curtainwall.ifc` | `3 → 3` | `1950.02 → 1950.02` | `84.7% → 84.7%` | `33.86 → 33.86` | **0** |
-| `Honeybee_MultiZone_Office_3F.hbjson` | `3 → 3` | `240.00 → 240.00` | `20.0% → 20.0%` | `10.40 → 10.40` | **0** |
 | `fasad_unitized_24lantai.3dm` | `18 → 9` | `9439.03 → 9421.80` | `73.7% → 74.7%` | `22.25 → 24.63` | **53** |
+| `fasad_unitized_24lantai.glb` *(baru — Fase 1b)* | `9 → 9` | `9421.80 → 9421.80` | `74.7% → 74.7%` | `24.49 → 24.49` | **0** |
+| `Honeybee_MultiZone_Office_3F.hbjson` | `3 → 3` | `240.00 → 240.00` | `20.0% → 20.0%` | `10.40 → 10.40` | **0** |
 | `Khronos_Glass_Transmission.glb` | `22 → 22` | `0.15 → 0.00` | `35.0% → 0.0%` | `8.62 → 0.00` *(error konfirmasi)* | **52** |
-| `tes objek archicad.3dm` | `3 → 3` | `1881.99 → 1885.61` | `95.7% → 95.4%` | `24.44 → 32.43` | **28** |
+| `tes objek archicad.3dm` | `3 → 3` | `1881.99 → 1885.61` | `95.7% → 95.4%` | `24.44 → 32.43` *(sementara)* | **28** |
 
-Total: **133 selisih** di 3 fixture, seluruhnya terjelaskan langsung oleh perbaikan M1–M12 di bawah ini.
+Total: **133 selisih** di 3 fixture lama (dan **0 selisih** pada 3 fixture lainnya, termasuk fixture GLB bangunan nyata baru `fasad_unitized_24lantai.glb`), seluruhnya terjelaskan langsung oleh perbaikan M1–M12 & Fase 1b di bawah ini.
 
 ---
 
@@ -77,15 +78,21 @@ Model termal Honeybee memiliki tipe permukaan eksplisit (`HB_Opaque_Walls`, `HB_
 
 ---
 
-### 5. `tes objek archicad.3dm` — **28 selisih** (M2, M3, M5, M7)
-1. **Penghapusan geometri karangan dari Brep tanpa render mesh (`bbox.span`: `[23.18, 27.72, 40.50]` → `[20.00, 25.00, 38.50]`) — penyebab M3:**
-   - Pada baseline, `tes objek archicad.3dm` memiliki ratusan/ribuan face Brep tanpa render mesh (`Insulation - Fiberglass`: 234 face Brep; `Metal - Aluminium`: 19.552 face Brep) yang sebelumnya di-tessellate paksa dari `UnderlyingSurface` tak terpotong sehingga membentuk bidang-bidang raksasa yang mencuat 1,5–3 m keluar bangunan.
-   - Setelah M3, seluruh permukaan tanpa render mesh tidak lagi dikarang dan dicatat di `audit.missing_mesh` (2 entri dengan instruksi ekspor Rhino). Dimensi bbox bangunan langsung kembali bersih tepat ke ukuran arsitektural aslinya **`20.0 m × 25.0 m × 38.5 m`**, `slivers_removed` turun `2510 → 2028` (`-482`), face `Glass - Clear Fast` terkoreksi `3934 → 3900` (`-34`), dan face `Insulation - Fiberglass` terkoreksi `2640 → 1170` (`-1470` face karangan hilang).
-2. **Pelestarian penuh geometri rangka tanpa stride destruktif (`Finish - Wall :: Metal - Aluminium`: `78.577 → 156.832` face) — penyebab M5:**
+### 5. `tes objek archicad.3dm` — **28 selisih** (M2, M3, M5, M7, Fase 1b)
+1. **Penghapusan tessellasi `UnderlyingSurface` untuk Brep tanpa render mesh (`bbox.span`: `[23.18, 27.72, 40.50]` → `[20.00, 25.00, 38.50]`) — penyebab M3:**
+   - Pada baseline, `tes objek archicad.3dm` memiliki **19.552 face Brep rangka aluminium (`Finish - Wall :: Metal - Aluminium`)** dan **234 face Brep dinding insulasi (`Finish - Wall :: Insulation - Fiberglass`)** yang tidak menyimpan render mesh. Sebelumnya sistem memaksa tessellasi dari `UnderlyingSurface` tak terpotong sehingga menghasilkan bidang-bidang karangan yang mencuat 1,5–3 m keluar bangunan.
+   - Setelah M3, seluruh **19.786 face Brep tanpa render mesh** (termasuk 19.552 face Brep rangka aluminium) **kini tidak ikut dihitung** dan dicatat ke `audit.missing_mesh` (2 entri dengan instruksi ekspor Rhino: tampilkan `Shaded` lalu `Save` tanpa `SaveSmall`, atau jalankan perintah `Mesh`). Dimensi bbox geometri yang memiliki render mesh kembali tepat ke **`20.0 m × 25.0 m × 38.5 m`**, `slivers_removed` turun `2510 → 2028` (`-482`), face `Glass - Clear Fast` terkoreksi `3934 → 3900` (`-34`), dan face `Insulation - Fiberglass` terkoreksi `2640 → 1170` (`-1470`).
+2. **Pelestarian penuh geometri rangka yang sudah memiliki mesh tanpa stride destruktif (`Finish - Wall :: Metal - Aluminium`: `78.577 → 156.832` face) — penyebab M5:**
    - Sebelumnya grup dengan >80.000 face dipotong setengahnya secara permanen oleh stride destruktif pada tahap load. Kini seluruh `156.832` face mesh asli yang memiliki render mesh tetap utuh (stride hanya diterapkan untuk mesh raycast internal).
 3. **Koreksi kategori `Finish - Wall :: Insulation - Fiberglass` (`spandrel → wall`) — penyebab M7:**
    - Token `insulation` hanya diklasifikasikan sebagai `spandrel` bila berada dalam konteks curtain wall (`IfcCurtainWall` / `curtainwall`). Karena objek ini berada di layer `Finish - Wall`, klasifikasi per token menetapkannya secara akurat sebagai **`wall`** (`outer_area[spandrel]: 81.73 → 0.0`, `outer_area[wall]: 0.0 → 85.79 m²`).
 4. **Koreksi `z_ground_offset_m` (`-1.05 m → +0.05 m`) — penyebab M2 & M3:**
    - Menghilangnya permukaan Brep karangan yang menjulur di bawah dasar bangunan dan perhitungan Z0 berbasis selubung mengembalikan offset tanah ke `+0.05 m`.
-5. **Kenaikan OTTV (`24.44 → 32.43 W/m²`, terutama arah U `16.07 → 31.60`, T `24.67 → 30.41`, B `47.69 → 59.18`) — penyebab M3:**
-   - Pada baseline, bidang-bidang Brep `UnderlyingSurface` karangan yang mencuat keluar bangunan bertindak sebagai "peneduh raksasa palsu" yang memblokir radiasi matahari ke kaca fasad Utara, Timur, dan Barat. Setelah bidang karangan tersebut tidak lagi dibuat (M3), paparan radiasi matahari pada fasad kaca dengan WWR 95.4% mencerminkan geometri nyata bangunan (`32.43 W/m²`).
+5. **Kenaikan OTTV (`24.44 → 32.43 W/m²`, arah U `16.07 → 31.60`, T `24.67 → 30.41`, B `47.69 → 59.18`) bersifat SEMENTARA (`summary.is_provisional = True`) — penyebab M3 & Fase 1b:**
+   - Kenaikan OTTV ini terjadi karena **19.552 face Brep rangka aluminium** (dan 234 face Brep insulasi) yang tidak memiliki render mesh kini tidak lagi ikut dihitung (`audit.missing_mesh`), sehingga selain menghilangkan bidang `UnderlyingSurface` karangan yang dulu memblokir cahaya secara berlebihan, sebagian geometri peneduh/rangka aluminium asli yang belum memiliki render mesh juga belum terhitung dalam simulasi pembayangan.
+   - Oleh karena itu, angka OTTV **`32.43 W/m²` bersifat sementara (`summary.is_provisional = True`, `summary.warnings` memuat kode `MISSING_MESH`)** sampai file `.3dm` sumber disimpan ulang dari Rhino dengan render mesh lengkap (mode `Shaded` → `Save`, bukan `SaveSmall`, atau konversi `Mesh`).
+
+---
+
+### 6. `fasad_unitized_24lantai.glb` *(Fixture Baru — Fase 1b)* — **0 selisih**
+Fixture GLB bangunan nyata (24 lantai, Y-Up, satuan meter, 9 grup dengan material kaca PBR `alphaMode="BLEND"`) yang diekspor dari `fasad_unitized_24lantai.3dm` melalui `trimesh`. Menghasilkan luas selubung **`9421.80 m²`**, WWR **`74.7%`**, dan OTTV **`24.49 W/m²`**, serta di-snapshot ke `fixtures/baseline.json` tanpa mengubah baseline 5 fixture sebelumnya.
