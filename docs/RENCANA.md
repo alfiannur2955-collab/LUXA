@@ -589,9 +589,30 @@ Pintasan tidak aktif saat fokus di input. Semua bisa dipakai dengan keyboard.
 Catat di docs/CHANGELOG-fase4.md. Commit per fitur.
 ```
 
+### Review Fase 4b-1 (22 Nov 2026)
+
+Branch `fase-4b1-kamera` (7 commit, terakhir `6e013fc`). Kali ini uji klik dilakukan sungguhan: aplikasi dijalankan di mesin uji dengan browser tanpa layar, contoh "Kotak 4 lantai" dibawa dari Unggah sampai Hasil. Tangkapan layarnya ada di `corpus/_review_4b1/` (folder di-.gitignore). Hasilnya **lolos dengan catatan**: boleh di-merge, dan perbaikan R1 sampai R5 dikerjakan di awal 4b-2.
+
+**Yang sudah beres**
+
+- pytest 134/134 hijau (tes baru round-trip `saved_views`), `vite build` berhasil.
+- P1 sampai P3 dari review 4a selesai: peluncur mencari Node.js dan memberi pesan Indonesia, judul jadi LUXA; nama grup jadi tombol; label "24 lantai" dihapus.
+- Alur Unggah, Konfirmasi (kartu kaca, gerbang "Pilih isi model dulu"), Inspeksi, dan Hasil berjalan. OTTV contoh kotak 20,43 W/m², per arah U 18,57 / T 21,08 / S 14,76 / B 24,80, sama dengan hitungan analitis.
+- Pintasan 1 sampai 4 mengganti proyeksi dengan toast; pie menu tahan V muncul dengan 8 arah + Atas; Ctrl K membuka palet berisi proyeksi, tampak, capture, grup, panel, tema; tombol ? membuka daftar pintasan; sakelar tema gelap bekerja; gizmo sumbu berputar mengikuti kamera.
+
+**Perbaikan (kerjakan di awal 4b-2)**
+
+| # | Temuan | Perbaikan |
+| --- | --- | --- |
+| R1 (bug) | RTTV selalu tertulis "tidak dihitung, tidak ada atap". `steps/results.js` memeriksa `rttv.has_roof`, padahal engine mengirim `rttv.applicable`. Contoh kotak seharusnya RTTV 4,64 W/m² (atap 600 m²). | Pakai `rttv.applicable`, tampilkan RTTV + status batas 10 W/m². Tambahkan tes frontend atau tes API yang memastikan field yang dibaca UI ada di respons. |
+| R2 | Tema gelap: model di viewer hampir tak terlihat (heatmap `heat-0` gelap `#3a3122` di atas latar viewer gelap). Di tema terang, fasad yang warnanya sama juga terlihat datar. | Tambahkan garis tepi elemen (`EdgesGeometry`, warna `line-strong`, tipis) di semua mode, dan pastikan beda terang antara latar viewer dan `heat-0` minimal 1,5:1 di kedua tema. |
+| R3 | Toast ("Proyeksi: Aksonometri") muncul di kanan bawah dan menutupi tombol Unduh di kolom samping. | Pindahkan toast ke tengah bawah viewer, di atas pil bawah. |
+| R4 | Kartu Konfirmasi menulis "Sekitar 5 lantai dengan tinggi 3,6 m" untuk contoh yang namanya "Kotak 4 lantai" (tinggi lantai sebenarnya 4 m). | Ambil jumlah lantai dari deteksi pita lantai engine bila ada (`floor_detection_method`, `estimated_floors`), sebutkan tinggi lantai hasil deteksi, dan bila hanya tebakan tinggi/3,6 tulis "perkiraan" dengan tombol Ubah. |
+| R5 | Kamera awal terlalu dekat: model terpotong di tepi dan tertutup Kartu Konfirmasi. | "Pas ke model" memperhitungkan panel yang menutupi viewer (kartu kaca, pil, kolom) dan memberi margin 10%. |
+
 ```text
 PROMPT FASE 4b-2 (analisis di viewer):
-Branch fase-4b2-analisis dari main setelah 4b-1 di-merge. Baca docs/FASE4_UI_SPEC.md bagian 4.2 sampai 4.6, 7 butir 2-4, dan mockup 3, 4, 6.
+Commit dulu docs/RENCANA.md bila ada perubahan. Merge fase-4b1-kamera ke main, lalu branch fase-4b2-analisis dari main. Baca docs/RENCANA.md bagian 'Review Fase 4b-1' dan kerjakan R1 sampai R5 lebih dulu (commit 'fase-4b2: perbaikan review 4b-1'). Setelah itu baca docs/FASE4_UI_SPEC.md bagian 4.2 sampai 4.6, 7 butir 2-4, dan mockup 3, 4, 6.
 Kerjakan baris '4b-2' tabel bagian 10: seleksi panel (klik, Shift+klik, klik area kosong melepas), label nilai HTML kaca di titik klik, kartu Bidang terpilih, sakelar Heatmap per arah / per panel, mode Orientasi, Kejanggalan, X-ray, kubah matahari dengan skala 50-200% dan Pas ke model, kompas utara yang bisa diputar + chip Hitung ulang, filter paparan matahari + endpoint GET /api/analyses/{id}/exposure + animasi satu hari, pil rumus yang bisa digeser dan dibuka.
 Uji dengan corpus/real/Facade only to Alfian.3dm: panel kaca Barat 56,44 W/m2 kontribusi, porsi panas kaca Barat sekitar 32%, filter 23 Sep 13.00 menyalakan Barat dan tidak menyalakan Selatan.
 Catat di docs/CHANGELOG-fase4.md. Commit per fitur.
