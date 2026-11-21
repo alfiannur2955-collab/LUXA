@@ -147,6 +147,24 @@ def test_synthetic_case_against_analytical_expected(case_id: str, fmt: str, case
                 f"{case_id}.{fmt}: orientasi tak terduga {code} memiliki luas {row['total_area_m2']} m2"
             )
 
+    # 2b. K3: avg_sc_effective harus dalam [0, 1], dan cocok dengan manual_calc.sc bila 1 kombinasi
+    assert 0.0 <= float(res["summary"]["avg_sc_effective"]) <= 1.0, (
+        f"{case_id}.{fmt}: summary.avg_sc_effective={res['summary']['avg_sc_effective']} di luar [0, 1]"
+    )
+    manual_rows_by_code: Dict[str, List[Dict[str, Any]]] = {}
+    for mr in res.get("manual_calc_rows", []):
+        manual_rows_by_code.setdefault(mr["orientation_code"], []).append(mr)
+    for code, row in by_code.items():
+        sc_o = float(row["avg_sc_effective"])
+        assert 0.0 <= sc_o <= 1.0, f"{case_id}.{fmt} {code}: avg_sc_effective={sc_o} di luar [0, 1]"
+        if float(row["glazing_area_m2"]) <= 1e-4:
+            assert sc_o == 0.0, f"{case_id}.{fmt} {code}: tanpa kaca, avg_sc_effective harus 0.0, dapat {sc_o}"
+        elif len(manual_rows_by_code.get(code, [])) == 1:
+            mc_sc = float(row["manual_calc"]["sc"])
+            assert abs(sc_o - mc_sc) <= 1e-3, (
+                f"{case_id}.{fmt} {code}: avg_sc_effective={sc_o:.4f} != manual_calc.sc={mc_sc:.4f}"
+            )
+
     # 3. Total OTTV
     act_ottv = float(res["ottv_total_wm2"])
     exp_ottv = float(exp["ottv_total_wm2"])

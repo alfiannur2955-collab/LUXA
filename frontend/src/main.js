@@ -1555,7 +1555,7 @@ function updateChartsAndOrientationTable(data) {
           <td class="py-1 pr-1 font-bold">${r.code} <span class="opacity-60 font-normal">(${r.name_id})</span></td>
           <td class="py-1 px-1 text-right">${r.total_area_m2.toFixed(1)}</td>
           <td class="py-1 px-1 text-right">${r.sni_sf_wm2}</td>
-          <td class="py-1 px-1 text-right">${r.avg_sc_effective.toFixed(2)}</td>
+          <td class="py-1 px-1 text-right">${r.glazing_area_m2 > 0 ? Number(r.avg_sc_effective || 0).toFixed(3) : '—'}</td>
           <td class="py-1 pl-1 text-right font-bold ${
             over ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-400'
           }">${r.ottv_orientation_wm2.toFixed(2)}</td>

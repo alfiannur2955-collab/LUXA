@@ -2643,7 +2643,7 @@ def analyze_building_ottv(
             ofb["wall_area_m2"] += area * (1.0 - wwr_k)
             ofb["glazing_area_m2"] += area * wwr_k
             ofb["_sum_sf_area"] += p["sf_wm2"] * area
-            ofb["_sum_sc_eff_area"] += sc_eff * (area * wwr_k if wwr_k > 1e-4 else area)
+            ofb["_sum_sc_eff_area"] += sc_eff * (area * wwr_k)
             ofb["_sum_q_wall_w"] += q_wall_wm2 * area
             ofb["_sum_q_glass_w"] += q_glass_cond_wm2 * area
             ofb["_sum_q_solar_w"] += q_solar_wm2 * area
@@ -2669,7 +2669,7 @@ def analyze_building_ottv(
             b["wall_area_m2"] += wal_a
             b["glazing_area_m2"] += glz_a
             b["_sum_sf_area"] += p["sf_wm2"] * area
-            b["_sum_sc_eff_area"] += sc_eff * (glz_a if glz_a > 1e-4 else area)
+            b["_sum_sc_eff_area"] += sc_eff * glz_a
             b["_sum_sc_k_area"] += sc_1_k * glz_a
             b["_sum_sc_sh_area"] += sc_mult * glz_a
             b["_sum_r1_area"] += float(panel_r1_arr[idx]) * glz_a
@@ -2786,7 +2786,7 @@ def analyze_building_ottv(
         if a_tot > 1e-4:
             wwr_o = a_glz / a_tot
             avg_sf = b["_sum_sf_area"] / a_tot
-            avg_sc = b["_sum_sc_eff_area"] / (a_glz if a_glz > 1e-4 else a_tot)
+            avg_sc = (b["_sum_sc_eff_area"] / a_glz) if a_glz > 1e-4 else 0.0
             avg_sck = b["_sum_sc_k_area"] / a_glz if a_glz > 1e-4 else 0.0
             avg_sc_sh = b["_sum_sc_sh_area"] / a_glz if a_glz > 1e-4 else 1.0
             avg_r1 = b["_sum_r1_area"] / a_glz if a_glz > 1e-4 else 0.0
@@ -3047,7 +3047,11 @@ def analyze_building_ottv(
 
     active_panels_iter = [p for p in panel_records if p["active"]]
     avg_sf_bldg = sum(p["sf_wm2"] * p["area_m2"] for p in active_panels_iter) / denom_a
-    avg_sc_bldg = sum(p["sc_effective"] * p["area_m2"] for p in active_panels_iter) / denom_a
+    avg_sc_bldg = (
+        sum(p["sc_effective"] * (p["area_m2"] * p["wwr_panel"]) for p in active_panels_iter) / total_glazing_area
+        if total_glazing_area > 1e-4
+        else 0.0
+    )
     avg_sh_bldg = sum(p["shaded_fraction"] * p["area_m2"] for p in active_panels_iter) / denom_a
 
     # Compute Smooth Facade Composite OTTV (`ottv_composite_wm2`) per panel so the 3D thermal
@@ -3069,7 +3073,11 @@ def analyze_building_ottv(
             bin_sc_sum[fl_i, b_idx] += p["sc_shading_multiplier"] * p["area_m2"]
             bin_sc_cnt[fl_i, b_idx] += p["area_m2"]
 
-    default_sc_mult = max(0.30, avg_sc_bldg / max(0.08, sc_1_glob))
+    default_sc_mult = (
+        max(0.30, avg_sc_bldg / max(0.08, sc_1_glob))
+        if total_glazing_area > 1e-4
+        else 1.0
+    )
     bin_sc_avg = np.where(bin_sc_cnt > 1e-4, bin_sc_sum / np.maximum(1e-6, bin_sc_cnt), default_sc_mult)
     # Circular smoothing along azimuth & vertical smoothing across adjacent floors
     bin_sc_smooth = (
@@ -3141,7 +3149,7 @@ def analyze_building_ottv(
             if a_tot > 1e-4:
                 wwr_of = a_glz / a_tot
                 sf_of = ofb["_sum_sf_area"] / a_tot
-                sc_of = ofb["_sum_sc_eff_area"] / (a_glz if a_glz > 1e-4 else a_tot)
+                sc_of = (ofb["_sum_sc_eff_area"] / a_glz) if a_glz > 1e-4 else 0.0
                 qw_of = ofb["_sum_q_wall_w"]
                 qg_of = ofb["_sum_q_glass_w"]
                 qs_of = ofb["_sum_q_solar_w"]
