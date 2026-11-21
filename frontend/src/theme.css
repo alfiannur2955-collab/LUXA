@@ -913,6 +913,7 @@ kbd {
   bottom: 16px;
   z-index: 14;
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: flex-end;
   gap: 8px;
@@ -932,6 +933,8 @@ kbd {
   height: 48px;
   padding: 0 6px;
   border-radius: 16px;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .pill .div {
