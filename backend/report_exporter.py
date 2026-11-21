@@ -29,11 +29,20 @@ def generate_csv_report(analysis: Dict[str, Any]) -> bytes:
     loc = analysis.get("location_info", {})
     writer.writerow(["Lokasi / Cuaca EPW", loc.get("city", "Jakarta"), "Latitude", loc.get("latitude_deg", -6.21)])
     writer.writerow(["OTTV Total Gedung (W/m2)", analysis.get("ottv_total_wm2"), "Batas SNI (W/m2)", analysis.get("sni_limit_wm2", 35.0)])
+    s = analysis.get("summary", {})
+    is_prov = bool(s.get("is_provisional", False))
+    warnings_list = s.get("warnings") or analysis.get("warnings") or []
     writer.writerow(["Status Kepatuhan", analysis.get("status_label", "-")])
+    writer.writerow(["Hasil Sementara (Provisional)", "Ya — perlu konfirmasi" if is_prov else "Tidak"])
+    if warnings_list:
+        writer.writerow([])
+        writer.writerow(["PERINGATAN / KONFIRMASI YANG DIPERLUKAN"])
+        writer.writerow(["Kode Peringatan", "Keterangan"])
+        for w in warnings_list:
+            writer.writerow([w.get("code", "WARNING"), w.get("message", "")])
     writer.writerow([])
 
     # Summary metrics
-    s = analysis.get("summary", {})
     writer.writerow(["RINGKASAN SELUBUNG BANGUNAN"])
     writer.writerow(["Total Bidang Terdeteksi", s.get("total_detected_panels", s.get("panel_count", 0))])
     writer.writerow(["Bidang Sisi Luar Aktif Dihitung", s.get("active_panel_count", s.get("panel_count", 0))])
@@ -792,23 +801,38 @@ def generate_excel_report(analysis: Dict[str, Any]) -> bytes:
     ws_sum["G20"].fill = pupr_amber
     ws_sum["G20"].border = bdr_thin
 
+    is_prov_xl = bool(s.get("is_provisional", False))
+    warnings_xl = s.get("warnings") or analysis.get("warnings") or []
+
     ws_sum["F21"] = "COMPLY? (KEPATUHAN SNI 6389:2020)"
     ws_sum["F21"].font = f_bold
-    ws_sum["G21"] = '=IF(H18<=35,"YES","NO")'
-    ws_sum["G21"].font = f_comply
-    ws_sum["G21"].fill = pupr_tot
+    if is_prov_xl:
+        ws_sum["G21"] = "HASIL SEMENTARA — perlu konfirmasi"
+        ws_sum["G21"].font = f_bold
+        ws_sum["G21"].fill = pupr_amber
+    else:
+        ws_sum["G21"] = '=IF(H18<=35,"YES","NO")'
+        ws_sum["G21"].font = f_comply
+        ws_sum["G21"].fill = pupr_tot
     ws_sum["G21"].border = bdr_tot
     ws_sum["G21"].alignment = Alignment(horizontal="center")
 
-    # Row 23: Official PUPR Narrative Conclusion
+    # Row 23: Narrative Conclusion
     ws_sum.merge_cells("B23:H24")
-    ws_sum["B23"] = (
-        '="Perhitungan OTTV pada bangunan gedung ini memperoleh nilai sebesar " & ROUND(H18,2) & '
-        '" Watt/m2 dan " & IF(H18<=35,"telah memenuhi","belum memenuhi") & '
-        '" standar SNI 6389:2020 tentang Konservasi Energi Selubung Bangunan pada Bangunan Gedung '
-        '(Batas Maksimal 35 Watt/m2)."'
-    )
-    ws_sum["B23"].fill = pupr_calc
+    if is_prov_xl:
+        ws_sum["B23"] = (
+            '="HASIL SEMENTARA — perlu konfirmasi: Perhitungan OTTV memperoleh nilai sementara sebesar " '
+            '& ROUND(H18,2) & " Watt/m2. Mohon selesaikan peringatan pada tabel di bawah sebelum menyatakan kepatuhan SNI 6389:2020."'
+        )
+        ws_sum["B23"].fill = pupr_amber
+    else:
+        ws_sum["B23"] = (
+            '="Perhitungan OTTV pada bangunan gedung ini memperoleh nilai sebesar " & ROUND(H18,2) & '
+            '" Watt/m2 dan " & IF(H18<=35,"telah memenuhi","belum memenuhi") & '
+            '" standar SNI 6389:2020 tentang Konservasi Energi Selubung Bangunan pada Bangunan Gedung '
+            '(Batas Maksimal 35 Watt/m2)."'
+        )
+        ws_sum["B23"].fill = pupr_calc
     ws_sum["B23"].font = f_bold
     ws_sum["B23"].alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
@@ -854,6 +878,31 @@ def generate_excel_report(analysis: Dict[str, Any]) -> bytes:
         ws_sum[f"{c_l}36"].fill = pupr_tot
         ws_sum[f"{c_l}36"].font = f_bold
         ws_sum[f"{c_l}36"].border = bdr_tot
+
+    if warnings_xl:
+        ws_sum.merge_cells("B38:H38")
+        ws_sum["B38"] = "PERINGATAN / KONFIRMASI YANG DIPERLUKAN (STATUS SEMENTARA)"
+        ws_sum["B38"].fill = pupr_amber
+        ws_sum["B38"].font = f_bold
+        ws_sum["B39"] = "Kode"
+        ws_sum["B39"].fill = pupr_sub
+        ws_sum["B39"].font = f_tbl_hdr
+        ws_sum["B39"].border = bdr_thin
+        ws_sum.merge_cells("C39:H39")
+        ws_sum["C39"] = "Keterangan Peringatan"
+        ws_sum["C39"].fill = pupr_sub
+        ws_sum["C39"].font = f_tbl_hdr
+        ws_sum["C39"].border = bdr_thin
+        for idx_warn, w in enumerate(warnings_xl, start=40):
+            ws_sum[f"B{idx_warn}"] = str(w.get("code", "WARNING"))
+            ws_sum[f"B{idx_warn}"].font = f_bold
+            ws_sum[f"B{idx_warn}"].border = bdr_thin
+            ws_sum.merge_cells(f"C{idx_warn}:H{idx_warn}")
+            ws_sum[f"C{idx_warn}"] = str(w.get("message", ""))
+            ws_sum[f"C{idx_warn}"].font = f_reg
+            ws_sum[f"C{idx_warn}"].alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            for c_l in ("C", "D", "E", "F", "G", "H"):
+                ws_sum[f"{c_l}{idx_warn}"].border = bdr_thin
 
     for col_l, w_val in [("A", 3), ("B", 28), ("C", 28), ("D", 28), ("E", 28), ("F", 30), ("G", 24), ("H", 22)]:
         ws_sum.column_dimensions[col_l].width = w_val
@@ -1066,6 +1115,26 @@ def generate_pdf_report(analysis: Dict[str, Any]) -> bytes:
         ])
     )
     elements.append(t_sum)
+
+    warnings_pdf = s.get("warnings") or analysis.get("warnings") or []
+    if warnings_pdf:
+        elements.append(Paragraph("Peringatan / Konfirmasi yang Diperlukan (Hasil Sementara)", sec_style))
+        w_rows = [["Kode", "Keterangan Peringatan"]]
+        for w in warnings_pdf:
+            w_rows.append([str(w.get("code", "WARNING")), Paragraph(str(w.get("message", "")), sub_style)])
+        t_warn = Table(w_rows, colWidths=[45 * mm, 220 * mm], repeatRows=1)
+        t_warn.setStyle(
+            TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#B45309")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#F59E0B")),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#FFFBEB")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ])
+        )
+        elements.append(t_warn)
 
     # 2. 8-Orientation Table
     elements.append(Paragraph("2. Tabel Perhitungan 8 Orientasi Kompas (SNI 6389:2020)", sec_style))

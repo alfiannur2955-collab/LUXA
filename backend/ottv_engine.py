@@ -73,12 +73,12 @@ ORIENTATION_BASE_SF: Dict[str, float] = {item[1]: item[3] for item in SNI_SF_ANC
 @dataclass
 class EnvelopeParameters:
     """Parametric envelope thermal, material, floor section, and climate settings."""
-    # Stage 1: Universal Geometry, Unit & Axis Normalization + v5.0 Intake Profile
-    source_software: str = "archicad"
+    # Stage 1: Universal Geometry, Unit & Axis Normalization
     unit_mode: str = "auto"  # 'auto' | 'm' | 'cm' | 'mm' | 'ft' | 'in'
     up_axis: str = "auto"    # 'auto' | 'Z' | 'Y'
     z_ground_cutoff_m: float = 0.0  # Ground plane Z0 cutoff (excludes basement faces below Z0)
     restore_filtered: List[str] = field(default_factory=list)  # M4/M6: IDs of filtered_items to restore
+    calculation_mode: str = "simulasi"  # 'sni' | 'simulasi'
 
     # Stage 2: 3-Tier Sub-Element Decomposer & 6-Role Envelope Classification
     auto_split_merged_cw: bool = False
@@ -96,8 +96,7 @@ class EnvelopeParameters:
     section_floor_min: Optional[int] = None
     section_floor_max: Optional[int] = None
 
-    # Stage 4: Layer-Bound Material Assignment & Orientation Overrides
-    use_global_slider_override: bool = False
+    # Stage 4: Layer-Bound Material Assignment & Orientation Overrides (resolved via config_schema.resolve_material)
     orientation_material_overrides: Dict[str, str] = field(default_factory=dict)
 
     # Opaque wall / spandrel parameters
@@ -1376,16 +1375,11 @@ def analyze_building_ottv(
         tilt_arr = np.degrees(np.arccos(np.clip(normals_v[:, 2], -1.0, 1.0)))
 
         group_disabled = rg.group_name in params.disabled_groups
-        # STAGE 4: Resolve per-group bound material (with smart initial suggestion)
-        suggested_mat_id = suggest_material_id_for_group(
-            group_name=rg.group_name,
-            category=eff_cat,
-            default_glazing_id=params.glazing_material_id,
-            default_wall_id=params.wall_material_id,
-            default_frame_id=params.frame_material_id,
-        )
-        group_mat_id = params.group_material_map.get(rg.group_name, suggested_mat_id)
-        group_mat = get_material_by_id(group_mat_id)
+        # STAGE 4: Resolve per-group material via single canonical resolve_material()
+        from config_schema import resolve_material
+        resolved_grp = resolve_material(rg, params, category=eff_cat)
+        group_mat_id = resolved_grp["material_id"]
+        group_mat = resolved_grp["material"]
         mat_name = group_mat["name"] if group_mat else (
             glz_mat["name"] if eff_cat == "glazing" and glz_mat else (wal_mat["name"] if wal_mat else "Default SNI")
         )
@@ -1464,25 +1458,19 @@ def analyze_building_ottv(
             orient_code = classify_sni_orientation(az_val)
             sf_val = interpolate_sni_solar_factor(az_val, tilt_val, sf_mult)
 
-            # Resolve panel material (respecting per-face override category if changed from group default)
-            eff_panel_mat_id = group_mat_id
-            eff_panel_mat_name = mat_name
-            if panel_cat != eff_cat and panel_cat in ("glazing", "spandrel", "wall", "composite_cw"):
-                eff_panel_mat_id = suggest_material_id_for_group(
-                    group_name=rg.group_name,
-                    category=panel_cat,
-                    default_glazing_id=params.glazing_material_id,
-                    default_wall_id=params.wall_material_id,
-                    default_frame_id=params.frame_material_id,
+            # Resolve panel material via single canonical resolve_material()
+            if panel_cat != eff_cat or orient_code in params.orientation_material_overrides:
+                res_pm = resolve_material(
+                    rg,
+                    params,
+                    category=panel_cat if panel_cat in ("glazing", "spandrel", "wall", "composite_cw") else eff_cat,
+                    orientation_code=orient_code,
                 )
-                pm_obj = get_material_by_id(eff_panel_mat_id)
-                eff_panel_mat_name = pm_obj["name"] if pm_obj else mat_name
-            if panel_cat in ("glazing", "composite_cw") and orient_code in params.orientation_material_overrides:
-                ov_id = params.orientation_material_overrides[orient_code]
-                ov_mat = get_material_by_id(ov_id)
-                if ov_mat:
-                    eff_panel_mat_id = ov_id
-                    eff_panel_mat_name = ov_mat["name"]
+                eff_panel_mat_id = res_pm["material_id"]
+                eff_panel_mat_name = res_pm["material"]["name"] if res_pm["material"] else mat_name
+            else:
+                eff_panel_mat_id = group_mat_id
+                eff_panel_mat_name = mat_name
 
             if is_below_ground:
                 verif_label = "Basement (< Z0)"
@@ -1805,17 +1793,11 @@ def analyze_building_ottv(
         if p["is_outer"]:
             total_outer_panels += 1
 
-        # Resolve per-group / per-orientation material parameters (unless global slider override is forced)
+        # Resolve per-group / per-orientation material parameters (no global slider override)
         g_mat = get_material_by_id(p["material_id"])
         cat = p["element_type"]
 
-        if params.use_global_slider_override:
-            u_f_k = float(params.u_fenestration)
-            sc_1_k = float(params.sc_glass)
-            u_w_k = float(params.u_wall)
-            alpha_k = float(params.alpha_wall)
-            tdek_k = float(params.td_ek)
-        elif cat in ("glazing", "composite_cw"):
+        if cat in ("glazing", "composite_cw"):
             u_f_k = float(g_mat["u_value"]) if (g_mat and g_mat["category"] == "glazing") else float(glz_mat["u_value"] if glz_mat else params.u_fenestration)
             sc_1_k = float(g_mat["sc"]) if (g_mat and g_mat.get("sc") is not None) else float(glz_mat["sc"] if glz_mat else params.sc_glass)
             u_w_k = float(wal_mat["u_value"]) if wal_mat else float(params.u_wall)
@@ -2238,6 +2220,18 @@ def analyze_building_ottv(
             },
         })
     is_provisional = len(summary_warnings) > 0
+    if is_provisional:
+        eff_status_label = "HASIL SEMENTARA — perlu konfirmasi"
+        eff_compliant = False
+    elif compliant:
+        eff_status_label = "MEMENUHI SNI 6389:2020 (<= 35 W/m²)"
+        eff_compliant = True
+    else:
+        eff_status_label = "MELEBIHI BATAS SNI 6389:2020 (> 35 W/m²)"
+        eff_compliant = False
+
+    from adapters import detect_file_signature
+    file_sig = detect_file_signature(filepath)
 
     return {
         "filename": filename,
@@ -2245,12 +2239,9 @@ def analyze_building_ottv(
         "ottv_total_wm2": ottv_total_wm2,
         "sni_limit_wm2": SNI_6389_LIMIT_WM2,
         "margin_to_limit_wm2": round(SNI_6389_LIMIT_WM2 - ottv_total_wm2, 2),
-        "compliant": bool(compliant),
-        "status_label": (
-            "MEMENUHI SNI 6389:2020 (<= 35 W/m²)"
-            if compliant
-            else "MELEBIHI BATAS SNI 6389:2020 (> 35 W/m²)"
-        ),
+        "compliant": eff_compliant,
+        "status_label": eff_status_label,
+        "warnings": summary_warnings,
         "location_info": loc_info,
         "stage1_geometry_audit": {
             "detected_unit": stage1_audit.detected_unit,
@@ -2271,7 +2262,7 @@ def analyze_building_ottv(
             "missing_mesh": stage1_audit.missing_mesh,
             "filtered_items": runtime_filtered_items,
             "exterior_detection_mode": ext_mode,
-            "source_software": params.source_software,
+            "file_signature": file_sig,
             "z_ground_cutoff_m": round(z_ground_cut, 2),
             "basement_panels_excluded": int(basement_panels_excluded),
             "bim_storeys_count": len(stage1_audit.bim_storeys),

@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.3dm binary
+*.glb binary
+*.pdf binary
+*.ifc binary

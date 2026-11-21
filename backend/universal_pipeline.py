@@ -167,6 +167,7 @@ _IGNORE_TOKENS_EN = frozenset({
 })
 _IGNORE_TOKENS = _IGNORE_TOKENS_ID | _IGNORE_TOKENS_EN
 _WALL_HEAD_TOKENS = frozenset({"dinding", "wall", "tembok", "ifcwall", "ifcwallstandardcase"})
+_ENVELOPE_INTERIOR_HEAD_TOKENS = _WALL_HEAD_TOKENS | frozenset({"kaca", "glass", "glazing", "jendela", "window"})
 _ROOF_EXPLICIT_TOKENS = frozenset({"atap", "roof", "dak", "ifcroof"})
 
 
@@ -227,12 +228,12 @@ def classify_layer_or_material_with_confidence(
         matched = sorted(all_tokens & _IGNORE_TOKENS)
         return "ignore", 0.92, f"Token non-selubung/abaikan: {', '.join(matched)}"
 
-    # 1b. Ordered Indonesian/English interior wall pattern: 'dalam'/'interior' after 'dinding'/'wall' -> ignore
-    wall_head_indices = [i for i, t in enumerate(all_tokens_seq) if t in _WALL_HEAD_TOKENS]
-    if wall_head_indices:
-        first_wall_idx = wall_head_indices[0]
-        if any(t in ("dalam", "interior") for t in all_tokens_seq[first_wall_idx + 1:]):
-            return "ignore", 0.93, "Dinding interior/dalam (bukan selubung luar)"
+    # 1b. Ordered Indonesian/English interior wall/glazing pattern: 'dalam'/'interior' after dinding/wall/kaca/glass -> ignore
+    env_head_indices = [i for i, t in enumerate(all_tokens_seq) if t in _ENVELOPE_INTERIOR_HEAD_TOKENS]
+    if env_head_indices:
+        first_head_idx = env_head_indices[0]
+        if any(t in ("dalam", "interior") for t in all_tokens_seq[first_head_idx + 1:]):
+            return "ignore", 0.93, "Elemen interior/dalam (bukan selubung luar)"
 
     # 1c. Floor slab ('pelat lantai' / 'plat lantai' / 'floor slab') -> ignore (NOT roof!)
     if not (all_tokens & _ROOF_EXPLICIT_TOKENS):
