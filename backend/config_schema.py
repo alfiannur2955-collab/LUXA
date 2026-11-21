@@ -98,6 +98,9 @@ class ModelConfig(BaseModel):
     exterior_detection_mode: Literal["auto", "raycast", "radial", "all"] = "auto"
     outer_skin_only: bool = True
     restore_filtered: List[str] = Field(default_factory=list)
+    model_scope: Optional[Literal["facade_only", "full_building", "building_site"]] = None
+    expected_floors: Optional[int] = Field(default=None, ge=1, le=200)
+    accepted_flags: List[str] = Field(default_factory=list)
 
 
 class RolesConfig(BaseModel):
@@ -226,13 +229,14 @@ class ProjectConfig(BaseModel):
 
 
 class InspectRequest(BaseModel):
-    """Body for `POST /api/models/{id}/inspect` (model + roles + optional advanced)."""
+    """Body for `POST /api/models/{id}/inspect` (model + roles + optional advanced + user_answers)."""
 
     model_config = ConfigDict(extra="ignore")
 
     model: ModelConfig = Field(default_factory=ModelConfig)
     roles: RolesConfig = Field(default_factory=RolesConfig)
     advanced: AdvancedConfig = Field(default_factory=AdvancedConfig)
+    user_answers: Dict[str, Any] = Field(default_factory=dict)
 
 
 def _clean_choice(val: Any, allowed: tuple[str, ...], default: str) -> str:
