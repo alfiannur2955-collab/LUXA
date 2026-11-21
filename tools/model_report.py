@@ -284,7 +284,7 @@ def evaluate_target(target: Dict[str, Any]) -> Dict[str, Any]:
 
     if audit1 is not None and raw_groups is not None:
         row["kernel"] = audit1.geometry_kernel
-        row["unit_detected"] = audit1.detected_unit
+        row["unit_detected"] = audit1.detected_unit if audit1.detected_unit is not None else "tidak ada di file"
         row["unit_applied"] = audit1.applied_unit
         row["unit_source"] = audit1.unit_source
         row["up_axis"] = audit1.applied_up_axis

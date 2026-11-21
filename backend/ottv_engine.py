@@ -3390,6 +3390,7 @@ def analyze_building_ottv(
         "location_info": loc_info,
         "stage1_geometry_audit": {
             "detected_unit": stage1_audit.detected_unit,
+            "detected_unit_label": stage1_audit.detected_unit if stage1_audit.detected_unit is not None else "tidak ada di file",
             "applied_unit": stage1_audit.applied_unit,
             "scale_factor_to_m": stage1_audit.scale_factor_to_m,
             "unit_source": stage1_audit.unit_source,

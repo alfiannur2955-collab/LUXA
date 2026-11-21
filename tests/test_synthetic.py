@@ -197,6 +197,14 @@ def test_synthetic_case_against_analytical_expected(case_id: str, fmt: str, case
 
     # 6. Pemeriksaan khusus per kasus
     audit = res["stage1_geometry_audit"]
+    # K5: format tanpa header satuan (.obj, .glb) wajib detected_unit=None & unit_source='bbox_guess'
+    if fmt in ("obj", "glb"):
+        assert audit["detected_unit"] is None, f"{case_id}.{fmt}: detected_unit harus None, dapat {audit['detected_unit']}"
+        assert audit.get("detected_unit_label") == "tidak ada di file"
+        assert audit["unit_source"] == "bbox_guess", f"{case_id}.{fmt}: unit_source={audit['unit_source']}"
+    elif fmt in ("3dm", "ifc"):
+        assert audit["detected_unit"] in ("m", "mm", "cm", "ft", "in")
+        assert audit["unit_source"] == "header"
     if case_id == "12_brep_tanpa_mesh":
         total_missing = sum(int(m.get("face_count", 0)) for m in audit.get("missing_mesh", []))
         assert total_missing > 0, "12_brep_tanpa_mesh harus mencatat missing_mesh > 0"

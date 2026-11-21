@@ -85,7 +85,7 @@ class RawGroupMesh:
 @dataclass
 class Stage1GeometryAudit:
     """Metadata produced by Gate 1 (Geometry, Unit & Axis Normalization)."""
-    detected_unit: str = "m"
+    detected_unit: Optional[str] = None
     applied_unit: str = "m"
     scale_factor_to_m: float = 1.0
     unit_source: str = "header"  # 'header' | 'user' | 'bbox_guess'
@@ -1751,7 +1751,7 @@ def load_universal_model_stages_1_and_2(
     # ------------------------------------------------------------------------
     elif ext == ".obj":
         audit.geometry_kernel = "Wavefront OBJ+MTL Parser"
-        audit.detected_unit = "m"
+        audit.detected_unit = None
         obj_buckets, mtl_transp, obj_y_up_hint = _parse_obj_with_materials(filepath)
         audit.detected_up_axis = "Y" if obj_y_up_hint else "Z"
         if obj_buckets:
@@ -1785,7 +1785,7 @@ def load_universal_model_stages_1_and_2(
     # ------------------------------------------------------------------------
     elif ext in (".glb", ".gltf", ".stl", ".ply"):
         audit.geometry_kernel = f"Trimesh SceneGraph ({ext.upper().lstrip('.')})"
-        audit.detected_unit = "m"
+        audit.detected_unit = None
         audit.detected_up_axis = "Y" if ext in (".glb", ".gltf") else "Z"
         loaded = trimesh.load(filepath, force="scene", process=False)
         if isinstance(loaded, trimesh.Scene):
@@ -1993,8 +1993,8 @@ def load_universal_model_stages_1_and_2(
             audit.notes.append(f"Koordinat IFC ({max_raw_span:.0f}) masih dalam milimeter meski header berbeda -> ditebak mm (mohon konfirmasi).")
         else:
             scale_to_m = 1.0
-            audit.applied_unit = audit.detected_unit
-            audit.scale_factor_to_m = UNIT_SCALE_TO_METERS.get(audit.detected_unit, 1.0)
+            audit.applied_unit = audit.detected_unit or "m"
+            audit.scale_factor_to_m = UNIT_SCALE_TO_METERS.get(audit.detected_unit or "m", 1.0)
             audit.unit_source = "header"
             audit.unit_needs_confirmation = False
     else:
@@ -2015,11 +2015,10 @@ def load_universal_model_stages_1_and_2(
                 audit.notes.append(f"Dimensi mentah ({max_raw_span:.0f}) ditebak sentimeter (cm) dari BBox -> mohon konfirmasi satuan.")
             else:
                 eff_unit = "m"
+                audit.unit_source = "bbox_guess"
                 if ext in (".obj", ".stl", ".ply"):
-                    audit.unit_source = "bbox_guess"
                     audit.unit_needs_confirmation = True
                 else:
-                    audit.unit_source = "header"
                     audit.unit_needs_confirmation = False
         elif eff_unit not in UNIT_SCALE_TO_METERS:
             eff_unit = "m"
@@ -2032,7 +2031,7 @@ def load_universal_model_stages_1_and_2(
         scale_to_m = UNIT_SCALE_TO_METERS[eff_unit]
         if coords_already_in_meters:
             # User manually overrode unit on an IfcOpenShell-converted model: undo original scale first
-            orig_s = UNIT_SCALE_TO_METERS.get(audit.detected_unit, 1.0)
+            orig_s = UNIT_SCALE_TO_METERS.get(audit.detected_unit or "m", 1.0)
             scale_to_m = scale_to_m / max(1e-9, orig_s)
         audit.applied_unit = eff_unit
         audit.scale_factor_to_m = round(UNIT_SCALE_TO_METERS[eff_unit], 6)
