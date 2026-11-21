@@ -2245,13 +2245,34 @@ def load_universal_model_stages_1_and_2(
         for rg in raw_groups:
             rg.vertices = rg.vertices * scale_to_m
 
-    # Ground Z zeroing + XY UTM World-Coordinate Recentering (prevents Float32 jitter on Revit/GIS models!)
+    # M2: Ground Z reference from BIM storey elevations (if available) OR envelope geometry ONLY
+    # (glazing/wall/spandrel/composite_cw) — never from trees ('unknown'), site ('ignore'), or context!
     all_v_scaled = np.vstack([rg.vertices for rg in raw_groups])
     s_min = np.min(all_v_scaled, axis=0)
     s_max = np.max(all_v_scaled, axis=0)
-    z_offset = float(s_min[2])
-    cx_raw = 0.5 * float(s_min[0] + s_max[0])
-    cy_raw = 0.5 * float(s_min[1] + s_max[1])
+
+    env_groups_for_z = [
+        rg for rg in raw_groups
+        if rg.default_category in ("glazing", "wall", "spandrel", "composite_cw") and len(rg.vertices) > 0
+    ]
+    if env_groups_for_z:
+        env_v = np.vstack([rg.vertices for rg in env_groups_for_z])
+        env_min = np.min(env_v, axis=0)
+        env_max = np.max(env_v, axis=0)
+    else:
+        env_min, env_max = s_min, s_max
+
+    if audit.bim_storeys:
+        storey_elevs = [float(st["elevation_m"]) for st in audit.bim_storeys if "elevation_m" in st]
+        non_neg = [e for e in storey_elevs if e >= -0.05]
+        z_offset = min(non_neg) if non_neg else (min(storey_elevs) if storey_elevs else float(env_min[2]))
+        z_ref_src = "BIM storey"
+    else:
+        z_offset = float(env_min[2])
+        z_ref_src = "geometri selubung"
+
+    cx_raw = 0.5 * float(env_min[0] + env_max[0])
+    cy_raw = 0.5 * float(env_min[1] + env_max[1])
     audit.z_ground_offset_m = round(z_offset, 3)
 
     if abs(z_offset) > 0.25:
@@ -2260,7 +2281,8 @@ def load_universal_model_stages_1_and_2(
         for st in audit.bim_storeys:
             st["elevation_m"] = round(st["elevation_m"] - z_offset, 3)
         s_max[2] -= z_offset
-        s_min[2] = 0.0
+        s_min[2] -= z_offset
+        audit.notes.append(f"M2: Elevasi Z dinolkan sebesar {z_offset:.3f} m berdasarkan {z_ref_src}.")
 
     if max(abs(cx_raw), abs(cy_raw)) > 500.0:
         for rg in raw_groups:
