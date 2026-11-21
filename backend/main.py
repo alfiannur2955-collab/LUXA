@@ -55,6 +55,7 @@ from ottv_engine import (
     SNI_6389_LIMIT_WM2,
     SNI_SF_ANCHORS,
     analyze_building_ottv,
+    compute_panel_exposure_for_date,
     create_sample_hbjson_preset,
     create_sample_ifc_preset,
     create_sample_obj_preset,
@@ -828,6 +829,46 @@ def analyze_model(
 
     _store_analysis_record(analysis_id, payload)
     return payload
+
+
+@app.get("/api/analyses/{analysis_id}/exposure")
+def get_analysis_exposure(
+    analysis_id: str,
+    date: str = "2026-09-23",
+    hours: Optional[str] = None,
+    north_angle_deg: Optional[float] = None,
+) -> Dict[str, Any]:
+    """
+    Computes hourly direct solar vectors (06:00..18:00) and per-panel sunlit flags
+    for a stored `analysis_id` on any date `YYYY-MM-DD`, reusing the content-hashed
+    raycast cache.
+    """
+    data = ANALYSIS_STORE.get(analysis_id)
+    if data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Analisis '{analysis_id}' tidak ditemukan atau sudah kedaluwarsa.",
+        )
+
+    parsed_hours: Optional[List[int]] = None
+    if hours:
+        try:
+            parsed_hours = [int(h.strip()) for h in hours.split(",") if h.strip()]
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Parameter 'hours' harus berupa daftar jam bulat dipisahkan koma (mis. 6,7,...,18).",
+            ) from exc
+
+    try:
+        return compute_panel_exposure_for_date(
+            analysis_data=data,
+            date_str=date,
+            hours=parsed_hours,
+            north_angle_deg=north_angle_deg,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/analyses/{analysis_id}/export/{fmt}")

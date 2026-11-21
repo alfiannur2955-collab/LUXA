@@ -294,6 +294,243 @@ def compute_solar_vectors_08_to_16(
     return solar_vectors
 
 
+def compute_solar_vectors_for_date(
+    latitude_deg: float = -6.2088,
+    date_str: str = "2026-09-23",
+    north_angle_deg: float = 0.0,
+    hours: Optional[List[int]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Computes hourly solar direction vectors (E, N, U) for any calendar date YYYY-MM-DD
+    across `hours` (default 06:00..18:00, 13 steps) using the same convention as
+    `compute_solar_vectors_08_to_16`.
+    """
+    import datetime as _dt
+
+    try:
+        parsed = _dt.date.fromisoformat(str(date_str).strip()[:10])
+    except ValueError as exc:
+        raise ValueError(f"Format tanggal tidak valid '{date_str}'. Gunakan YYYY-MM-DD.") from exc
+
+    doy = parsed.timetuple().tm_yday
+    declination_deg = 23.45 * math.sin(math.radians(360.0 * (284 + doy) / 365.0))
+    lat_rad = math.radians(float(latitude_deg))
+    dec_rad = math.radians(declination_deg)
+    north_rad = math.radians(float(north_angle_deg))
+    cos_n = math.cos(north_rad)
+    sin_n = math.sin(north_rad)
+
+    hour_list = list(hours) if hours else list(range(6, 19))
+    solar_vectors: List[Dict[str, Any]] = []
+    for hour in hour_list:
+        h_val = float(hour)
+        hour_angle_deg = (h_val - 12.0) * 15.0
+        omega_rad = math.radians(hour_angle_deg)
+
+        sin_alt = (
+            math.sin(lat_rad) * math.sin(dec_rad)
+            + math.cos(lat_rad) * math.cos(dec_rad) * math.cos(omega_rad)
+        )
+        sin_alt = max(-1.0, min(1.0, sin_alt))
+        alt_rad = math.asin(sin_alt)
+        alt_deg = math.degrees(alt_rad)
+        above_horizon = alt_deg > 0.5
+
+        sx0 = -math.cos(dec_rad) * math.sin(omega_rad)
+        sy0 = (
+            math.cos(lat_rad) * math.sin(dec_rad)
+            - math.sin(lat_rad) * math.cos(dec_rad) * math.cos(omega_rad)
+        )
+        sz0 = sin_alt
+
+        sx = sx0 * cos_n + sy0 * sin_n
+        sy = -sx0 * sin_n + sy0 * cos_n
+        sz = sz0
+
+        norm = math.sqrt(sx * sx + sy * sy + sz * sz)
+        if norm > 1e-9:
+            vx, vy, vz = sx / norm, sy / norm, sz / norm
+        else:
+            vx, vy, vz = 0.0, 0.0, 1.0
+
+        az_deg = (math.degrees(math.atan2(vx, vy))) % 360.0
+        h_int = int(round(h_val))
+        solar_vectors.append({
+            "hour": h_int,
+            "time_label": f"{h_int:02d}:00",
+            "altitude_deg": round(alt_deg, 2),
+            "azimuth_deg": round(az_deg, 2),
+            "above_horizon": above_horizon,
+            "vector": [round(vx, 5), round(vy, 5), round(vz, 5)],
+        })
+
+    return solar_vectors
+
+
+_EXPOSURE_CACHE: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+
+
+def _build_obstruction_tris_from_analysis(analysis_data: Dict[str, Any]) -> np.ndarray:
+    """Reconstructs obstruction triangles (envelope + shading + frame + roof) for exposure raycast."""
+    chunks: List[np.ndarray] = []
+
+    panel_tris: List[List[List[float]]] = []
+    for p in analysis_data.get("panels") or []:
+        if not p.get("active"):
+            continue
+        vs = p.get("vertices") or []
+        if len(vs) < 3:
+            continue
+        panel_tris.append([vs[0], vs[1], vs[2]])
+        if len(vs) >= 4:
+            panel_tris.append([vs[0], vs[2], vs[3]])
+    if panel_tris:
+        chunks.append(np.array(panel_tris, dtype=np.float64))
+
+    for key in ("shading_elements", "frame_elements", "roof_elements"):
+        for el in analysis_data.get(key) or []:
+            verts = el.get("vertices")
+            faces = el.get("faces")
+            if not verts or not faces:
+                continue
+            v_arr = np.asarray(verts, dtype=np.float64)
+            f_arr = np.asarray(faces, dtype=np.int64)
+            if v_arr.ndim != 2 or f_arr.ndim != 2 or f_arr.shape[1] < 3:
+                continue
+            valid = (
+                (f_arr[:, 0] >= 0) & (f_arr[:, 0] < len(v_arr))
+                & (f_arr[:, 1] >= 0) & (f_arr[:, 1] < len(v_arr))
+                & (f_arr[:, 2] >= 0) & (f_arr[:, 2] < len(v_arr))
+            )
+            if np.any(valid):
+                fv = f_arr[valid]
+                chunks.append(np.stack([v_arr[fv[:, 0]], v_arr[fv[:, 1]], v_arr[fv[:, 2]]], axis=1))
+
+    return np.vstack(chunks) if chunks else np.empty((0, 3, 3), dtype=np.float64)
+
+
+def compute_panel_exposure_for_date(
+    analysis_data: Dict[str, Any],
+    date_str: str = "2026-09-23",
+    hours: Optional[List[int]] = None,
+    north_angle_deg: Optional[float] = None,
+) -> Dict[str, Any]:
+    """
+    Computes hourly direct-sun exposure (`sunlit_masks` + `sunlit_by_hour`) for every active
+    panel in `analysis_data` on `date_str` (default hours 06:00..18:00), reusing
+    `raycast_z_slab_solar_rays` and content-hashed caching.
+    """
+    loc = analysis_data.get("location_info") or {}
+    summary = analysis_data.get("summary") or {}
+    lat_deg = float(loc.get("latitude_deg", -6.2088))
+    north_deg = (
+        float(north_angle_deg)
+        if north_angle_deg is not None
+        else float(summary.get("north_angle_deg", 0.0))
+    )
+    hour_list = sorted({max(0, min(23, int(h))) for h in hours}) if hours else list(range(6, 19))
+
+    active_panels = [p for p in (analysis_data.get("panels") or []) if p.get("active")]
+    panel_ids = [p["id"] for p in active_panels]
+
+    solar_vectors = compute_solar_vectors_for_date(
+        latitude_deg=lat_deg,
+        date_str=date_str,
+        north_angle_deg=north_deg,
+        hours=hour_list,
+    )
+
+    if not active_panels:
+        return {
+            "analysis_id": analysis_data.get("analysis_id"),
+            "date": date_str,
+            "latitude_deg": round(lat_deg, 4),
+            "north_angle_deg": round(north_deg, 1),
+            "hours": hour_list,
+            "solar_vectors": solar_vectors,
+            "panel_ids": [],
+            "sunlit_masks": [],
+            "sunlit_by_hour": {str(h): [] for h in hour_list},
+        }
+
+    centroids_np = np.array([p["centroid"] for p in active_panels], dtype=np.float64)
+    normals_np = np.array([p["normal"] for p in active_panels], dtype=np.float64)
+    origins_np = centroids_np + normals_np * 0.10
+    obs_tris = _build_obstruction_tris_from_analysis(analysis_data)
+
+    bbox = summary.get("bounding_box") or {}
+    max_span = float(bbox.get("max_span") or 20.0)
+    self_shade_reach = max(24.0, max_span * 1.5)
+
+    obs_hash = (
+        hashlib.blake2b(np.ascontiguousarray(obs_tris).view(np.uint8), digest_size=16).digest()
+        if len(obs_tris) > 0
+        else b""
+    )
+    orig_hash = hashlib.blake2b(np.ascontiguousarray(origins_np).view(np.uint8), digest_size=16).digest()
+    cache_key = (
+        obs_hash,
+        orig_hash,
+        len(active_panels),
+        str(date_str).strip()[:10],
+        tuple(hour_list),
+        round(lat_deg, 3),
+        round(north_deg, 1),
+    )
+
+    if cache_key in _EXPOSURE_CACHE:
+        cached = dict(_EXPOSURE_CACHE[cache_key])
+        cached["analysis_id"] = analysis_data.get("analysis_id")
+        return cached
+
+    n_hours = len(solar_vectors)
+    n_panels = len(active_panels)
+    sun_dirs_np = np.array([sv["vector"] for sv in solar_vectors], dtype=np.float64)
+    above_arr = np.array([bool(sv["above_horizon"]) for sv in solar_vectors], dtype=bool)
+    cos_inc_mat = sun_dirs_np @ normals_np.T  # (n_hours, n_panels)
+    front_mask = (cos_inc_mat > 0.01) & above_arr[:, None]
+
+    hourly_hits = np.zeros((n_hours, n_panels), dtype=np.float64)
+    if len(obs_tris) > 0:
+        for h_idx, sv in enumerate(solar_vectors):
+            if not sv["above_horizon"]:
+                continue
+            active_idx = np.where(front_mask[h_idx])[0]
+            if len(active_idx) == 0:
+                continue
+            hourly_hits[h_idx, active_idx] = raycast_z_slab_solar_rays(
+                obs_tris,
+                origins_np[active_idx],
+                sun_dirs_np[h_idx],
+                min_dist=0.08,
+                max_dist=self_shade_reach,
+            )
+
+    sunlit_mat = front_mask & (hourly_hits < 0.5)
+    bit_weights = (1 << np.arange(n_hours, dtype=np.int64))[:, None]
+    sunlit_masks = np.sum(sunlit_mat.astype(np.int64) * bit_weights, axis=0).tolist()
+    sunlit_by_hour = {
+        str(solar_vectors[h_idx]["hour"]): [panel_ids[p_idx] for p_idx in np.where(sunlit_mat[h_idx])[0]]
+        for h_idx in range(n_hours)
+    }
+
+    res = {
+        "analysis_id": analysis_data.get("analysis_id"),
+        "date": str(date_str).strip()[:10],
+        "latitude_deg": round(lat_deg, 4),
+        "north_angle_deg": round(north_deg, 1),
+        "hours": hour_list,
+        "solar_vectors": solar_vectors,
+        "panel_ids": panel_ids,
+        "sunlit_masks": sunlit_masks,
+        "sunlit_by_hour": sunlit_by_hour,
+    }
+    if len(_EXPOSURE_CACHE) >= 32:
+        _EXPOSURE_CACHE.clear()
+    _EXPOSURE_CACHE[cache_key] = res
+    return res
+
+
 # ============================================================================
 # 4. FAST VECTORIZED 3D GEOMETRY EXTRACTION & LADYBUG-GEOMETRY TESSELLATION
 # ============================================================================
