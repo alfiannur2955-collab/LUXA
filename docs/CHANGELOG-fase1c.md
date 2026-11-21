@@ -48,3 +48,16 @@ Branch: `fase-1c-ragam-model`
 
 ### Catatan Konvensi `north_angle_deg` (Kasus 4)
 - Di engine (`ottv_engine.py`), `north_angle_deg` didefinisikan sebagai azimut **Utara Sejati searah jarum jam dari sumbu +Y model** (`azimuth = (raw_deg - north_angle_deg) % 360`). Dengan demikian, memutar bangunan 30° searah jarum jam (`04_kotak_putar30`, sisi `U->TL`, `T->TGR`, `S->BD`, `B->BL`) secara geometris ekuivalen dengan geometri `01_kotak_m` + `north_angle_deg = 330°` (Utara Sejati diputar 30° berlawanan jarum jam). Diverifikasi di `tests/test_synthetic.py::test_case04_north_angle_equivalence`.
+
+### B6 — Klasifikasi `IfcCovering` (`CEILING`/`FLOORING`/`ROOFING`/`CLADDING`)
+- **Terungkap oleh:** Korpus Tingkat B `Duplex_A_20110907.ifc` (`13` elemen `IfcCovering` bertipe `CEILING` masuk `unknown` sebesar `12,18%` luas).
+- **Perbaikan:** Di `backend/universal_pipeline.py` (`_parse_ifc_with_ifcopenshell`), membaca atribut `PredefinedType` pada `IfcCovering`: `CEILING`/`FLOORING` -> `'ignore'`, `ROOFING` -> `'roof'`, `CLADDING` -> `'wall'`; tipe lain/kosong tetap melalui klasifier teks.
+
+### B7 — Ledakan Grup Sufiks ID Instans IFC & Optimasi Eksak Raycast/Peneduh (`Schependomlaan.ifc` 62 MB: `130 s -> 30 s`)
+- **Terungkap oleh:** Korpus Tingkat B `Schependomlaan.ifc` (62,06 MB, 89.752 face) awalnya menghasilkan **3.505 grup** (tiap elemen ArchiCAD memiliki sufiks `_(#948940)`) dan memakan waktu **130,3 detik** (`> 60 s` kriteria selesai §7).
+- **Perbaikan:**
+  1. Di `_parse_ifc_with_ifcopenshell`, menghapus sufiks ID instans numerik ArchiCAD (`_(#123456)`) dan Revit (`:123456`) pada fallback nama material, sehingga `Schependomlaan.ifc` menyusut bersih dari `3.505` -> `436` grup.
+  2. Di `backend/ottv_engine.py` (`_raycast_arbitrary_rays_against_tris`), menambahkan cache akselerasi segitiga + pra-filter *2D bounding-circle* (dan AABB XY untuk sinar vertikal) sebelum Möller-Trumbore 1D float64 (100% eksak secara matematis, menyaring >98% pasangan mustahil) -> waktu raycast turun dari `59,75 s` menjadi `10,56 s`.
+  3. Di `_measure_panel_sni_shading_ratios`, menambahkan pra-filter AABB 3D (`±12,5 m` XY, band Z jendela) yang 100% eksak terhadap `sni_shading_tris` -> waktu pengukuran peneduh turun dari `~50 s` menjadi `2,71 s`.
+  4. Total waktu `Schependomlaan.ifc` turun dari **130,3 s** menjadi **~29,9 s** (`< 60 s`).
+- **Kasus Sintetis Regresi:** Ditambahkan kasus `22_ifc_covering_dan_id` (`fixtures/synthetic/22_ifc_covering_dan_id/model.ifc`) untuk mengunci perbaikan B6 & B7 secara permanen di `tests/test_synthetic.py`.

@@ -198,6 +198,13 @@ def test_synthetic_case_against_analytical_expected(case_id: str, fmt: str, case
     elif case_id == "21_ifc_cw_opak" and fmt == "ifc":
         grp_cats = {g["group_name"]: g["category"] for g in res["groups"]}
         assert any("orange" in k.lower() and v in ("spandrel", "wall") for k, v in grp_cats.items()), grp_cats
+    elif case_id == "22_ifc_covering_dan_id" and fmt == "ifc":
+        wall_grps = [g for g in res["groups"] if g["category"] == "wall"]
+        assert len(wall_grps) == 1, f"Dinding bersufiks ID harus tergabung ke 1 grup, dapat: {[g['group_name'] for g in wall_grps]}"
+        unk_grps = [g for g in res["groups"] if g["category"] == "unknown"]
+        assert len(unk_grps) == 0, f"IfcCovering CEILING/FLOORING tidak boleh unknown: {[g['group_name'] for g in unk_grps]}"
+        ign_grps = [g for g in res["groups"] if g["category"] == "ignore"]
+        assert len(ign_grps) >= 1, "IfcCovering CEILING/FLOORING harus berstatus ignore"
 
 
 @pytest.mark.parametrize("case_id,case_data", PARITY_CASES, ids=[c for c, _ in PARITY_CASES])

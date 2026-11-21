@@ -1358,6 +1358,124 @@ def write_case21_ifc_cw_opak(ifc_path: str, obj_path: str) -> None:
     write_obj_and_mtl(obj_path, obj_parts, y_up=False, with_mtl=True)
 
 
+def write_case22_ifc_covering_and_instance_ids(ifc_path: str) -> None:
+    """
+    Kasus 22 (regresi Tingkat B — B6 & B7):
+      - Kotak standar IFC4 dengan dinding tanpa IfcSurfaceStyle dan nama bersufiks ID instans
+        ArchiCAD (`Dinding Bata_(#100001)`..`_(#100016)`), yang harus digabung ke 1 grup `IFC_Wall :: Dinding Bata`.
+      - Ditambah 4 elemen interior `IfcCovering` bertipe `CEILING` & `FLOORING` (seperti Duplex_A),
+        yang harus diklasifikasikan sebagai `ignore` (bukan `unknown`).
+    """
+    ifc = ifcopenshell.api.run("project.create_file", version="IFC4")
+    project = ifcopenshell.api.run("root.create_entity", ifc, ifc_class="IfcProject", name="Case22_Covering_IDs")
+    ifcopenshell.api.run("unit.assign_unit", ifc, length={"is_metric": True, "raw": "METERS"})
+    model_ctx = ifcopenshell.api.run("context.add_context", ifc, context_type="Model")
+    body_ctx = ifcopenshell.api.run(
+        "context.add_context",
+        ifc,
+        context_type="Model",
+        context_identifier="Body",
+        target_view="MODEL_VIEW",
+        parent=model_ctx,
+    )
+    site = ifcopenshell.api.run("root.create_entity", ifc, ifc_class="IfcSite", name="Site")
+    building = ifcopenshell.api.run("root.create_entity", ifc, ifc_class="IfcBuilding", name="Building")
+    ifcopenshell.api.run("aggregate.assign_object", ifc, relating_object=project, products=[site])
+    ifcopenshell.api.run("aggregate.assign_object", ifc, relating_object=site, products=[building])
+
+    st_glass = _ifc_add_style(ifc, "Kaca Jendela", (0.48, 0.76, 0.92), transparency=0.7)
+    st_roof = _ifc_add_style(ifc, "Atap Beton", (0.55, 0.56, 0.58), transparency=0.0)
+
+    storeys = []
+    for f in range(4):
+        st = ifcopenshell.api.run("root.create_entity", ifc, ifc_class="IfcBuildingStorey", name=f"Lantai {f+1}")
+        st.Elevation = float(f * 4.0)
+        ifcopenshell.api.run("aggregate.assign_object", ifc, relating_object=building, products=[st])
+        storeys.append(st)
+
+    poly = STD_BOX_POLY
+    inner_poly = offset_polygon_inward(poly, 0.20)
+    inst_id = 100000
+    for f in range(4):
+        z0 = f * 4.0
+        z_w0, z_w1 = z0 + 1.2, z0 + 2.8
+        storey = storeys[f]
+        for i in range(4):
+            inst_id += 1
+            a_out, b_out = poly[i], poly[(i + 1) % 4]
+            a_in, b_in = inner_poly[i], inner_poly[(i + 1) % 4]
+            dx, dy = b_out[0] - a_out[0], b_out[1] - a_out[1]
+            ln = math.hypot(dx, dy)
+            nx_out, ny_out = dy / ln, -dx / ln
+            tx, ty = dx / ln, dy / ln
+
+            # Dinding tanpa surface style, nama membawa sufiks ID instans ArchiCAD `_(#100001)`
+            wall = ifcopenshell.api.run(
+                "root.create_entity", ifc, ifc_class="IfcWall", name=f"Dinding Bata_(#{inst_id})"
+            )
+            _ifc_set_placement(ifc, wall)
+            w_rep = _ifc_make_extruded_rep(ifc, body_ctx, [a_out, b_out, b_in, a_in], z0, 4.0, style=None)
+            wall.Representation = ifc.create_entity("IfcProductDefinitionShape", Representations=[w_rep])
+            ifcopenshell.api.run("spatial.assign_container", ifc, relating_structure=storey, products=[wall])
+
+            ext_t = 0.05
+            op_fp = [
+                (a_out[0] + nx_out * ext_t - tx * ext_t, a_out[1] + ny_out * ext_t - ty * ext_t),
+                (b_out[0] + nx_out * ext_t + tx * ext_t, b_out[1] + ny_out * ext_t + ty * ext_t),
+                (b_in[0] - nx_out * ext_t + tx * ext_t, b_in[1] - ny_out * ext_t + ty * ext_t),
+                (a_in[0] - nx_out * ext_t - tx * ext_t, a_in[1] - ny_out * ext_t - ty * ext_t),
+            ]
+            opening = ifcopenshell.api.run("root.create_entity", ifc, ifc_class="IfcOpeningElement", name=f"Op_{inst_id}")
+            _ifc_set_placement(ifc, opening)
+            op_rep = _ifc_make_extruded_rep(ifc, body_ctx, op_fp, z_w0, 1.6, style=None)
+            opening.Representation = ifc.create_entity("IfcProductDefinitionShape", Representations=[op_rep])
+            ifcopenshell.api.run("feature.add_feature", ifc, feature=opening, element=wall)
+
+            win_fp = [
+                a_out,
+                b_out,
+                (b_out[0] - nx_out * 0.02, b_out[1] - ny_out * 0.02),
+                (a_out[0] - nx_out * 0.02, a_out[1] - ny_out * 0.02),
+            ]
+            window = ifcopenshell.api.run("root.create_entity", ifc, ifc_class="IfcWindow", name=f"Kaca_(#{inst_id})")
+            _ifc_set_placement(ifc, window)
+            win_rep = _ifc_make_extruded_rep(ifc, body_ctx, win_fp, z_w0, 1.6, style=st_glass)
+            window.Representation = ifc.create_entity("IfcProductDefinitionShape", Representations=[win_rep])
+            ifcopenshell.api.run("feature.add_filling", ifc, opening=opening, element=window)
+            ifcopenshell.api.run("spatial.assign_container", ifc, relating_structure=storey, products=[window])
+
+        # Interior IfcCovering (CEILING & FLOORING) dengan nama generik (tanpa style) -> harus 'ignore'
+        cov_fp = [(-9.5, -14.5), (9.5, -14.5), (9.5, 14.5), (-9.5, 14.5)]
+        ceil_el = ifcopenshell.api.run(
+            "root.create_entity", ifc, ifc_class="IfcCovering", name=f"Finish_Atas_(#{200000+f})", predefined_type="CEILING"
+        )
+        _ifc_set_placement(ifc, ceil_el)
+        ceil_el.Representation = ifc.create_entity(
+            "IfcProductDefinitionShape",
+            Representations=[_ifc_make_extruded_rep(ifc, body_ctx, cov_fp, z0 + 3.7, 0.05, style=None)],
+        )
+        ifcopenshell.api.run("spatial.assign_container", ifc, relating_structure=storey, products=[ceil_el])
+
+        flr_el = ifcopenshell.api.run(
+            "root.create_entity", ifc, ifc_class="IfcCovering", name=f"Finish_Bawah_(#{300000+f})", predefined_type="FLOORING"
+        )
+        _ifc_set_placement(ifc, flr_el)
+        flr_el.Representation = ifc.create_entity(
+            "IfcProductDefinitionShape",
+            Representations=[_ifc_make_extruded_rep(ifc, body_ctx, cov_fp, z0 + 0.05, 0.05, style=None)],
+        )
+        ifcopenshell.api.run("spatial.assign_container", ifc, relating_structure=storey, products=[flr_el])
+
+    roof = ifcopenshell.api.run("root.create_entity", ifc, ifc_class="IfcRoof", name="Atap Beton")
+    _ifc_set_placement(ifc, roof)
+    roof.Representation = ifc.create_entity(
+        "IfcProductDefinitionShape",
+        Representations=[_ifc_make_extruded_rep(ifc, body_ctx, poly, 16.0, 0.15, style=st_roof)],
+    )
+    ifcopenshell.api.run("spatial.assign_container", ifc, relating_structure=storeys[-1], products=[roof])
+    ifc.write(ifc_path)
+
+
 # ============================================================================
 # 7. OVERHANG & SIRIP HELPER UNTUK FORMAT NON-IFC
 # ============================================================================
@@ -1993,7 +2111,20 @@ def generate_all() -> None:
     )
     save_expected(cdir, "21_ifc_cw_opak", ["ifc", "obj"], exp, drv, per_format_overrides={"obj": obj_unit_warn})
 
-    print(f"Berhasil membuat 21 kasus sintetis di {OUT_ROOT}")
+    # ------------------------------------------------------------------
+    # Kasus 22: 22_ifc_covering_dan_id (regresi B6/B7 dari korpus Tingkat B:
+    #           IfcCovering CEILING/FLOORING -> ignore; sufiks ID instans ArchiCAD/Revit digabung)
+    # ------------------------------------------------------------------
+    cdir = os.path.join(OUT_ROOT, "22_ifc_covering_dan_id")
+    os.makedirs(cdir, exist_ok=True)
+    write_case22_ifc_covering_and_instance_ids(os.path.join(cdir, "model.ifc"))
+    exp, drv = compute_analytical_expected(
+        std_box_areas(),
+        extra_notes="Regresi Tingkat B (B6/B7): IfcCovering CEILING/FLOORING -> ignore (0% unknown) & sufiks ID '_(#...)' digabung bersih -> hasil = Kasus 1.",
+    )
+    save_expected(cdir, "22_ifc_covering_dan_id", ["ifc"], exp, drv)
+
+    print(f"Berhasil membuat 22 kasus sintetis di {OUT_ROOT}")
     cases = sorted(os.listdir(OUT_ROOT))
     print(f"Total folder: {len(cases)}")
     for c in cases:

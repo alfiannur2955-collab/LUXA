@@ -1026,7 +1026,11 @@ def _parse_ifc_with_ifcopenshell(
                     mat_ids = np.array(geom.material_ids, dtype=np.int64)
                     uniq_mids = [int(m) for m in np.unique(mat_ids) if 0 <= int(m) < len(mats)]
                     layer_label = f"{p_type.replace('Ifc', 'IFC_')} ({p_name})" if p_type else etype.replace("Ifc", "IFC_")
-                    mat_fallback = elem_mat_name.get(elem.id()) or str(getattr(elem, "Name", "") or etype)
+                    raw_mat_fb = elem_mat_name.get(elem.id()) or str(getattr(elem, "Name", "") or etype)
+                    # Strip per-instance ArchiCAD/Revit numeric ID suffixes (e.g. '_(#948940)' or ':123456')
+                    # so identical element types group cleanly instead of exploding into thousands of 1-element groups.
+                    mat_fallback = re.sub(r"[_\s]*\(#\d+\)\s*$", "", raw_mat_fb).strip()
+                    mat_fallback = re.sub(r":\d{5,}\s*$", "", mat_fallback).strip() or raw_mat_fb
 
                     # Split multi-material BIM elements (especially IfcWindow / IfcDoor / IfcCurtainWall)
                     # by material_id so transparent glass panes separate cleanly from opaque wood/aluminium frames!
@@ -1080,6 +1084,16 @@ def _parse_ifc_with_ifcopenshell(
                                     cat = "frame"
                                 else:
                                     cat = "glazing"
+                            elif etype == "IfcCovering":
+                                cov_pt = str(getattr(elem, "PredefinedType", "") or "").upper()
+                                if cov_pt in ("CEILING", "FLOORING"):
+                                    cat = "ignore"
+                                elif cov_pt == "ROOFING":
+                                    cat = "roof"
+                                elif cov_pt == "CLADDING":
+                                    cat = "wall"
+                                else:
+                                    cat = classify_layer_or_material_role(f"{style_or_mat} {elem.Name or ''}", context=p_type)
                             elif etype == "IfcDoor":
                                 cat = "glazing" if ("glass" in style_or_mat.lower() or tr_val > 0.12) else "wall"
                             elif etype in ("IfcPlate", "IfcCurtainWall") or p_type == "IfcCurtainWall":
