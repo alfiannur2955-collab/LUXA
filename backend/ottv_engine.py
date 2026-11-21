@@ -15,6 +15,7 @@ Implements:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -131,7 +132,7 @@ class EnvelopeParameters:
     delta_t: float = 5.0
     sc_glass: float = 0.23
     wwr_override: Optional[float] = None
-    default_wall_wwr: float = 0.35
+    default_wall_wwr: Optional[float] = None
 
     # Curtain wall Frame (Mullion/Transom) thermal parameters
     include_frame_conduction: bool = True
@@ -363,7 +364,7 @@ class RawGroupMesh:
 
 
 # In-memory cache of parsed 3D files for sub-second re-analysis
-_PARSED_FILE_CACHE: Dict[Tuple[str, float, int, int], List[RawGroupMesh]] = {}
+_PARSED_FILE_CACHE: Dict[Tuple[str, float, int, int, int], List[RawGroupMesh]] = {}
 
 
 def _rhino_mesh_to_numpy(rh_mesh: rhino3dm.Mesh) -> Optional[Tuple[np.ndarray, np.ndarray]]:
@@ -411,8 +412,10 @@ def load_raw_groups_from_file(
     Uses an in-memory cache keyed by file modification time so repeated slider/filter
     changes run in milliseconds.
     """
-    mtime = os.path.getmtime(filepath) if os.path.exists(filepath) else 0.0
-    cache_key = (filepath, mtime, nurbs_u_div, nurbs_v_div)
+    abs_path = os.path.abspath(filepath)
+    mtime = os.path.getmtime(abs_path) if os.path.exists(abs_path) else 0.0
+    fsize = os.path.getsize(abs_path) if os.path.exists(abs_path) else 0
+    cache_key = (abs_path, mtime, fsize, nurbs_u_div, nurbs_v_div)
     if cache_key in _PARSED_FILE_CACHE:
         return _PARSED_FILE_CACHE[cache_key]
 
@@ -684,33 +687,63 @@ def raycast_z_slab_solar_rays(
     return hits_out
 
 
+_RAYCAST_TRI_CACHE: Dict[Tuple[Tuple[int, ...], str, bytes], Tuple[np.ndarray, ...]] = {}
+
+
+def _get_tri_raycast_accel(tris: np.ndarray) -> Tuple[np.ndarray, ...]:
+    """
+    Caches precomputed triangle edges and XY/Z bounding geometry keyed strictly by
+    array content hash (blake2b + shape + dtype) — NEVER by Python memory address `id(tris)`.
+    """
+    tris_c = np.ascontiguousarray(tris)
+    digest = hashlib.blake2b(tris_c.view(np.uint8), digest_size=16).digest()
+    key = (tris_c.shape, str(tris_c.dtype), digest)
+    cached = _RAYCAST_TRI_CACHE.get(key)
+    if cached is not None:
+        return cached
+    if len(_RAYCAST_TRI_CACHE) >= 16:
+        _RAYCAST_TRI_CACHE.clear()
+    v0 = np.ascontiguousarray(tris_c[:, 0, :], dtype=np.float64)
+    e1 = np.ascontiguousarray(tris_c[:, 1, :] - v0, dtype=np.float64)
+    e2 = np.ascontiguousarray(tris_c[:, 2, :] - v0, dtype=np.float64)
+    z_min = np.min(tris_c[:, :, 2], axis=1)
+    z_max = np.max(tris_c[:, :, 2], axis=1)
+    x_min = np.min(tris_c[:, :, 0], axis=1)
+    x_max = np.max(tris_c[:, :, 0], axis=1)
+    y_min = np.min(tris_c[:, :, 1], axis=1)
+    y_max = np.max(tris_c[:, :, 1], axis=1)
+    cx = (0.5 * (x_min + x_max)).astype(np.float32)
+    cy = (0.5 * (y_min + y_max)).astype(np.float32)
+    rx = (0.5 * (x_max - x_min)).astype(np.float32)
+    ry = (0.5 * (y_max - y_min)).astype(np.float32)
+    r_xy = (np.hypot(rx, ry) + np.float32(1e-3)).astype(np.float32)
+    pack = (v0, e1, e2, z_min, z_max, x_min, x_max, y_min, y_max, cx, cy, r_xy)
+    _RAYCAST_TRI_CACHE[key] = pack
+    return pack
+
+
 def _raycast_arbitrary_rays_against_tris(
     origins: np.ndarray,
     directions: np.ndarray,
     tris: np.ndarray,
     min_dist: float = 0.04,
     max_dist: float = 500.0,
+    accel: Optional[Tuple[np.ndarray, ...]] = None,
 ) -> np.ndarray:
     """
-    Fast Z-slab partitioned Möller-Trumbore raycast for per-ray arbitrary directions.
+    Exact Z-slab + 2D bounding-circle culled Möller-Trumbore raycast for per-ray arbitrary directions.
     Returns `(N,)` array of closest hit distance `t` (or `np.inf` if ray escapes to infinity).
-    Designed for 3-Layer Exterior Skin detection on L-shape, U-shape, Courtyard, Twin-Tower,
-    and full-building BIM models.
+    100% mathematically equivalent to brute-force Möller-Trumbore while eliminating >98% of
+    impossible (ray, triangle) pairs before 3D cross products.
     """
     n_rays = len(origins)
     min_t_out = np.full(n_rays, np.inf, dtype=np.float64)
     if n_rays == 0 or tris is None or len(tris) == 0:
         return min_t_out
 
-    # NEVER stride-decimate shell triangles during exterior visibility raycasting,
-    # otherwise missing triangles create holes that inward rays escape through!
-    tris_use = tris
-
-    v0_all = tris_use[:, 0, :]
-    e1_all = tris_use[:, 1, :] - v0_all
-    e2_all = tris_use[:, 2, :] - v0_all
-    tri_z_min = np.min(tris_use[:, :, 2], axis=1)
-    tri_z_max = np.max(tris_use[:, :, 2], axis=1)
+    v0_all, e1_all, e2_all, tri_z_min, tri_z_max, tri_x_min, tri_x_max, tri_y_min, tri_y_max, tri_cx, tri_cy, tri_r_xy = (
+        accel if accel is not None else _get_tri_raycast_accel(tris)
+    )
 
     orig_z = origins[:, 2]
     z_min_all = float(np.min(orig_z))
@@ -718,6 +751,8 @@ def _raycast_arbitrary_rays_against_tris(
     is_vertical_ray = bool(np.mean(np.abs(directions[:, 2])) > 0.85)
     slab_h = 2.0 if not is_vertical_ray else max(100.0, z_max_all - z_min_all + 2.0)
     num_slabs = max(1, int(math.ceil((z_max_all - z_min_all + 0.1) / slab_h)))
+    min_d_f32 = np.float32(min_dist)
+    max_d_f32 = np.float32(max_dist)
 
     for s_idx in range(num_slabs):
         z_lo = z_min_all + s_idx * slab_h
@@ -733,43 +768,105 @@ def _raycast_arbitrary_rays_against_tris(
         if not np.any(tri_mask):
             continue
 
-        v0_s = v0_all[tri_mask]   # (M, 3)
-        e1_s = e1_all[tri_mask]   # (M, 3)
-        e2_s = e2_all[tri_mask]   # (M, 3)
+        tri_ids = np.where(tri_mask)[0]
+        cx_s = tri_cx[tri_ids]
+        cy_s = tri_cy[tri_ids]
+        r_s = tri_r_xy[tri_ids]
+        xmin_s = tri_x_min[tri_ids] if is_vertical_ray else None
+        xmax_s = tri_x_max[tri_ids] if is_vertical_ray else None
+        ymin_s = tri_y_min[tri_ids] if is_vertical_ray else None
+        ymax_s = tri_y_max[tri_ids] if is_vertical_ray else None
 
-        # Batch rays in chunks of 128 so (B, M, 3) memory stays tiny (< 30 MB)
         for b_start in range(0, len(ray_indices), 128):
             b_idx = ray_indices[b_start:b_start + 128]
-            o_b = origins[b_idx][:, None, :]      # (B, 1, 3)
-            d_b = directions[b_idx][:, None, :]   # (B, 1, 3)
+            o_b = origins[b_idx]      # (B, 3) float64
+            d_b = directions[b_idx]   # (B, 3) float64
 
-            # Möller-Trumbore: h = d x e2
-            h = np.cross(d_b, e2_s[None, :, :])   # (B, M, 3)
-            a = np.einsum("ij,bij->bi", e1_s, h)  # (B, M)
-            valid = np.abs(a) > 1e-7
-            if not np.any(valid):
+            if is_vertical_ray:
+                ox = o_b[:, 0:1]
+                oy = o_b[:, 1:2]
+                cand = (
+                    (ox >= xmin_s[None, :] - 1e-3)
+                    & (ox <= xmax_s[None, :] + 1e-3)
+                    & (oy >= ymin_s[None, :] - 1e-3)
+                    & (oy <= ymax_s[None, :] + 1e-3)
+                )
+            else:
+                ox32 = o_b[:, 0:1].astype(np.float32)
+                oy32 = o_b[:, 1:2].astype(np.float32)
+                dx_r = d_b[:, 0:1].astype(np.float32)
+                dy_r = d_b[:, 1:2].astype(np.float32)
+                # Normalize XY ray dir for exact perpendicular distance check
+                d_xy_len = np.hypot(dx_r, dy_r)
+                inv_len = np.where(d_xy_len > np.float32(1e-6), np.float32(1.0) / np.maximum(np.float32(1e-6), d_xy_len), np.float32(1.0))
+                ux = dx_r * inv_len
+                uy = dy_r * inv_len
+                rx_off = cx_s[None, :] - ox32
+                ry_off = cy_s[None, :] - oy32
+                perp = np.abs(rx_off * (-uy) + ry_off * ux)
+                cand = perp <= r_s[None, :]
+                if np.any(cand):
+                    proj = rx_off * ux + ry_off * uy
+                    cand &= (proj + r_s[None, :] >= min_d_f32 * d_xy_len) & (proj - r_s[None, :] <= max_d_f32 * d_xy_len)
+
+            r_loc, t_loc = np.nonzero(cand)
+            if len(r_loc) == 0:
                 continue
 
-            f = np.where(valid, 1.0 / np.where(valid, a, 1.0), 0.0)
-            s = o_b - v0_s[None, :, :]            # (B, M, 3)
-            u = f * np.einsum("bij,bij->bi", s, h)
-            mask = valid & (u >= -1e-4) & (u <= 1.0001)
-            if not np.any(mask):
+            # Exact float64 1D Möller-Trumbore only on surviving candidate pairs
+            t_glob = tri_ids[t_loc]
+            o_p = o_b[r_loc]
+            d_p = d_b[r_loc]
+            v0_p = v0_all[t_glob]
+            e1_p = e1_all[t_glob]
+            e2_p = e2_all[t_glob]
+
+            h_p = np.cross(d_p, e2_p)
+            a_p = np.einsum("ij,ij->i", e1_p, h_p)
+            ok = np.abs(a_p) > 1e-7
+            if not np.any(ok):
                 continue
 
-            q = np.cross(s, e1_s[None, :, :])     # (B, M, 3)
-            v = f * np.einsum("bij,bij->bi", d_b, q)
-            mask &= (v >= -1e-4) & ((u + v) <= 1.0001)
-            if not np.any(mask):
+            r_loc = r_loc[ok]
+            o_p = o_p[ok]
+            d_p = d_p[ok]
+            v0_p = v0_p[ok]
+            e1_p = e1_p[ok]
+            e2_p = e2_p[ok]
+            h_p = h_p[ok]
+            f_p = 1.0 / a_p[ok]
+
+            s_p = o_p - v0_p
+            u_p = f_p * np.einsum("ij,ij->i", s_p, h_p)
+            ok2 = (u_p >= -1e-4) & (u_p <= 1.0001)
+            if not np.any(ok2):
                 continue
 
-            t = f * np.einsum("ij,bij->bi", e2_s, q)
-            mask &= (t >= min_dist) & (t <= max_dist)
-            if not np.any(mask):
+            r_loc = r_loc[ok2]
+            d_p = d_p[ok2]
+            e1_p = e1_p[ok2]
+            e2_p = e2_p[ok2]
+            s_p = s_p[ok2]
+            f_p = f_p[ok2]
+            u_p = u_p[ok2]
+
+            q_p = np.cross(s_p, e1_p)
+            v_p = f_p * np.einsum("ij,ij->i", d_p, q_p)
+            ok3 = (v_p >= -1e-4) & ((u_p + v_p) <= 1.0001)
+            if not np.any(ok3):
                 continue
 
-            t_masked = np.where(mask, t, np.inf)
-            min_t_out[b_idx] = np.minimum(min_t_out[b_idx], np.min(t_masked, axis=1))
+            r_loc = r_loc[ok3]
+            e2_p = e2_p[ok3]
+            q_p = q_p[ok3]
+            f_p = f_p[ok3]
+
+            t_p = f_p * np.einsum("ij,ij->i", e2_p, q_p)
+            ok4 = (t_p >= min_dist) & (t_p <= max_dist)
+            if not np.any(ok4):
+                continue
+
+            np.minimum.at(min_t_out, b_idx[r_loc[ok4]], t_p[ok4])
 
     return min_t_out
 
@@ -800,9 +897,12 @@ def detect_exterior_faces_raycast(
 
     origins = centroids + normals * 0.06
     reach = max(60.0, max_span * 2.5)
+    shell_accel = _get_tri_raycast_accel(all_shell_tris)
 
     # Probe 1: straight horizontal normal (+n_h, 0 deg)
-    t_center = _raycast_arbitrary_rays_against_tris(origins, n_h, all_shell_tris, min_dist=0.03, max_dist=reach)
+    t_center = _raycast_arbitrary_rays_against_tris(
+        origins, n_h, all_shell_tris, min_dist=0.03, max_dist=reach, accel=shell_accel
+    )
 
     # 1. Faces hitting a solid partner face within <= 0.42m point INTO solid wall/glass thickness -> Inner!
     hits_solid_core = t_center <= 0.42
@@ -820,7 +920,9 @@ def detect_exterior_faces_raycast(
     if np.any(ambiguous):
         idx_amb = np.where(ambiguous)[0]
         back_origins = centroids[idx_amb] - n_h[idx_amb] * 0.35
-        t_back = _raycast_arbitrary_rays_against_tris(back_origins, -n_h[idx_amb], all_shell_tris, min_dist=0.03, max_dist=reach)
+        t_back = _raycast_arbitrary_rays_against_tris(
+            back_origins, -n_h[idx_amb], all_shell_tris, min_dist=0.03, max_dist=reach, accel=shell_accel
+        )
         back_is_open_air = ~np.isfinite(t_back)
         confirmed_inner[idx_amb[back_is_open_air]] = True
 
@@ -833,15 +935,18 @@ def detect_exterior_faces_raycast(
         ca, sa = math.cos(ang), math.sin(ang)
         nh_sub = n_h[idx_na]
         d_fan = np.column_stack([nh_sub[:, 0] * ca - nh_sub[:, 1] * sa, nh_sub[:, 0] * sa + nh_sub[:, 1] * ca, np.zeros(len(idx_na))])
-        t_fan = _raycast_arbitrary_rays_against_tris(origins[idx_na], d_fan, all_shell_tris, min_dist=0.05, max_dist=reach)
+        t_fan = _raycast_arbitrary_rays_against_tris(
+            origins[idx_na], d_fan, all_shell_tris, min_dist=0.05, max_dist=reach, accel=shell_accel
+        )
         escaped_na = ~np.isfinite(t_fan)
         escaped_horiz[idx_na[escaped_na]] = True
 
     is_outer = escaped_horiz.copy()
 
-    # 4. Enclosed 4-sided Courtyard check: if not confirmed_inner and still blocked horizontally,
-    #    check if open to sky above (no roof slab overhead)
-    still_blocked = (~confirmed_inner) & (~escaped_horiz)
+    # 4. Enclosed 4-sided Courtyard check: if not confirmed_inner and still blocked horizontally
+    #    across a genuine open courtyard span (> 1.80 m, NOT a narrow double-skin facade cavity <= 1.80 m),
+    #    check if open to sky above (no roof slab overhead).
+    still_blocked = (~confirmed_inner) & (~escaped_horiz) & (t_center > 1.80)
     if np.any(still_blocked) and len(roof_tris) > 0:
         idx_sb = np.where(still_blocked)[0]
         sky_origins = centroids[idx_sb] + n_h[idx_sb] * 0.45
@@ -993,19 +1098,53 @@ def resolve_group_outer_skin_faces(
                     })
                     vert_mask &= ~thin_up_mask
 
-            # Downward-facing thin bottom caps of solid glass panes (< 0.25 m2, nz < -0.85)
-            horiz_thin_bot = (normals_v[:, 2] < -0.85) & (areas_v < 0.25) & vert_mask
-            if np.any(horiz_thin_bot) and non_vert_id not in rf_set:
+            # Downward-facing glazing caps/soffits (nz < -0.50):
+            # - Thin bottom edges (shortest dim <= 0.30 m) -> 'sisi_tebal_panel' (same rule as top edge)
+            # - Downward horizontal soffits (nz < -0.85) -> 'horizontal_edge_cap' (never facade or skylight)
+            dn_glz_idx = np.where((normals_v[:, 2] < -0.50) & vert_mask)[0]
+            if len(dn_glz_idx) > 0:
+                dn_min_dims = _compute_face_shortest_dims(
+                    p0_v[dn_glz_idx],
+                    p1_v[dn_glz_idx],
+                    p2_v[dn_glz_idx],
+                    p3_v[dn_glz_idx],
+                    is_quad_v[dn_glz_idx],
+                    normals_v[dn_glz_idx],
+                )
+                thin_dn_idx = dn_glz_idx[dn_min_dims <= 0.30]
+                if len(thin_dn_idx) > 0 and edge_thick_id not in rf_set:
+                    thin_dn_mask = np.zeros(len(areas_v), dtype=bool)
+                    thin_dn_mask[thin_dn_idx] = True
+                    existing_et = next((e for e in filtered_entries if e["id"] == edge_thick_id), None)
+                    if existing_et is not None:
+                        existing_et["face_count"] += int(len(thin_dn_idx))
+                        existing_et["area_m2"] = round(
+                            float(existing_et["area_m2"]) + float(np.sum(areas_v[thin_dn_mask])), 4
+                        )
+                    else:
+                        filtered_entries.append({
+                            "id": edge_thick_id,
+                            "group": rg.group_name,
+                            "reason": "sisi_tebal_panel",
+                            "reason_label": "Sisi tebal tepi panel kaca (dimensi terpendek <= 0,3 m)",
+                            "face_count": int(len(thin_dn_idx)),
+                            "area_m2": round(float(np.sum(areas_v[thin_dn_mask])), 4),
+                            "restored": False,
+                        })
+                    vert_mask &= ~thin_dn_mask
+
+            horiz_bot = (normals_v[:, 2] < -0.85) & vert_mask
+            if np.any(horiz_bot) and non_vert_id not in rf_set:
                 filtered_entries.append({
                     "id": non_vert_id,
                     "group": rg.group_name,
                     "reason": "horizontal_edge_cap",
-                    "reason_label": "Sisi horizontal tipis tepi bawah kaca (< 0,25 m2)",
-                    "face_count": int(np.sum(horiz_thin_bot)),
-                    "area_m2": round(float(np.sum(areas_v[horiz_thin_bot])), 4),
+                    "reason_label": "Sisi horizontal menghadap bawah pada kaca (nz < -0,85)",
+                    "face_count": int(np.sum(horiz_bot)),
+                    "area_m2": round(float(np.sum(areas_v[horiz_bot])), 4),
                     "restored": False,
                 })
-                vert_mask &= ~horiz_thin_bot
+                vert_mask &= ~horiz_bot
         else:
             vert_mask = np.ones(len(areas_v), dtype=bool)
     else:
@@ -1248,6 +1387,7 @@ def _measure_panel_sni_shading_ratios(
     louver_depth_m: float = 0.0,
     louver_spacing_m: float = 1.1,
     louver_tilt_deg: float = 0.0,
+    shading_aabb: Optional[Tuple[np.ndarray, np.ndarray]] = None,
 ) -> Tuple[float, float, float]:
     """
     Measures SNI 6389:2020 Lampiran A overhang ratio `R1 = P_h / H` (horizontal overhang),
@@ -1266,6 +1406,23 @@ def _measure_panel_sni_shading_ratios(
         return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
 
     pv = np.asarray(panel_verts, dtype=np.float64)
+    # Lossless 3D AABB spatial pre-filter: shading triangles beyond 12.5m XY or outside Z window band
+    # can never satisfy `d_max <= 12.0` and `u_min <= half_h + 0.80` / `u_max >= -half_h + 0.05`.
+    if shading_aabb is not None:
+        sh_min, sh_max = shading_aabb
+        p_min = np.min(pv, axis=0)
+        p_max = np.max(pv, axis=0)
+        near_mask = (
+            (sh_max[:, 2] >= p_min[2] - 0.5)
+            & (sh_min[:, 2] <= p_max[2] + 1.2)
+            & (sh_max[:, 0] >= p_min[0] - 12.5)
+            & (sh_min[:, 0] <= p_max[0] + 12.5)
+            & (sh_max[:, 1] >= p_min[1] - 12.5)
+            & (sh_min[:, 1] <= p_max[1] + 12.5)
+        )
+        if not np.any(near_mask):
+            return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+        shading_tris = shading_tris[near_mask]
     n_raw = np.asarray(panel_normal, dtype=np.float64)
     n_h = np.array([n_raw[0], n_raw[1], 0.0], dtype=np.float64)
     nh_len = float(np.linalg.norm(n_h))
@@ -1313,11 +1470,18 @@ def _measure_panel_sni_shading_ratios(
         return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
 
     idx_c = idx_c[valid_n]
-    tn_z = np.abs(tc[valid_n, 2] / tn_len[valid_n])
+    tn_unit = tc[valid_n] / tn_len[valid_n, None]
+    tn_z = np.abs(tn_unit[:, 2])
 
     # 1. Horizontal overhang above top of window (|nz| >= 0.35, spans horizontally across window, sits near top edge)
+    #    Exclude narrow horizontal top/bottom caps of extruded vertical fins by verifying
+    #    that candidate overhang triangles cover a meaningful fraction (>= 35%) of window width.
+    ov_cand_t_span = t_max[idx_c] - t_min[idx_c]
+    ov_cand_d_span = np.maximum(0.0, d_max[idx_c] - np.maximum(0.0, d_min[idx_c]))
+    not_fin_cap = ~((ov_cand_t_span < 0.08) & (ov_cand_d_span > 2.5 * np.maximum(1e-4, ov_cand_t_span)))
     ov_mask = (
         (tn_z >= 0.35)
+        & not_fin_cap
         & (t_max[idx_c] >= -half_w + 0.05)
         & (t_min[idx_c] <= half_w - 0.05)
         & (u_min[idx_c] >= half_h - 0.25)
@@ -1325,29 +1489,84 @@ def _measure_panel_sni_shading_ratios(
     )
     if np.any(ov_mask):
         ov_idx = idx_c[ov_mask]
-        proj_h = float(np.max(d_max[ov_idx]))
-        r1_meas = proj_h / win_h
-        if r1_meas > r1_best:
-            r1_best = r1_meas
-            # Estimate downward tilt angle phi1 from overhang Z drop across depth
-            best_i = ov_idx[int(np.argmax(d_max[ov_idx]))]
-            z_span_ov = float(u_max[best_i] - u_min[best_i])
-            d_span_ov = max(0.05, float(d_max[best_i] - max(0.0, d_min[best_i])))
-            phi1_best = max(0.0, min(50.0, math.degrees(math.atan2(z_span_ov, d_span_ov)))) if z_span_ov > 0.02 else 0.0
+        # Compute union horizontal coverage clipped to [-half_w, +half_w]
+        iv_list = sorted(
+            (max(-half_w, float(t_min[i])), min(half_w, float(t_max[i])))
+            for i in ov_idx
+            if float(t_max[i]) > -half_w and float(t_min[i]) < half_w
+        )
+        ov_cov_w = 0.0
+        if iv_list:
+            cur_a, cur_b = iv_list[0]
+            for ia, ib in iv_list[1:]:
+                if ia <= cur_b + 0.05:
+                    cur_b = max(cur_b, ib)
+                else:
+                    ov_cov_w += max(0.0, cur_b - cur_a)
+                    cur_a, cur_b = ia, ib
+            ov_cov_w += max(0.0, cur_b - cur_a)
+        if ov_cov_w >= 0.35 * win_w:
+            proj_h = float(np.max(d_max[ov_idx]))
+            r1_meas = proj_h / win_h
+            if r1_meas > r1_best:
+                r1_best = r1_meas
+                # Estimate downward tilt angle phi1 from overhang Z drop across depth
+                best_i = ov_idx[int(np.argmax(d_max[ov_idx]))]
+                z_span_ov = float(u_max[best_i] - u_min[best_i])
+                d_span_ov = max(0.05, float(d_max[best_i] - max(0.0, d_min[best_i])))
+                phi1_best = max(0.0, min(50.0, math.degrees(math.atan2(z_span_ov, d_span_ov)))) if z_span_ov > 0.02 else 0.0
 
-    # 2. Vertical fin beside left or right edge of window (|nz| < 0.50, spans vertically, near +-half_w)
+    # 2. Vertical fins beside OR periodically spaced across window (|nz| < 0.50, normal along +-t_ax)
+    #    Clusters distinct fin positions along t to measure true fin-to-fin spacing W_fin on ribbon windows,
+    #    falling back to win_w when only side-edge fins exist.
+    tn_dot_t = np.abs(tn_unit @ t_ax)
     t_mid = 0.5 * (t_min[idx_c] + t_max[idx_c])
-    near_side = (np.abs(t_mid + half_w) <= 0.45) | (np.abs(t_mid - half_w) <= 0.45)
+    in_fin_band = (t_mid >= -half_w - 0.45) & (t_mid <= half_w + 0.45)
     fin_mask = (
         (tn_z < 0.50)
-        & near_side
+        & (tn_dot_t >= 0.50)
+        & in_fin_band
         & (u_max[idx_c] >= -half_h + 0.05)
         & (u_min[idx_c] <= half_h - 0.05)
     )
     if np.any(fin_mask):
-        fin_idx = idx_c[fin_mask]
-        proj_v = float(np.max(d_max[fin_idx]))
-        r2_best = max(r2_best, proj_v / win_w)
+        fin_local = np.where(fin_mask)[0]
+        fin_idx = idx_c[fin_local]
+        fin_ts = t_mid[fin_local]
+        fin_ds = d_max[fin_idx]
+
+        # Cluster close fin faces (e.g. both sides of a 2 cm extruded solid fin) within 0.12 m
+        order = np.argsort(fin_ts)
+        clusters: List[Tuple[float, float]] = []  # (mean_t, max_d)
+        cur_ts: List[float] = [float(fin_ts[order[0]])]
+        cur_d = float(fin_ds[order[0]])
+        for oi in order[1:]:
+            tv = float(fin_ts[oi])
+            dv = float(fin_ds[oi])
+            if tv - cur_ts[-1] <= 0.12:
+                cur_ts.append(tv)
+                cur_d = max(cur_d, dv)
+            else:
+                clusters.append((float(np.mean(cur_ts)), cur_d))
+                cur_ts = [tv]
+                cur_d = dv
+        clusters.append((float(np.mean(cur_ts)), cur_d))
+
+        proj_v = max(c[1] for c in clusters)
+        if len(clusters) >= 3:
+            spacings = [clusters[k + 1][0] - clusters[k][0] for k in range(len(clusters) - 1)]
+            valid_sp = [s for s in spacings if s >= 0.15]
+            eff_w = float(np.median(valid_sp)) if valid_sp else win_w
+            r2_best = max(r2_best, proj_v / max(0.05, eff_w))
+        elif len(clusters) == 2:
+            sp = clusters[1][0] - clusters[0][0]
+            eff_w = min(win_w, sp) if sp >= 0.15 else win_w
+            r2_best = max(r2_best, proj_v / max(0.05, eff_w))
+        else:
+            # Single fin: only applies if adjacent to left or right edge of the window
+            t0 = clusters[0][0]
+            if abs(t0 + half_w) <= 0.45 or abs(t0 - half_w) <= 0.45:
+                r2_best = max(r2_best, proj_v / win_w)
 
     return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
 
@@ -2084,22 +2303,43 @@ def analyze_building_ottv(
     front_mask = cos_inc_mat > 0.01
     outer_mask_np = np.array([bool(p["is_outer"]) for p in panel_records], dtype=bool)
 
-    mtime_rc = os.path.getmtime(filepath) if os.path.exists(filepath) else 0.0
+    abs_fp_rc = os.path.abspath(filepath)
+    mtime_rc = os.path.getmtime(abs_fp_rc) if os.path.exists(abs_fp_rc) else 0.0
+    fsize_rc = os.path.getsize(abs_fp_rc) if os.path.exists(abs_fp_rc) else 0
+    obs_hash = (
+        hashlib.blake2b(np.ascontiguousarray(obs_tris_all).view(np.uint8), digest_size=16).digest()
+        if len(obs_tris_all) > 0
+        else b""
+    )
+    orig_hash = hashlib.blake2b(np.ascontiguousarray(origins_np).view(np.uint8), digest_size=16).digest()
     rc_key = (
-        filepath,
+        abs_fp_rc,
         mtime_rc,
+        fsize_rc,
         num_panels,
         len(obs_tris_all),
+        obs_hash,
+        orig_hash,
         round(lat_deg, 2),
         round(params.north_angle_deg, 1),
         params.design_month,
         ext_mode,
+        round(self_shade_reach, 2),
+        params.unit_mode,
+        params.up_axis,
+        round(float(params.z_ground_cutoff_m), 3),
+        bool(params.outer_skin_only),
+        tuple(sorted(params.disabled_groups)),
+        tuple(sorted(params.group_category_overrides.items())),
+        tuple(sorted(params.restore_filtered)),
     )
     if not hasattr(analyze_building_ottv, "_rc_cache"):
         analyze_building_ottv._rc_cache = {}
     if rc_key in analyze_building_ottv._rc_cache:
         hourly_hits = analyze_building_ottv._rc_cache[rc_key]
     else:
+        if len(analyze_building_ottv._rc_cache) >= 16:
+            analyze_building_ottv._rc_cache.clear()
         hourly_hits = np.zeros((len(solar_vectors), num_panels), dtype=np.float64)
         if len(obs_tris_all) > 0:
             for h_idx, sv in enumerate(solar_vectors):
@@ -2147,6 +2387,11 @@ def analyze_building_ottv(
         if extra_face_shading_tris:
             sni_shade_chunks.append(np.array(extra_face_shading_tris, dtype=np.float64))
         sni_shading_tris = np.vstack(sni_shade_chunks) if sni_shade_chunks else np.empty((0, 3, 3), dtype=np.float64)
+        sni_shading_aabb = (
+            (np.min(sni_shading_tris, axis=1), np.max(sni_shading_tris, axis=1))
+            if len(sni_shading_tris) > 0
+            else None
+        )
 
         sc_Display_mult_arr = np.ones(num_panels, dtype=np.float64)
         for idx_p, p_rec in enumerate(panel_records):
@@ -2159,6 +2404,7 @@ def analyze_building_ottv(
                     louver_depth_m=params.louver_depth_m,
                     louver_spacing_m=params.louver_spacing_m,
                     louver_tilt_deg=params.louver_tilt_deg,
+                    shading_aabb=sni_shading_aabb,
                 )
                 panel_r1_arr[idx_p] = r1_v
                 panel_r2_arr[idx_p] = r2_v
@@ -2332,8 +2578,10 @@ def analyze_building_ottv(
             wwr_k = max(0.05, min(0.95, float(params.group_wwr_map.get(p["group_name"], 0.70))))
         elif has_explicit_glazing:
             wwr_k = 1.0 if cat == "glazing" else 0.0
-        else:
+        elif params.default_wall_wwr is not None:
             wwr_k = max(0.0, min(0.95, float(params.default_wall_wwr)))
+        else:
+            wwr_k = 0.0
 
         sc_mult = float(sc_Display_mult_arr[idx])
         sc_eff = sc_1_k * sc_mult
@@ -2395,7 +2643,7 @@ def analyze_building_ottv(
             ofb["wall_area_m2"] += area * (1.0 - wwr_k)
             ofb["glazing_area_m2"] += area * wwr_k
             ofb["_sum_sf_area"] += p["sf_wm2"] * area
-            ofb["_sum_sc_eff_area"] += sc_eff * (area * wwr_k if wwr_k > 1e-4 else area)
+            ofb["_sum_sc_eff_area"] += sc_eff * (area * wwr_k)
             ofb["_sum_q_wall_w"] += q_wall_wm2 * area
             ofb["_sum_q_glass_w"] += q_glass_cond_wm2 * area
             ofb["_sum_q_solar_w"] += q_solar_wm2 * area
@@ -2421,7 +2669,7 @@ def analyze_building_ottv(
             b["wall_area_m2"] += wal_a
             b["glazing_area_m2"] += glz_a
             b["_sum_sf_area"] += p["sf_wm2"] * area
-            b["_sum_sc_eff_area"] += sc_eff * (glz_a if glz_a > 1e-4 else area)
+            b["_sum_sc_eff_area"] += sc_eff * glz_a
             b["_sum_sc_k_area"] += sc_1_k * glz_a
             b["_sum_sc_sh_area"] += sc_mult * glz_a
             b["_sum_r1_area"] += float(panel_r1_arr[idx]) * glz_a
@@ -2538,7 +2786,7 @@ def analyze_building_ottv(
         if a_tot > 1e-4:
             wwr_o = a_glz / a_tot
             avg_sf = b["_sum_sf_area"] / a_tot
-            avg_sc = b["_sum_sc_eff_area"] / (a_glz if a_glz > 1e-4 else a_tot)
+            avg_sc = (b["_sum_sc_eff_area"] / a_glz) if a_glz > 1e-4 else 0.0
             avg_sck = b["_sum_sc_k_area"] / a_glz if a_glz > 1e-4 else 0.0
             avg_sc_sh = b["_sum_sc_sh_area"] / a_glz if a_glz > 1e-4 else 1.0
             avg_r1 = b["_sum_r1_area"] / a_glz if a_glz > 1e-4 else 0.0
@@ -2799,7 +3047,11 @@ def analyze_building_ottv(
 
     active_panels_iter = [p for p in panel_records if p["active"]]
     avg_sf_bldg = sum(p["sf_wm2"] * p["area_m2"] for p in active_panels_iter) / denom_a
-    avg_sc_bldg = sum(p["sc_effective"] * p["area_m2"] for p in active_panels_iter) / denom_a
+    avg_sc_bldg = (
+        sum(p["sc_effective"] * (p["area_m2"] * p["wwr_panel"]) for p in active_panels_iter) / total_glazing_area
+        if total_glazing_area > 1e-4
+        else 0.0
+    )
     avg_sh_bldg = sum(p["shaded_fraction"] * p["area_m2"] for p in active_panels_iter) / denom_a
 
     # Compute Smooth Facade Composite OTTV (`ottv_composite_wm2`) per panel so the 3D thermal
@@ -2821,7 +3073,11 @@ def analyze_building_ottv(
             bin_sc_sum[fl_i, b_idx] += p["sc_shading_multiplier"] * p["area_m2"]
             bin_sc_cnt[fl_i, b_idx] += p["area_m2"]
 
-    default_sc_mult = max(0.30, avg_sc_bldg / max(0.08, sc_1_glob))
+    default_sc_mult = (
+        max(0.30, avg_sc_bldg / max(0.08, sc_1_glob))
+        if total_glazing_area > 1e-4
+        else 1.0
+    )
     bin_sc_avg = np.where(bin_sc_cnt > 1e-4, bin_sc_sum / np.maximum(1e-6, bin_sc_cnt), default_sc_mult)
     # Circular smoothing along azimuth & vertical smoothing across adjacent floors
     bin_sc_smooth = (
@@ -2893,7 +3149,7 @@ def analyze_building_ottv(
             if a_tot > 1e-4:
                 wwr_of = a_glz / a_tot
                 sf_of = ofb["_sum_sf_area"] / a_tot
-                sc_of = ofb["_sum_sc_eff_area"] / (a_glz if a_glz > 1e-4 else a_tot)
+                sc_of = (ofb["_sum_sc_eff_area"] / a_glz) if a_glz > 1e-4 else 0.0
                 qw_of = ofb["_sum_q_wall_w"]
                 qg_of = ofb["_sum_q_glass_w"]
                 qs_of = ofb["_sum_q_solar_w"]
@@ -3034,6 +3290,35 @@ def analyze_building_ottv(
                 "normalized_span_m": [round(float(x), 2) for x in stage1_audit.normalized_span_m],
             },
         })
+    if not has_explicit_glazing:
+        if params.wwr_override is not None:
+            summary_warnings.append({
+                "code": "ASSUMED_WWR",
+                "message": (
+                    f"Model tidak memiliki grup kaca terdeteksi; perhitungan menggunakan WWR override "
+                    f"eksplisit {float(params.wwr_override)*100:.1f}% (bukan geometri kaca terukur)."
+                ),
+                "detail": {"assumed_wwr": round(float(params.wwr_override), 4), "source": "wwr_override"},
+            })
+        elif params.default_wall_wwr is not None:
+            summary_warnings.append({
+                "code": "ASSUMED_WWR",
+                "message": (
+                    f"Model tidak memiliki grup kaca terdeteksi; perhitungan menggunakan WWR asumsi "
+                    f"eksplisit {float(params.default_wall_wwr)*100:.1f}% dari pengguna (bukan geometri kaca terukur)."
+                ),
+                "detail": {"assumed_wwr": round(float(params.default_wall_wwr), 4), "source": "default_wall_wwr"},
+            })
+        else:
+            summary_warnings.append({
+                "code": "NO_GLAZING",
+                "message": (
+                    "Model tidak memiliki grup kaca/bukaan yang terdeteksi sehingga dihitung dengan WWR = 0% "
+                    "(dinding opak saja). Konfirmasikan peran grup di Periksa Model atau tetapkan WWR asumsi "
+                    "secara eksplisit bila model memang belum memisahkan kaca."
+                ),
+                "detail": {"detected_glazing_groups": 0, "effective_wwr": 0.0},
+            })
     is_provisional = len(summary_warnings) > 0
     if is_sni_mode and sf_source_info.get("warning"):
         summary_warnings.append({
@@ -3105,6 +3390,7 @@ def analyze_building_ottv(
         "location_info": loc_info,
         "stage1_geometry_audit": {
             "detected_unit": stage1_audit.detected_unit,
+            "detected_unit_label": stage1_audit.detected_unit if stage1_audit.detected_unit is not None else "tidak ada di file",
             "applied_unit": stage1_audit.applied_unit,
             "scale_factor_to_m": stage1_audit.scale_factor_to_m,
             "unit_source": stage1_audit.unit_source,

@@ -1,0 +1,80 @@
+{
+  "case": "07_silinder",
+  "formats": [
+    "3dm",
+    "obj",
+    "glb"
+  ],
+  "config_overrides": {},
+  "expected": {
+    "area_by_orientation": {
+      "U": {
+        "glazing": 44.6237,
+        "wall": 66.9356
+      },
+      "TL": {
+        "glazing": 55.7797,
+        "wall": 83.6695
+      },
+      "T": {
+        "glazing": 44.6237,
+        "wall": 66.9356
+      },
+      "TGR": {
+        "glazing": 55.7797,
+        "wall": 83.6695
+      },
+      "S": {
+        "glazing": 44.6237,
+        "wall": 66.9356
+      },
+      "BD": {
+        "glazing": 55.7797,
+        "wall": 83.6695
+      },
+      "B": {
+        "glazing": 44.6237,
+        "wall": 66.9356
+      },
+      "BL": {
+        "glazing": 55.7797,
+        "wall": 83.6695
+      }
+    },
+    "total_envelope_area_m2": 1004.0342,
+    "wwr_total": 0.4,
+    "ottv_total_wm2": 19.8945,
+    "ottv_by_orientation": {
+      "U": 18.5715,
+      "TL": 20.0599,
+      "T": 21.0832,
+      "TGR": 17.2692,
+      "S": 14.7576,
+      "BD": 19.7808,
+      "B": 24.8041,
+      "BL": 22.7576
+    },
+    "rttv": {
+      "applicable": true,
+      "opaque_roof_area_m2": 312.5667,
+      "skylight_area_m2": 0.0,
+      "rttv_wm2": 4.64
+    },
+    "is_provisional": false,
+    "flags_expected": [],
+    "error_expected": false
+  },
+  "tolerance": {
+    "area_rel": 0.005,
+    "ottv_abs": 0.1
+  },
+  "derivation": "SNI 6389:2020 (sf_source=template_prodi, Jakarta): Uw=0.62, alpha=0.4, massa_w=46.0 kg/m2 -> TDek=15.0 K; Uf=1.1, SHGC=0.2 -> SCk=SHGC/0.86=0.232558, dT=5.0 K; Peneduh: R1=0 (bin=0.0), R2=0 (bin=0.0); Atap: Ur=0.58, alpha_r=0.5, TDeq=16.0 K, SF_roof=427.0. OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf*WWR*dT + SF_i*WWR*(SCk*SCeff_i). Silinder r=10m, 36 segmen (lebar chord=1.743115m); 4 segmen untuk U/T/S/B, 5 segmen untuk TL/TGR/BD/BL.",
+  "per_format_overrides": {
+    "obj": {
+      "is_provisional": true,
+      "flags_expected": [
+        "UNIT_NEEDS_CONFIRMATION"
+      ]
+    }
+  }
+}

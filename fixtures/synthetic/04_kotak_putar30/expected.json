@@ -1,0 +1,61 @@
+{
+  "case": "04_kotak_putar30",
+  "formats": [
+    "3dm",
+    "obj",
+    "glb",
+    "ifc"
+  ],
+  "config_overrides": {},
+  "expected": {
+    "area_by_orientation": {
+      "TL": {
+        "glazing": 128.0,
+        "wall": 192.0
+      },
+      "TGR": {
+        "glazing": 192.0,
+        "wall": 288.0
+      },
+      "BD": {
+        "glazing": 128.0,
+        "wall": 192.0
+      },
+      "BL": {
+        "glazing": 192.0,
+        "wall": 288.0
+      }
+    },
+    "total_envelope_area_m2": 1600.0,
+    "wwr_total": 0.4,
+    "ottv_total_wm2": 19.9762,
+    "ottv_by_orientation": {
+      "TL": 20.0599,
+      "TGR": 17.2692,
+      "BD": 19.7808,
+      "BL": 22.7576
+    },
+    "rttv": {
+      "applicable": true,
+      "opaque_roof_area_m2": 600.0,
+      "skylight_area_m2": 0.0,
+      "rttv_wm2": 4.64
+    },
+    "is_provisional": false,
+    "flags_expected": [],
+    "error_expected": false
+  },
+  "tolerance": {
+    "area_rel": 0.005,
+    "ottv_abs": 0.1
+  },
+  "derivation": "SNI 6389:2020 (sf_source=template_prodi, Jakarta): Uw=0.62, alpha=0.4, massa_w=46.0 kg/m2 -> TDek=15.0 K; Uf=1.1, SHGC=0.2 -> SCk=SHGC/0.86=0.232558, dT=5.0 K; Peneduh: R1=0 (bin=0.0), R2=0 (bin=0.0); Atap: Ur=0.58, alpha_r=0.5, TDeq=16.0 K, SF_roof=427.0. OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf*WWR*dT + SF_i*WWR*(SCk*SCeff_i). Bangunan diputar 30 deg CW: U->TL(30), T->TGR(120), S->BD(210), B->BL(300). Ekuivalen dengan Kasus 1 + north_angle_deg=330 (Utara sejati diputar 30 deg CCW).",
+  "per_format_overrides": {
+    "obj": {
+      "is_provisional": true,
+      "flags_expected": [
+        "UNIT_NEEDS_CONFIRMATION"
+      ]
+    }
+  }
+}

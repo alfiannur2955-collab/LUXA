@@ -1,9 +1,10 @@
 """
-Fase 0 — Baseline Comparison Tool for OTTV 3D Parametric Studio
-===============================================================
-Re-runs all fixtures with default `EnvelopeParameters()` and compares
-every recorded metric against `fixtures/baseline.json`, printing a
-clear diff table and returning exit code 0 if and only if 0 diffs occur.
+Baseline Comparison Tool for OTTV 3D Parametric Studio
+======================================================
+Re-runs all fixtures with default `ProjectConfig()` (mode `'sni'`,
+`sf_source='template_prodi'`) and compares every recorded metric against
+`fixtures/baseline.json`, printing a clear diff table and returning exit
+code 0 if and only if 0 diffs occur.
 """
 
 from __future__ import annotations

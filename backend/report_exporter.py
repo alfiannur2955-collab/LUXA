@@ -258,7 +258,7 @@ def generate_excel_report(analysis: Dict[str, Any]) -> bytes:
                 "glazing_area_m2": float(ob.get("glazing_area_m2", 0.0)),
                 "wwr": float(ob.get("wwr", 0.0)),
                 "avg_sf_wm2": float(ob.get("avg_sf_interpolated_wm2", base_sf)),
-                "avg_sc_eff": float(ob.get("avg_sc_effective", sc_glass * 0.65)),
+                "avg_sc_eff": float(ob.get("avg_sc_effective", 0.0)),
             }]
         n_fl = len(fl_rows)
 
@@ -388,8 +388,12 @@ def generate_excel_report(analysis: Dict[str, Any]) -> bytes:
             ws[f"{col_l}16"].font = f_tbl_hdr
             ws[f"{col_l}16"].border = bdr_thin
 
-        avg_sc_eff_ori = float(ob.get("avg_sc_effective", sc_glass * 0.65))
-        sc_mult_ori = round(avg_sc_eff_ori / max(0.05, sc_glass), 3)
+        avg_sc_eff_ori = float(ob.get("avg_sc_effective", 0.0))
+        sc_mult_ori = (
+            round(avg_sc_eff_ori / max(0.05, sc_glass), 3)
+            if float(ob.get("glazing_area_m2", 0.0)) > 1e-4
+            else 1.0
+        )
 
         t2_rows = [
             ("F1", mats.get("glazing_name", "Double Glazed IGU Low-E Vision Glass"), shgc_glass, u_fen_eff, "yes", "SE1", sc_glass),
@@ -1440,7 +1444,7 @@ def generate_pdf_report(analysis: Dict[str, Any]) -> bytes:
             f"{float(r.get('wwr', 0)) * 100:.1f}%",
             f"{r.get('sni_sf_wm2', 0):.0f}",
             f"{r.get('avg_sf_interpolated_wm2', 0):.1f}",
-            f"{r.get('avg_sc_effective', 0):.3f}",
+            f"{r.get('avg_sc_effective', 0):.3f}" if float(r.get("glazing_area_m2", 0)) > 1e-4 else "-",
             f"{r.get('q_wall_conduction_wm2', 0):.2f}",
             f"{r.get('q_glass_conduction_wm2', 0):.2f}",
             f"{r.get('q_solar_radiation_wm2', 0):.2f}",

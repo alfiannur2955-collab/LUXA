@@ -85,7 +85,7 @@ class RawGroupMesh:
 @dataclass
 class Stage1GeometryAudit:
     """Metadata produced by Gate 1 (Geometry, Unit & Axis Normalization)."""
-    detected_unit: str = "m"
+    detected_unit: Optional[str] = None
     applied_unit: str = "m"
     scale_factor_to_m: float = 1.0
     unit_source: str = "header"  # 'header' | 'user' | 'bbox_guess'
@@ -270,6 +270,13 @@ def classify_layer_or_material_with_confidence(
     if mat_tokens & _FRAME_TOKENS:
         matched = sorted(mat_tokens & _FRAME_TOKENS)
         return "frame", 0.92, f"Token rangka/logam pada material: {', '.join(matched)}"
+
+    # 5b. Explicit Roof tokens ('atap'/'roof'/'dak'/'ifcroof') beat generic masonry material tokens
+    #     like 'beton'/'concrete' (e.g. 'Atap Beton', 'Dak Beton', 'Concrete Roof') unless paired
+    #     with an explicit vertical wall head token ('dinding'/'wall'/'tembok'/'parapet').
+    if (all_tokens & _ROOF_EXPLICIT_TOKENS) and not (all_tokens & (_WALL_HEAD_TOKENS | {"parapet"})):
+        matched = sorted(all_tokens & _ROOF_EXPLICIT_TOKENS)
+        return "roof", 0.94, f"Token atap eksplisit: {', '.join(matched)}"
 
     # 6. Explicit Solid Masonry / Cladding / Wall tokens (beats 'lantai'/'floor' in e.g. 'Dinding_Lantai2'!)
     #    Exclude 'wall' if it ONLY came from 'curtain wall' without solid wall indicators.
@@ -598,10 +605,25 @@ def _clean_solid_bim_element_faces(
     sliver_thresh = 0.12 if category in ("glazing", "spandrel") else 0.08
     is_thin_edge = is_vert & (w_xy <= sliver_thresh) & (areas < 0.25 * max_vert_area)
 
-    # M6: For glazing, only horizontal thin edge caps (area < 25% max_vert_area) are panel edges;
-    # genuine tilted/skylight glazing faces are ALWAYS preserved!
+    # M6: For glazing, horizontal thin edge caps (top/bottom panel thickness <= 14 cm, rotation-invariant!)
+    # are panel edges; genuine tilted/skylight glazing faces are ALWAYS preserved!
     if category == "glazing":
-        is_cap = (~is_vert) & (areas < 0.25 * max_vert_area) & (min_elem_dim <= 0.14)
+        e01 = p1 - p0
+        e12 = p2 - p1
+        e23 = np.where(is_q[valid, None], p3 - p2, p0 - p2)
+        e30 = np.where(is_q[valid, None], p0 - p3, np.zeros_like(p0))
+        edges_b = np.stack([e01, e12, e23, e30], axis=1)
+        elens_b = np.linalg.norm(edges_b, axis=2)
+        best_e = edges_b[np.arange(len(quads)), np.argmax(elens_b, axis=1)]
+        u_b = best_e / np.maximum(1e-9, np.linalg.norm(best_e, axis=1, keepdims=True))
+        v_raw_b = np.cross(normals, u_b)
+        v_b = v_raw_b / np.maximum(1e-9, np.linalg.norm(v_raw_b, axis=1, keepdims=True))
+        p3_eff_b = np.where(is_q[valid, None], p3, p2)
+        pts_b = np.stack([p0, p1, p2, p3_eff_b], axis=1)
+        du_b = np.max(np.einsum("nkc,nc->nk", pts_b, u_b), axis=1) - np.min(np.einsum("nkc,nc->nk", pts_b, u_b), axis=1)
+        dv_b = np.max(np.einsum("nkc,nc->nk", pts_b, v_b), axis=1) - np.min(np.einsum("nkc,nc->nk", pts_b, v_b), axis=1)
+        face_min_dim = np.minimum(du_b, dv_b)
+        is_cap = (~is_vert) & (areas < 0.25 * max_vert_area) & ((min_elem_dim <= 0.14) | (face_min_dim <= 0.14))
     elif category == "spandrel" or min_elem_dim <= 0.14:
         is_cap = ~is_vert
     else:
@@ -631,7 +653,7 @@ def _filter_thin_edge_slivers_on_group(
     Records exact filtered face count & area into `audit.filtered_items`, and restores
     the faces immediately if `f"sliver::{rg.group_name}"` is in `restore_filtered_set`.
     """
-    if rg.default_category not in ("glazing", "spandrel") or len(rg.faces) < 4:
+    if rg.default_category not in ("glazing", "spandrel", "wall") or len(rg.faces) < 4:
         return 0, None
     vs = rg.vertices
     fs = rg.faces
@@ -1004,7 +1026,11 @@ def _parse_ifc_with_ifcopenshell(
                     mat_ids = np.array(geom.material_ids, dtype=np.int64)
                     uniq_mids = [int(m) for m in np.unique(mat_ids) if 0 <= int(m) < len(mats)]
                     layer_label = f"{p_type.replace('Ifc', 'IFC_')} ({p_name})" if p_type else etype.replace("Ifc", "IFC_")
-                    mat_fallback = elem_mat_name.get(elem.id()) or str(getattr(elem, "Name", "") or etype)
+                    raw_mat_fb = elem_mat_name.get(elem.id()) or str(getattr(elem, "Name", "") or etype)
+                    # Strip per-instance ArchiCAD/Revit numeric ID suffixes (e.g. '_(#948940)' or ':123456')
+                    # so identical element types group cleanly instead of exploding into thousands of 1-element groups.
+                    mat_fallback = re.sub(r"[_\s]*\(#\d+\)\s*$", "", raw_mat_fb).strip()
+                    mat_fallback = re.sub(r":\d{5,}\s*$", "", mat_fallback).strip() or raw_mat_fb
 
                     # Split multi-material BIM elements (especially IfcWindow / IfcDoor / IfcCurtainWall)
                     # by material_id so transparent glass panes separate cleanly from opaque wood/aluminium frames!
@@ -1058,19 +1084,37 @@ def _parse_ifc_with_ifcopenshell(
                                     cat = "frame"
                                 else:
                                     cat = "glazing"
+                            elif etype == "IfcCovering":
+                                cov_pt = str(getattr(elem, "PredefinedType", "") or "").upper()
+                                if cov_pt in ("CEILING", "FLOORING"):
+                                    cat = "ignore"
+                                elif cov_pt == "ROOFING":
+                                    cat = "roof"
+                                elif cov_pt == "CLADDING":
+                                    cat = "wall"
+                                else:
+                                    cat = classify_layer_or_material_role(f"{style_or_mat} {elem.Name or ''}", context=p_type)
                             elif etype == "IfcDoor":
                                 cat = "glazing" if ("glass" in style_or_mat.lower() or tr_val > 0.12) else "wall"
+                            elif etype in ("IfcPlate", "IfcCurtainWall") or p_type == "IfcCurtainWall":
+                                sm_lo = style_or_mat.lower()
+                                has_glass_kw = any(k in sm_lo for k in ("glass", "glaz", "kaca", "vision"))
+                                if tr_val <= 0.12 and not has_glass_kw:
+                                    # B1: Opaque IfcPlate/IfcCurtainWall without glass keyword -> spandrel (z<=1.35m) or wall, NEVER glazing.
+                                    base_cat = classify_layer_or_material_role(style_or_mat, context=p_type)
+                                    if base_cat in ("frame", "shading", "ignore", "spandrel"):
+                                        cat = base_cat
+                                    else:
+                                        sub_v_idx = np.unique(sub_tris)
+                                        z_span_el = float(np.max(verts[sub_v_idx, 2]) - np.min(verts[sub_v_idx, 2])) if len(sub_v_idx) > 0 else 0.0
+                                        cat = "spandrel" if z_span_el <= 1.35 else "wall"
+                                else:
+                                    cat = "glazing"
                             else:
                                 if resolved_style:
                                     cat = classify_layer_or_material_role(f"{resolved_style} {etype}", context=p_type)
                                 else:
                                     cat = classify_layer_or_material_role(f"{style_or_mat} {elem.Name or ''} {etype}", context=p_type)
-                                if p_type == "IfcCurtainWall" and cat in ("wall", "unknown"):
-                                    z_span_el = float(np.max(verts[:, 2]) - np.min(verts[:, 2]))
-                                    if z_span_el <= 1.35:
-                                        cat = "spandrel"
-                                    elif cat == "unknown":
-                                        cat = "glazing"
                             g_name = f"{layer_label} :: {style_or_mat}" if style_or_mat != layer_label else layer_label
 
                         restore_sliv = f"sliver::{g_name}" in rf_set
@@ -1137,35 +1181,76 @@ def _parse_ifc_with_ifcopenshell(
 
 def create_sample_ifc_preset(output_path: str) -> str:
     """
-    Generates a valid, self-contained BIM `.ifc` (IFC2x3 STEP) building model
+    Generates a valid, self-contained BIM `.ifc` (IFC4 via `ifcopenshell.api`) building model
     simulating an ArchiCAD Curtain Wall + Podium Office (6 Storeys: L1 Lobby 4.8m,
-    L2-L3 Podium 4.2m, L4-L6 Tower 3.6m) with IFCBUILDINGSTOREY, IFCPLATE (Vision & Spandrel),
-    IFCMEMBER (Mullions), IFCWALL (Opaque Core/Podium Wall), and IFCSHADINGDEVICE (Louvers).
+    L2-L3 Podium 4.2m, L4-L6 Tower 3.6m) with IfcBuildingStorey, IfcPlate (Vision Glass with
+    transparency=0.75 & Opaque Spandrel), IfcMember (Mullions), IfcWall (Opaque Podium Wall),
+    and valid IFC4 IfcShadingDevice (External Horizontal Overhang Fins).
     """
-    lines = [
-        "ISO-10303-21;",
-        "HEADER;",
-        "FILE_DESCRIPTION(('ViewDefinition [CoordinationView_V2.0]'),'2;1');",
-        "FILE_NAME('archicad_bim_curtainwall.ifc','2026-11-13T12:00:00',('Architect'),('ArchiCAD BIM Export'),'OTTV Studio','ArchiCAD 27','');",
-        "FILE_SCHEMA(('IFC2X3'));",
-        "ENDSEC;",
-        "DATA;",
-        "#1 = IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);",
-        "#2 = IFCCARTESIANPOINT((0.,0.,0.));",
-        "#3 = IFCDIRECTION((0.,0.,1.));",
-        "#4 = IFCDIRECTION((1.,0.,0.));",
-        "#5 = IFCAXIS2PLACEMENT3D(#2,#3,#4);",
-        "#6 = IFCLOCALPLACEMENT($,#5);",
-    ]
-    next_id = 10
+    import ifcopenshell
+    import ifcopenshell.api
 
-    def _new_id() -> int:
-        nonlocal next_id
-        nid = next_id
-        next_id += 1
-        return nid
+    ifc = ifcopenshell.api.run("project.create_file", version="IFC4")
+    project = ifcopenshell.api.run("root.create_entity", ifc, ifc_class="IfcProject", name="ArchiCAD_BIM_CurtainWall")
+    ifcopenshell.api.run("unit.assign_unit", ifc, length={"is_metric": True, "raw": "METERS"})
+    model_ctx = ifcopenshell.api.run("context.add_context", ifc, context_type="Model")
+    body_ctx = ifcopenshell.api.run(
+        "context.add_context",
+        ifc,
+        context_type="Model",
+        context_identifier="Body",
+        target_view="MODEL_VIEW",
+        parent=model_ctx,
+    )
 
-    # Define 6 BIM Storeys with variable floor heights (Lobby 4.8m, Podium 2x4.2m, Typical 3x3.6m)
+    site = ifcopenshell.api.run("root.create_entity", ifc, ifc_class="IfcSite", name="Site")
+    building = ifcopenshell.api.run("root.create_entity", ifc, ifc_class="IfcBuilding", name="Podium_Tower_Office")
+    ifcopenshell.api.run("aggregate.assign_object", ifc, relating_object=project, products=[site])
+    ifcopenshell.api.run("aggregate.assign_object", ifc, relating_object=site, products=[building])
+
+    def _make_style(name: str, rgb: Tuple[float, float, float], transparency: float = 0.0):
+        style = ifcopenshell.api.run("style.add_style", ifc, name=name)
+        ifcopenshell.api.run(
+            "style.add_surface_style",
+            ifc,
+            style=style,
+            ifc_class="IfcSurfaceStyleRendering",
+            attributes={
+                "SurfaceColour": {"Name": name, "Red": rgb[0], "Green": rgb[1], "Blue": rgb[2]},
+                "Transparency": float(transparency),
+                "ReflectanceMethod": "NOTDEFINED",
+            },
+        )
+        return style
+
+    st_glass = _make_style("Glass - Vision Low-E", (0.45, 0.72, 0.88), transparency=0.75)
+    st_spandrel = _make_style("Spandrel_Panel", (0.28, 0.34, 0.42), transparency=0.0)
+    st_wall = _make_style("Precast_Wall", (0.78, 0.76, 0.72), transparency=0.0)
+    st_frame = _make_style("Mullion_Frame", (0.35, 0.37, 0.40), transparency=0.0)
+    st_shade = _make_style("Sun_Louver_Fin", (0.62, 0.44, 0.25), transparency=0.0)
+
+    def _add_mesh_product(
+        storey: Any,
+        ifc_class: str,
+        name: str,
+        verts_3d: List[Tuple[float, float, float]],
+        faces_idx: List[List[int]],
+        style: Any,
+    ) -> Any:
+        prod = ifcopenshell.api.run("root.create_entity", ifc, ifc_class=ifc_class, name=name)
+        ifcopenshell.api.run("spatial.assign_container", ifc, relating_structure=storey, products=[prod])
+        rep = ifcopenshell.api.run(
+            "geometry.add_mesh_representation",
+            ifc,
+            context=body_ctx,
+            vertices=[verts_3d],
+            faces=[faces_idx],
+            unit_scale=1.0,
+        )
+        ifcopenshell.api.run("geometry.assign_representation", ifc, product=prod, representation=rep)
+        ifcopenshell.api.run("style.assign_representation_styles", ifc, shape_representation=rep, styles=[style])
+        return prod
+
     storey_heights = [
         ("L1_Ground_Lobby", 0.0, 4.8),
         ("L2_Podium_Komersial", 4.8, 4.2),
@@ -1176,39 +1261,31 @@ def create_sample_ifc_preset(output_path: str) -> str:
     ]
 
     for s_idx, (s_name, z0, fh) in enumerate(storey_heights):
-        sid = _new_id()
-        lines.append(f"#{sid} = IFCBUILDINGSTOREY('ST_{s_idx+1}',$,'{s_name}','BIM Storey',$,#6,$,'{s_name}',.ELEMENT.,{z0:.3f});")
+        storey = ifcopenshell.api.run("root.create_entity", ifc, ifc_class="IfcBuildingStorey", name=s_name)
+        storey.Elevation = float(z0)
+        ifcopenshell.api.run("aggregate.assign_object", ifc, relating_object=building, products=[storey])
 
-    def _add_ifc_quad_entity(etype: str, name: str, mat_tag: str, p0: Tuple[float, float, float], p1: Tuple[float, float, float], p2: Tuple[float, float, float], p3: Tuple[float, float, float]) -> None:
-        id_p0, id_p1, id_p2, id_p3 = _new_id(), _new_id(), _new_id(), _new_id()
-        lines.append(f"#{id_p0} = IFCCARTESIANPOINT(({p0[0]:.3f},{p0[1]:.3f},{p0[2]:.3f}));")
-        lines.append(f"#{id_p1} = IFCCARTESIANPOINT(({p1[0]:.3f},{p1[1]:.3f},{p1[2]:.3f}));")
-        lines.append(f"#{id_p2} = IFCCARTESIANPOINT(({p2[0]:.3f},{p2[1]:.3f},{p2[2]:.3f}));")
-        lines.append(f"#{id_p3} = IFCCARTESIANPOINT(({p3[0]:.3f},{p3[1]:.3f},{p3[2]:.3f}));")
-        id_loop = _new_id()
-        lines.append(f"#{id_loop} = IFCPOLYLOOP((#{id_p0},#{id_p1},#{id_p2},#{id_p3}));")
-        id_bound = _new_id()
-        lines.append(f"#{id_bound} = IFCFACEOUTERBOUND(#{id_loop},.T.);")
-        id_face = _new_id()
-        lines.append(f"#{id_face} = IFCFACE((#{id_bound}));")
-        id_shell = _new_id()
-        lines.append(f"#{id_shell} = IFCCLOSEDSHELL((#{id_face}));")
-        id_brep = _new_id()
-        lines.append(f"#{id_brep} = IFCFACETEDBREP(#{id_shell});")
-        id_srep = _new_id()
-        lines.append(f"#{id_srep} = IFCSHAPEREPRESENTATION($,'Body','Brep',(#{id_brep}));")
-        id_pds = _new_id()
-        lines.append(f"#{id_pds} = IFCPRODUCTDEFINITIONSHAPE($,$,(#{id_srep}));")
-        id_ent = _new_id()
-        lines.append(f"#{id_ent} = {etype}('G_{id_ent}',$,'{name}','ArchiCAD Curtain Wall Tool','{mat_tag}',#6,#{id_pds},'TAG_{id_ent}');")
-
-    # Build 8-sided podium (L1-L3, radius=14.5m) + tower (L4-L6, radius=11.2m)
-    for s_idx, (s_name, z0, fh) in enumerate(storey_heights):
         is_podium = s_idx < 3
         radius = 14.5 if is_podium else 11.2
         spandrel_h = 1.05
         zm = z0 + spandrel_h
         z1 = z0 + fh
+
+        wall_v: List[Tuple[float, float, float]] = []
+        wall_f: List[List[int]] = []
+        span_v: List[Tuple[float, float, float]] = []
+        span_f: List[List[int]] = []
+        glz_v: List[Tuple[float, float, float]] = []
+        glz_f: List[List[int]] = []
+        frm_v: List[Tuple[float, float, float]] = []
+        frm_f: List[List[int]] = []
+        shd_v: List[Tuple[float, float, float]] = []
+        shd_f: List[List[int]] = []
+
+        def _push_quad(v_buf, f_buf, p0, p1, p2, p3):
+            b = len(v_buf)
+            v_buf.extend([p0, p1, p2, p3])
+            f_buf.append([b, b + 1, b + 2, b + 3])
 
         for sec in range(8):
             a0 = math.radians(sec * 45.0 - 22.5)
@@ -1219,29 +1296,38 @@ def create_sample_ifc_preset(output_path: str) -> str:
             x1, y1 = radius * math.sin(a1), radius * math.cos(a1)
 
             for bx0, by0, bx1, by1 in ((x0, y0, xm, ym), (xm, ym, x1, y1)):
-                # 1. Spandrel Panel (IFCPLATE) or Podium Precast Wall (IFCWALL)
-                if is_podium and sec in (2, 6):  # East/West podium solid wall bays
-                    _add_ifc_quad_entity("IFCWALL", f"Wall_Podium_{s_idx+1}", "Precast_Wall", (bx0, by0, z0), (bx1, by1, z0), (bx1, by1, z1), (bx0, by0, z1))
+                if is_podium and sec in (2, 6):
+                    _push_quad(wall_v, wall_f, (bx0, by0, z0), (bx1, by1, z0), (bx1, by1, z1), (bx0, by0, z1))
                     continue
-
-                _add_ifc_quad_entity("IFCPLATE", f"CW_Spandrel_{s_idx+1}", "Spandrel_Panel", (bx0, by0, z0), (bx1, by1, z0), (bx1, by1, zm), (bx0, by0, zm))
-                # 2. Vision Glass Panel (IFCPLATE)
-                _add_ifc_quad_entity("IFCPLATE", f"CW_Vision_Glass_{s_idx+1}", "Vision_Glass", (bx0, by0, zm), (bx1, by1, zm), (bx1, by1, z1), (bx0, by0, z1))
-                # 3. Vertical Mullion Strip (IFCMEMBER)
+                _push_quad(span_v, span_f, (bx0, by0, z0), (bx1, by1, z0), (bx1, by1, zm), (bx0, by0, zm))
+                _push_quad(glz_v, glz_f, (bx0, by0, zm), (bx1, by1, zm), (bx1, by1, z1), (bx0, by0, z1))
                 mx1, my1 = bx0 + 0.08 * (bx1 - bx0), by0 + 0.08 * (by1 - by0)
                 r_m = 1.015
-                _add_ifc_quad_entity("IFCMEMBER", f"CW_Mullion_{s_idx+1}", "Mullion_Frame", (bx0 * r_m, by0 * r_m, z0), (mx1 * r_m, my1 * r_m, z0), (mx1 * r_m, my1 * r_m, z1), (bx0 * r_m, by0 * r_m, z1))
+                _push_quad(
+                    frm_v, frm_f,
+                    (bx0 * r_m, by0 * r_m, z0), (mx1 * r_m, my1 * r_m, z0),
+                    (mx1 * r_m, my1 * r_m, z1), (bx0 * r_m, by0 * r_m, z1),
+                )
 
-            # 4. External Horizontal Overhang Fin (IFCSHADINGDEVICE)
+            # External Horizontal Overhang Fin (valid IFC4 IfcShadingDevice)
             r_sh = radius + 0.85
             xs0, ys0 = r_sh * math.sin(a0), r_sh * math.cos(a0)
             xs1, ys1 = r_sh * math.sin(a1), r_sh * math.cos(a1)
-            _add_ifc_quad_entity("IFCSHADINGDEVICE", f"Sun_Louver_{s_idx+1}", "Sun_Louver_Fin", (x0, y0, z1 - 0.08), (x1, y1, z1 - 0.08), (xs1, ys1, z1 - 0.28), (xs0, ys0, z1 - 0.28))
+            _push_quad(shd_v, shd_f, (x0, y0, z1 - 0.02), (x1, y1, z1 - 0.02), (xs1, ys1, z1 - 0.02), (xs0, ys0, z1 - 0.02))
 
-    lines.append("ENDSEC;")
-    lines.append("END-ISO-10303-21;")
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+        if wall_f:
+            _add_mesh_product(storey, "IfcWall", f"Wall_Podium_{s_idx+1}", wall_v, wall_f, st_wall)
+        if span_f:
+            _add_mesh_product(storey, "IfcPlate", f"CW_Spandrel_{s_idx+1}", span_v, span_f, st_spandrel)
+        if glz_f:
+            _add_mesh_product(storey, "IfcPlate", f"CW_Vision_Glass_{s_idx+1}", glz_v, glz_f, st_glass)
+        if frm_f:
+            _add_mesh_product(storey, "IfcMember", f"CW_Mullion_{s_idx+1}", frm_v, frm_f, st_frame)
+        if shd_f:
+            _add_mesh_product(storey, "IfcShadingDevice", f"Sun_Louver_{s_idx+1}", shd_v, shd_f, st_shade)
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    ifc.write(output_path)
     return output_path
 
 
@@ -1363,13 +1449,16 @@ def load_universal_model_stages_1_and_2(
     Executes Stage 1 (Geometry, Unit & Axis Normalization) and Stage 2 (Layer::Material +
     Geometric Auto-Splitter) with caching for sub-second interactive response.
     """
-    mtime = os.path.getmtime(filepath) if os.path.exists(filepath) else 0.0
+    abs_fp = os.path.abspath(filepath)
+    mtime = os.path.getmtime(abs_fp) if os.path.exists(abs_fp) else 0.0
+    fsize = os.path.getsize(abs_fp) if os.path.exists(abs_fp) else 0
     split_tuple = tuple(sorted(groups_to_auto_split or []))
     restore_tuple = tuple(sorted(restore_filtered or []))
     restore_set = set(restore_tuple)
     cache_key = (
-        filepath,
+        abs_fp,
         mtime,
+        fsize,
         unit_mode,
         up_axis,
         nurbs_u_div,
@@ -1382,6 +1471,8 @@ def load_universal_model_stages_1_and_2(
     )
     if cache_key in _UNIVERSAL_FILE_CACHE:
         return _UNIVERSAL_FILE_CACHE[cache_key]
+    if len(_UNIVERSAL_FILE_CACHE) >= 32:
+        _UNIVERSAL_FILE_CACHE.clear()
 
     ext = os.path.splitext(filepath.lower())[1]
     audit = Stage1GeometryAudit()
@@ -1660,7 +1751,7 @@ def load_universal_model_stages_1_and_2(
     # ------------------------------------------------------------------------
     elif ext == ".obj":
         audit.geometry_kernel = "Wavefront OBJ+MTL Parser"
-        audit.detected_unit = "m"
+        audit.detected_unit = None
         obj_buckets, mtl_transp, obj_y_up_hint = _parse_obj_with_materials(filepath)
         audit.detected_up_axis = "Y" if obj_y_up_hint else "Z"
         if obj_buckets:
@@ -1694,7 +1785,7 @@ def load_universal_model_stages_1_and_2(
     # ------------------------------------------------------------------------
     elif ext in (".glb", ".gltf", ".stl", ".ply"):
         audit.geometry_kernel = f"Trimesh SceneGraph ({ext.upper().lstrip('.')})"
-        audit.detected_unit = "m"
+        audit.detected_unit = None
         audit.detected_up_axis = "Y" if ext in (".glb", ".gltf") else "Z"
         loaded = trimesh.load(filepath, force="scene", process=False)
         if isinstance(loaded, trimesh.Scene):
@@ -1902,8 +1993,8 @@ def load_universal_model_stages_1_and_2(
             audit.notes.append(f"Koordinat IFC ({max_raw_span:.0f}) masih dalam milimeter meski header berbeda -> ditebak mm (mohon konfirmasi).")
         else:
             scale_to_m = 1.0
-            audit.applied_unit = audit.detected_unit
-            audit.scale_factor_to_m = UNIT_SCALE_TO_METERS.get(audit.detected_unit, 1.0)
+            audit.applied_unit = audit.detected_unit or "m"
+            audit.scale_factor_to_m = UNIT_SCALE_TO_METERS.get(audit.detected_unit or "m", 1.0)
             audit.unit_source = "header"
             audit.unit_needs_confirmation = False
     else:
@@ -1924,11 +2015,10 @@ def load_universal_model_stages_1_and_2(
                 audit.notes.append(f"Dimensi mentah ({max_raw_span:.0f}) ditebak sentimeter (cm) dari BBox -> mohon konfirmasi satuan.")
             else:
                 eff_unit = "m"
+                audit.unit_source = "bbox_guess"
                 if ext in (".obj", ".stl", ".ply"):
-                    audit.unit_source = "bbox_guess"
                     audit.unit_needs_confirmation = True
                 else:
-                    audit.unit_source = "header"
                     audit.unit_needs_confirmation = False
         elif eff_unit not in UNIT_SCALE_TO_METERS:
             eff_unit = "m"
@@ -1941,7 +2031,7 @@ def load_universal_model_stages_1_and_2(
         scale_to_m = UNIT_SCALE_TO_METERS[eff_unit]
         if coords_already_in_meters:
             # User manually overrode unit on an IfcOpenShell-converted model: undo original scale first
-            orig_s = UNIT_SCALE_TO_METERS.get(audit.detected_unit, 1.0)
+            orig_s = UNIT_SCALE_TO_METERS.get(audit.detected_unit or "m", 1.0)
             scale_to_m = scale_to_m / max(1e-9, orig_s)
         audit.applied_unit = eff_unit
         audit.scale_factor_to_m = round(UNIT_SCALE_TO_METERS[eff_unit], 6)

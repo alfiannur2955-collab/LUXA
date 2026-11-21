@@ -612,6 +612,7 @@ async def upload_model(file: UploadFile = File(...)) -> Dict[str, Any]:
         "detection": {
             "geometry_kernel": audit.geometry_kernel,
             "detected_unit": audit.detected_unit,
+            "detected_unit_label": audit.detected_unit if audit.detected_unit is not None else "tidak ada di file",
             "applied_unit": audit.applied_unit,
             "unit_source": audit.unit_source,
             "unit_needs_confirmation": audit.unit_needs_confirmation,

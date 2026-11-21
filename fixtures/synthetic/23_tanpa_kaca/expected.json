@@ -1,0 +1,64 @@
+{
+  "case": "23_tanpa_kaca",
+  "formats": [
+    "3dm",
+    "obj",
+    "glb",
+    "ifc"
+  ],
+  "config_overrides": {},
+  "expected": {
+    "area_by_orientation": {
+      "U": {
+        "glazing": 0.0,
+        "wall": 320.0
+      },
+      "T": {
+        "glazing": 0.0,
+        "wall": 480.0
+      },
+      "S": {
+        "glazing": 0.0,
+        "wall": 320.0
+      },
+      "B": {
+        "glazing": 0.0,
+        "wall": 480.0
+      }
+    },
+    "total_envelope_area_m2": 1600.0,
+    "wwr_total": 0.0,
+    "ottv_total_wm2": 3.72,
+    "ottv_by_orientation": {
+      "U": 3.72,
+      "T": 3.72,
+      "S": 3.72,
+      "B": 3.72
+    },
+    "rttv": {
+      "applicable": true,
+      "opaque_roof_area_m2": 600.0,
+      "skylight_area_m2": 0.0,
+      "rttv_wm2": 4.64
+    },
+    "is_provisional": true,
+    "flags_expected": [
+      "NO_GLAZING"
+    ],
+    "error_expected": false
+  },
+  "tolerance": {
+    "area_rel": 0.005,
+    "ottv_abs": 0.1
+  },
+  "derivation": "SNI 6389:2020 (sf_source=template_prodi, Jakarta): Uw=0.62, alpha=0.4, massa_w=46.0 kg/m2 -> TDek=15.0 K; Uf=1.1, SHGC=0.2 -> SCk=SHGC/0.86=0.232558, dT=5.0 K; Peneduh: R1=0 (bin=0.0), R2=0 (bin=0.0); Atap: Ur=0.58, alpha_r=0.5, TDeq=16.0 K, SF_roof=427.0. OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf*WWR*dT + SF_i*WWR*(SCk*SCeff_i). Regresi K2: model hanya memiliki dinding opak (tanpa grup kaca) -> WWR=0%, OTTV=3.72 W/m2, is_provisional=True, peringatan NO_GLAZING (tidak lagi memakai default_wall_wwr=0.35 diam-diam).",
+  "per_format_overrides": {
+    "obj": {
+      "is_provisional": true,
+      "flags_expected": [
+        "NO_GLAZING",
+        "UNIT_NEEDS_CONFIRMATION"
+      ]
+    }
+  }
+}
