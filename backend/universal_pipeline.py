@@ -1646,10 +1646,15 @@ def load_universal_model_stages_1_and_2(
 
         audit.total_raw_objects = len(model.Objects)
 
+        hidden_obj_mode = getattr(rhino3dm.ObjectMode, "Hidden", None)
+        mat_from_parent = getattr(rhino3dm.ObjectMaterialSource, "MaterialFromParent", None)
+        mat_from_object = getattr(rhino3dm.ObjectMaterialSource, "MaterialFromObject", None)
+
         def _process_rhino_obj(
             obj: Any,
             parent_xform: np.ndarray,
-            override_layer: Optional[str] = None,
+            parent_layer: Optional[str] = None,
+            parent_mat_idx: int = -1,
             depth: int = 0,
         ) -> None:
             if depth > 8:
@@ -1657,23 +1662,40 @@ def load_universal_model_stages_1_and_2(
             geom = obj.Geometry
             attr = obj.Attributes
 
-            # Skip explicitly hidden Rhino objects or objects on turned-off layers (top-level only)
+            # M9: Check object & layer visibility at ALL nesting depths (not just depth == 0)
             l_name, l_vis, l_mat_idx = layer_info_cache.get(attr.LayerIndex, ("Default", True, -1))
-            if depth == 0:
-                if not getattr(attr, "Visible", True) or not l_vis:
-                    audit.hidden_objects_skipped += 1
-                    return
+            is_hidden_mode = hidden_obj_mode is not None and getattr(attr, "Mode", None) == hidden_obj_mode
+            if not getattr(attr, "Visible", True) or is_hidden_mode or not l_vis:
+                audit.hidden_objects_skipped += 1
+                return
 
-            layer_name = override_layer or l_name
-            # Support Material-by-Layer when attr.MaterialIndex < 0
-            eff_mat_idx = attr.MaterialIndex if attr.MaterialIndex >= 0 else l_mat_idx
+            # M9: Block child uses its OWN layer; parent_layer is fallback only for Default / By Parent
+            own_layer_clean = (l_name or "").strip()
+            if own_layer_clean and own_layer_clean.lower() not in ("default", "by parent", "byparent"):
+                layer_name = own_layer_clean
+            else:
+                layer_name = parent_layer or own_layer_clean or "Default"
+
+            # M9: Block child resolves its OWN material first (respecting ObjectMaterialSource)
+            mat_src = getattr(attr, "MaterialSource", None)
+            if mat_from_parent is not None and mat_src == mat_from_parent:
+                eff_mat_idx = parent_mat_idx if parent_mat_idx >= 0 else l_mat_idx
+            elif mat_from_object is not None and mat_src == mat_from_object and attr.MaterialIndex >= 0:
+                eff_mat_idx = attr.MaterialIndex
+            elif attr.MaterialIndex >= 0:
+                eff_mat_idx = attr.MaterialIndex
+            elif l_mat_idx >= 0:
+                eff_mat_idx = l_mat_idx
+            else:
+                eff_mat_idx = parent_mat_idx
+
             mat_name = mat_names.get(eff_mat_idx, "")
             m_transp = mat_transp.get(eff_mat_idx, 0.0)
             obj_name = (attr.Name or "").strip()
 
             if obj_name and obj_name.lower() != layer_name.lower():
-                g_name = obj_name if layer_name == "Default" else f"{obj_name}"
-                src_mat = obj_name
+                g_name = obj_name if layer_name == "Default" else f"{layer_name} :: {obj_name}"
+                src_mat = mat_name or obj_name
             elif mat_name:
                 g_name = f"{layer_name} :: {mat_name}"
                 src_mat = mat_name
@@ -1691,7 +1713,7 @@ def load_universal_model_stages_1_and_2(
                     for child_id in idef.GetObjectIds():
                         child_obj = obj_by_id.get(str(child_id))
                         if child_obj:
-                            _process_rhino_obj(child_obj, xf_mat, layer_name, depth + 1)
+                            _process_rhino_obj(child_obj, xf_mat, layer_name, eff_mat_idx, depth + 1)
                 return
 
             if isinstance(geom, rhino3dm.Mesh):
