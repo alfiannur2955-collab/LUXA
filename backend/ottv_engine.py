@@ -830,6 +830,293 @@ def detect_exterior_faces_raycast(
     return is_outer
 
 
+def _groups_to_tris_shared(
+    rg_list: List[RawGroupMesh],
+    disabled_groups: Optional[set] = None,
+) -> np.ndarray:
+    """Converts a list of RawGroupMesh into an un-strided `(T, 3, 3)` triangle array."""
+    dis = disabled_groups or set()
+    chunks: List[np.ndarray] = []
+    for r in rg_list:
+        if r.group_name in dis or len(r.faces) == 0:
+            continue
+        vs_r, fs_r = r.vertices, r.faces
+        chunks.append(np.stack([vs_r[fs_r[:, 0]], vs_r[fs_r[:, 1]], vs_r[fs_r[:, 2]]], axis=1))
+        is_q_r = fs_r[:, 2] != fs_r[:, 3]
+        if np.any(is_q_r):
+            fq_r = fs_r[is_q_r]
+            chunks.append(np.stack([vs_r[fq_r[:, 0]], vs_r[fq_r[:, 2]], vs_r[fq_r[:, 3]]], axis=1))
+    return np.vstack(chunks) if chunks else np.empty((0, 3, 3), dtype=np.float64)
+
+
+def resolve_group_outer_skin_faces(
+    rg: RawGroupMesh,
+    eff_cat: str,
+    all_shell_tris: np.ndarray,
+    roof_tris: np.ndarray,
+    floor_centers: np.ndarray,
+    floor_defs: List[Dict[str, Any]],
+    span_x: float,
+    span_y: float,
+    max_span: float,
+    ext_mode: str = "auto",
+    z_ground_cut: float = 0.0,
+    restore_set: Optional[set] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    M11: Single source of truth for exterior-skin face extraction & outer area calculation,
+    shared identically by BOTH Inspection (`adapters.build_staging_inspection_payload`) and
+    Results (`ottv_engine.analyze_building_ottv`).
+    """
+    vs = rg.vertices
+    fs = rg.faces
+    if len(vs) < 3 or len(fs) < 1:
+        return None
+    is_quad = fs[:, 2] != fs[:, 3]
+    p0 = vs[fs[:, 0]]
+    p1 = vs[fs[:, 1]]
+    p2 = vs[fs[:, 2]]
+    p3 = vs[fs[:, 3]]
+
+    c1 = np.cross(p1 - p0, p2 - p0)
+    c2 = np.where(is_quad[:, None], np.cross(p2 - p0, p3 - p0), 0.0)
+    cross_sum = c1 + c2
+    areas = 0.5 * np.linalg.norm(cross_sum, axis=1)
+
+    valid_mask = areas > 1e-3
+    if not np.any(valid_mask):
+        return None
+
+    orig_idx_v = np.arange(len(fs), dtype=np.int64)[valid_mask]
+    fs_v = fs[valid_mask]
+    is_quad_v = is_quad[valid_mask]
+    p0_v, p1_v, p2_v, p3_v = p0[valid_mask], p1[valid_mask], p2[valid_mask], p3[valid_mask]
+    areas_v = areas[valid_mask]
+    normals_v = cross_sum[valid_mask] / (2.0 * areas_v[:, None])
+
+    rf_set = restore_set or set()
+    non_vert_id = f"non_vertical::{rg.group_name}"
+    filtered_entry: Optional[Dict[str, Any]] = None
+
+    if eff_cat == "glazing" or non_vert_id in rf_set:
+        if eff_cat == "glazing":
+            horiz_thin = (np.abs(normals_v[:, 2]) > 0.85) & (areas_v < 0.25)
+            if np.any(horiz_thin) and non_vert_id not in rf_set:
+                filtered_entry = {
+                    "id": non_vert_id,
+                    "group": rg.group_name,
+                    "reason": "horizontal_edge_cap",
+                    "reason_label": "Sisi horizontal tipis tepi kaca (< 0,25 m2)",
+                    "face_count": int(np.sum(horiz_thin)),
+                    "area_m2": round(float(np.sum(areas_v[horiz_thin])), 4),
+                    "restored": False,
+                }
+                vert_mask = ~horiz_thin
+            else:
+                vert_mask = np.ones(len(areas_v), dtype=bool)
+        else:
+            vert_mask = np.ones(len(areas_v), dtype=bool)
+    else:
+        vert_mask = np.abs(normals_v[:, 2]) <= 0.85
+        n_non_vert = int(np.sum(~vert_mask))
+        if n_non_vert > 0:
+            filtered_entry = {
+                "id": non_vert_id,
+                "group": rg.group_name,
+                "reason": "non_vertical_cap",
+                "reason_label": "Bidang horizontal/datar pada dinding/spandrel (|nz| > 0,85)",
+                "face_count": n_non_vert,
+                "area_m2": round(float(np.sum(areas_v[~vert_mask])), 4),
+                "restored": False,
+            }
+    if not np.any(vert_mask):
+        return None
+
+    orig_idx_v = orig_idx_v[vert_mask]
+    fs_v = fs_v[vert_mask]
+    is_quad_v = is_quad_v[vert_mask]
+    p0_v, p1_v, p2_v, p3_v = p0_v[vert_mask], p1_v[vert_mask], p2_v[vert_mask], p3_v[vert_mask]
+    areas_v = areas_v[vert_mask]
+    normals_v = normals_v[vert_mask]
+
+    centroids_v = np.where(
+        is_quad_v[:, None],
+        0.25 * (p0_v + p1_v + p2_v + p3_v),
+        (p0_v + p1_v + p2_v) / 3.0,
+    )
+
+    total_floors = max(1, len(floor_defs))
+    fl_indices = np.clip(
+        assign_panels_to_floors(centroids_v[:, 2], floor_defs),
+        0,
+        total_floors - 1,
+    )
+
+    f_centers = floor_centers[fl_indices]
+    radial_xy = centroids_v[:, :2] - f_centers
+    radial_dot = np.einsum("ij,ij->i", radial_xy, normals_v[:, :2])
+    is_single_flat_wall_model = min(span_x, span_y) < 1.5
+
+    if ext_mode == "all":
+        is_outer_arr = np.ones(len(areas_v), dtype=bool)
+    elif ext_mode == "radial":
+        pos_ratio = float(np.mean(radial_dot >= 0.0))
+        if 0.25 <= pos_ratio <= 0.75:
+            is_outer_arr = radial_dot >= 0.0
+        else:
+            normals_v[radial_dot < 0.0] *= -1.0
+            is_outer_arr = np.ones(len(areas_v), dtype=bool)
+    else:
+        if is_single_flat_wall_model:
+            ref_axis = np.array([0.0, 1.0]) if span_x >= span_y else np.array([1.0, 0.0])
+            side_dot = normals_v[:, :2] @ ref_axis
+            pos_r = float(np.mean(side_dot >= 0.0))
+            if 0.25 <= pos_r <= 0.75:
+                is_outer_arr = side_dot >= 0.0
+            else:
+                is_outer_arr = np.ones(len(areas_v), dtype=bool)
+        else:
+            is_outer_arr = detect_exterior_faces_raycast(
+                centroids_v, normals_v, all_shell_tris, roof_tris, max_span
+            )
+            if float(np.mean(is_outer_arr)) < 0.08:
+                twin_origins = centroids_v - normals_v * 0.002
+                t_twin = _raycast_arbitrary_rays_against_tris(
+                    twin_origins, -normals_v, all_shell_tris, min_dist=0.001, max_dist=0.35
+                )
+                has_front_twin = float(np.mean(t_twin <= 0.35))
+                if has_front_twin < 0.35:
+                    flipped_normals = -normals_v
+                    flipped_outer = detect_exterior_faces_raycast(
+                        centroids_v, flipped_normals, all_shell_tris, roof_tris, max_span
+                    )
+                    if float(np.mean(flipped_outer)) > float(np.mean(is_outer_arr)) + 0.15:
+                        normals_v = flipped_normals
+                        is_outer_arr = flipped_outer
+
+    above_z_mask = (centroids_v[:, 2] >= (z_ground_cut - 0.05)) if z_ground_cut > 0.05 else np.ones(len(areas_v), dtype=bool)
+    outer_above = is_outer_arr & above_z_mask
+    outer_count = int(np.sum(outer_above))
+    outer_area = float(np.sum(areas_v[outer_above])) if outer_count > 0 else 0.0
+
+    return {
+        "orig_idx_v": orig_idx_v,
+        "fs_v": fs_v,
+        "is_quad_v": is_quad_v,
+        "p0_v": p0_v,
+        "p1_v": p1_v,
+        "p2_v": p2_v,
+        "p3_v": p3_v,
+        "areas_v": areas_v,
+        "normals_v": normals_v,
+        "centroids_v": centroids_v,
+        "fl_indices": fl_indices,
+        "is_outer_arr": is_outer_arr,
+        "outer_faces": outer_count,
+        "outer_area_m2": outer_area,
+        "filtered_entry": filtered_entry,
+    }
+
+
+def compute_outer_skin_areas_by_group(
+    raw_groups: List[RawGroupMesh],
+    group_category_overrides: Optional[Dict[str, str]] = None,
+    disabled_groups: Optional[List[str]] = None,
+    z_ground_cutoff_m: float = 0.0,
+    exterior_detection_mode: str = "auto",
+    bim_storeys: Optional[List[Dict[str, Any]]] = None,
+    restore_filtered: Optional[List[str]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """
+    M11: Shared outer-skin area calculator called by Inspection (`build_staging_inspection_payload`)
+    so Inspection and Results report identical outer-skin areas for every envelope group.
+    """
+    cat_ov = group_category_overrides or {}
+    dis_set = set(disabled_groups or [])
+    rf_set = set(restore_filtered or [])
+
+    surface_groups: List[Tuple[RawGroupMesh, str]] = []
+    roof_groups: List[RawGroupMesh] = []
+    unknown_groups: List[RawGroupMesh] = []
+    for rg in raw_groups:
+        eff_cat = cat_ov.get(rg.group_name, rg.default_category)
+        if eff_cat in ("wall", "spandrel", "glazing", "composite_cw"):
+            surface_groups.append((rg, eff_cat))
+        elif eff_cat == "roof":
+            roof_groups.append(rg)
+        elif eff_cat == "unknown":
+            unknown_groups.append(rg)
+
+    if not surface_groups and raw_groups:
+        cands = unknown_groups if unknown_groups else raw_groups
+        surface_groups.append((max(cands, key=lambda r: len(r.faces)), "wall"))
+
+    all_surf_verts = np.vstack([rg.vertices for rg, _ in surface_groups])
+    x_min, x_max = float(np.min(all_surf_verts[:, 0])), float(np.max(all_surf_verts[:, 0]))
+    y_min, y_max = float(np.min(all_surf_verts[:, 1])), float(np.max(all_surf_verts[:, 1]))
+    z_min_raw, z_max = float(np.min(all_surf_verts[:, 2])), float(np.max(all_surf_verts[:, 2]))
+    z_cut = max(0.0, float(z_ground_cutoff_m or 0.0))
+    z_min = max(z_min_raw, z_cut) if (z_cut > 0.05 and z_cut < z_max - 1.0) else z_min_raw
+    span_x = max(1.0, x_max - x_min)
+    span_y = max(1.0, y_max - y_min)
+    span_z = max(1.0, z_max - z_min)
+    max_span = max(span_x, span_y, span_z, 10.0)
+    bldg_cx, bldg_cy = 0.5 * (x_min + x_max), 0.5 * (y_min + y_max)
+
+    floor_defs, _ = build_dynamic_floor_levels(
+        z_min_bldg=z_min,
+        z_max_bldg=z_max,
+        floor_mode="auto",
+        floor_height_m=3.6,
+        bim_storeys=bim_storeys or [],
+    )
+    total_floors = max(1, len(floor_defs))
+    floor_centers = np.zeros((total_floors, 2), dtype=np.float64)
+    for fl_idx, fdef in enumerate(floor_defs):
+        mask_z = (all_surf_verts[:, 2] >= float(fdef["z_min"]) - 0.5) & (all_surf_verts[:, 2] <= float(fdef["z_max"]) + 0.5)
+        if np.any(mask_z):
+            floor_centers[fl_idx, 0] = float(np.mean(all_surf_verts[mask_z, 0]))
+            floor_centers[fl_idx, 1] = float(np.mean(all_surf_verts[mask_z, 1]))
+        else:
+            floor_centers[fl_idx] = [bldg_cx, bldg_cy]
+
+    all_shell_tris = _groups_to_tris_shared([rg for rg, _ in surface_groups], dis_set)
+    roof_tris = _groups_to_tris_shared(roof_groups, dis_set)
+    ext_mode = (exterior_detection_mode or "auto").lower()
+
+    out: Dict[str, Dict[str, Any]] = {}
+    for rg, eff_cat in surface_groups:
+        res = resolve_group_outer_skin_faces(
+            rg=rg,
+            eff_cat=eff_cat,
+            all_shell_tris=all_shell_tris,
+            roof_tris=roof_tris,
+            floor_centers=floor_centers,
+            floor_defs=floor_defs,
+            span_x=span_x,
+            span_y=span_y,
+            max_span=max_span,
+            ext_mode=ext_mode,
+            z_ground_cut=z_cut,
+            restore_set=rf_set,
+        )
+        if res is not None:
+            out[rg.group_name] = {
+                "outer_area_m2": round(float(res["outer_area_m2"]), 2),
+                "outer_faces": int(res["outer_faces"]),
+                "total_valid_faces": int(len(res["areas_v"])),
+                "filtered_entry": res["filtered_entry"],
+            }
+        else:
+            out[rg.group_name] = {
+                "outer_area_m2": 0.0,
+                "outer_faces": 0,
+                "total_valid_faces": 0,
+                "filtered_entry": None,
+            }
+    return out
+
+
 def compute_panel_heatmap_color(ottv_wm2: float) -> Tuple[str, List[float]]:
     stops = [
         (0.0,  (16, 185, 129)),   # #10b981 Emerald
@@ -1050,136 +1337,34 @@ def analyze_building_ottv(
     )
 
     for rg, eff_cat in surface_groups:
-        vs = rg.vertices
-        fs = rg.faces
-        is_quad = fs[:, 2] != fs[:, 3]
-
-        p0 = vs[fs[:, 0]]
-        p1 = vs[fs[:, 1]]
-        p2 = vs[fs[:, 2]]
-        p3 = vs[fs[:, 3]]
-
-        # Cross product for triangle 1 (p0, p1, p2) and triangle 2 (p0, p2, p3)
-        c1 = np.cross(p1 - p0, p2 - p0)
-        c2 = np.where(is_quad[:, None], np.cross(p2 - p0, p3 - p0), 0.0)
-        cross_sum = c1 + c2
-        areas = 0.5 * np.linalg.norm(cross_sum, axis=1)
-
-        valid_mask = areas > 1e-3
-        if not np.any(valid_mask):
-            continue
-
-        orig_idx_v = np.arange(len(fs), dtype=np.int64)[valid_mask]
-        fs_v = fs[valid_mask]
-        is_quad_v = is_quad[valid_mask]
-        p0_v, p1_v, p2_v, p3_v = p0[valid_mask], p1[valid_mask], p2[valid_mask], p3[valid_mask]
-        areas_v = areas[valid_mask]
-        normals_v = cross_sum[valid_mask] / (2.0 * areas_v[:, None])
-
-        # M6: Keep tilted/sloped glazing faces (skylight/sloped curtain wall); for opaque walls/spandrel,
-        # tag horizontal caps (|nz| > 0.85) in filtered_items and allow restore via restore_filtered.
-        non_vert_id = f"non_vertical::{rg.group_name}"
-        if eff_cat == "glazing" or non_vert_id in restore_set_engine:
-            if eff_cat == "glazing":
-                # Keep all tilted glazing; only exclude tiny horizontal top/bottom glass thickness edges (< 0.25 m2)
-                horiz_thin = (np.abs(normals_v[:, 2]) > 0.85) & (areas_v < 0.25)
-                if np.any(horiz_thin) and non_vert_id not in restore_set_engine:
-                    runtime_filtered_items.append({
-                        "id": non_vert_id,
-                        "group": rg.group_name,
-                        "reason": "horizontal_edge_cap",
-                        "reason_label": "Sisi horizontal tipis tepi kaca (< 0,25 m2)",
-                        "face_count": int(np.sum(horiz_thin)),
-                        "area_m2": round(float(np.sum(areas_v[horiz_thin])), 4),
-                        "restored": False,
-                    })
-                    vert_mask = ~horiz_thin
-                else:
-                    vert_mask = np.ones(len(areas_v), dtype=bool)
-            else:
-                vert_mask = np.ones(len(areas_v), dtype=bool)
-        else:
-            vert_mask = np.abs(normals_v[:, 2]) <= 0.85
-            n_non_vert = int(np.sum(~vert_mask))
-            if n_non_vert > 0:
-                runtime_filtered_items.append({
-                    "id": non_vert_id,
-                    "group": rg.group_name,
-                    "reason": "non_vertical_cap",
-                    "reason_label": "Bidang horizontal/datar pada dinding/spandrel (|nz| > 0,85)",
-                    "face_count": n_non_vert,
-                    "area_m2": round(float(np.sum(areas_v[~vert_mask])), 4),
-                    "restored": False,
-                })
-        if not np.any(vert_mask):
-            continue
-
-        orig_idx_v = orig_idx_v[vert_mask]
-        fs_v = fs_v[vert_mask]
-        is_quad_v = is_quad_v[vert_mask]
-        p0_v, p1_v, p2_v, p3_v = p0_v[vert_mask], p1_v[vert_mask], p2_v[vert_mask], p3_v[vert_mask]
-        areas_v = areas_v[vert_mask]
-        normals_v = normals_v[vert_mask]
-
-        centroids_v = np.where(
-            is_quad_v[:, None],
-            0.25 * (p0_v + p1_v + p2_v + p3_v),
-            (p0_v + p1_v + p2_v) / 3.0,
+        ext_res = resolve_group_outer_skin_faces(
+            rg=rg,
+            eff_cat=eff_cat,
+            all_shell_tris=all_shell_tris,
+            roof_tris=roof_tris,
+            floor_centers=floor_centers,
+            floor_defs=floor_defs,
+            span_x=span_x,
+            span_y=span_y,
+            max_span=max_span,
+            ext_mode=ext_mode,
+            z_ground_cut=z_ground_cut,
+            restore_set=restore_set_engine,
         )
+        if ext_res is None:
+            continue
+        if ext_res["filtered_entry"] is not None:
+            runtime_filtered_items.append(ext_res["filtered_entry"])
 
-        # Assign floor index (0 .. total_floors-1) using Stage 3 dynamic floor boundaries
-        fl_indices = np.clip(
-            assign_panels_to_floors(centroids_v[:, 2], floor_defs),
-            0,
-            total_floors - 1,
-        )
-
-        # 3-LAYER EXTERIOR SKIN ENGINE (Works on Tower, L-Shape, U-Shape, Courtyard, Twin-Tower, Single-Wall!)
-        f_centers = floor_centers[fl_indices]
-        radial_xy = centroids_v[:, :2] - f_centers
-        radial_dot = np.einsum("ij,ij->i", radial_xy, normals_v[:, :2])
-
-        if ext_mode == "all":
-            is_outer_arr = np.ones(len(areas_v), dtype=bool)
-        elif ext_mode == "radial":
-            pos_ratio = float(np.mean(radial_dot >= 0.0))
-            if 0.25 <= pos_ratio <= 0.75:
-                is_outer_arr = radial_dot >= 0.0
-            else:
-                normals_v[radial_dot < 0.0] *= -1.0
-                is_outer_arr = np.ones(len(areas_v), dtype=bool)
-        else:
-            # 'auto' or 'raycast': True 3D Raycast Exterior Visibility + Single-Wall & Inverted-Normal Guard
-            if is_single_flat_wall_model:
-                # Single standalone wall/curtain-wall slice: pick dominant positive hemisphere side
-                ref_axis = np.array([0.0, 1.0]) if span_x >= span_y else np.array([1.0, 0.0])
-                side_dot = normals_v[:, :2] @ ref_axis
-                pos_r = float(np.mean(side_dot >= 0.0))
-                if 0.25 <= pos_r <= 0.75:
-                    is_outer_arr = side_dot >= 0.0
-                else:
-                    is_outer_arr = np.ones(len(areas_v), dtype=bool)
-            else:
-                is_outer_arr = detect_exterior_faces_raycast(
-                    centroids_v, normals_v, all_shell_tris, roof_tris, max_span
-                )
-                # Rescue ONLY genuinely inverted single-skinned CAD meshes (SketchUp/Rhino):
-                # Do NOT flip interior BIM partitions/doors OR the interior back-face of a double-sided
-                # glass/wall panel (e.g. ArchiCAD .3dm 'Glass - Blue' sitting 2cm behind 'Glass - Clear Fast')!
-                if float(np.mean(is_outer_arr)) < 0.08:
-                    twin_origins = centroids_v - normals_v * 0.002
-                    t_twin = _raycast_arbitrary_rays_against_tris(
-                        twin_origins, -normals_v, all_shell_tris, min_dist=0.001, max_dist=0.35
-                    )
-                    has_front_twin = float(np.mean(t_twin <= 0.35))
-                    if has_front_twin < 0.35:
-                        flipped_normals = -normals_v
-                        flipped_outer = detect_exterior_faces_raycast(
-                            centroids_v, flipped_normals, all_shell_tris, roof_tris, max_span
-                        )
-                        if float(np.mean(flipped_outer)) > float(np.mean(is_outer_arr)) + 0.15:
-                            normals_v = flipped_normals
-                            is_outer_arr = flipped_outer
+        orig_idx_v = ext_res["orig_idx_v"]
+        fs_v = ext_res["fs_v"]
+        is_quad_v = ext_res["is_quad_v"]
+        p0_v, p1_v, p2_v, p3_v = ext_res["p0_v"], ext_res["p1_v"], ext_res["p2_v"], ext_res["p3_v"]
+        areas_v = ext_res["areas_v"]
+        normals_v = ext_res["normals_v"]
+        centroids_v = ext_res["centroids_v"]
+        fl_indices = ext_res["fl_indices"]
+        is_outer_arr = ext_res["is_outer_arr"]
 
         # Vectorized Azimuth (0-360 deg from North +Y) & Tilt (0-180 deg)
         raw_az = (np.degrees(np.arctan2(normals_v[:, 0], normals_v[:, 1])) - params.north_angle_deg) % 360.0
@@ -1202,8 +1387,8 @@ def analyze_building_ottv(
         )
         grp_wwr_ratio = float(params.group_wwr_map.get(rg.group_name, 0.70))
 
-        outer_count_grp = int(np.sum(is_outer_arr))
-        total_area_grp = float(np.sum(areas_v[is_outer_arr])) if outer_count_grp > 0 else float(np.sum(areas_v))
+        outer_count_grp = int(ext_res["outer_faces"])
+        total_area_grp = float(ext_res["outer_area_m2"])
         z_min_grp = float(np.min(centroids_v[:, 2])) if len(centroids_v) > 0 else 0.0
         z_max_grp = float(np.max(centroids_v[:, 2])) if len(centroids_v) > 0 else 0.0
 

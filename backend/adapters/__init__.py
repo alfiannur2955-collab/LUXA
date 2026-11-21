@@ -491,6 +491,19 @@ def build_staging_inspection_payload(
     active_envelope_groups = 0
     review_needed_count = 0
 
+    # M11: Compute exact outer-skin area per group using the SAME shared function as Results (`ottv_engine`)!
+    from ottv_engine import compute_outer_skin_areas_by_group
+    outer_metrics_by_group = compute_outer_skin_areas_by_group(
+        raw_groups=raw_groups,
+        group_category_overrides=cat_overrides,
+        disabled_groups=list(disabled_set),
+        z_ground_cutoff_m=z0_cut,
+        exterior_detection_mode=eff_cfg.get("exterior_detection_mode", "auto"),
+        bim_storeys=audit.bim_storeys,
+        restore_filtered=restore_filtered,
+    )
+    all_filtered_items = list(audit.filtered_items)
+
     for rg in raw_groups:
         eff_cat = cat_overrides.get(rg.group_name, rg.default_category)
         is_enabled = rg.group_name not in disabled_set
@@ -504,21 +517,20 @@ def build_staging_inspection_payload(
         if is_enabled and eff_cat in ("glazing", "spandrel", "wall", "composite_cw"):
             active_envelope_groups += 1
 
-        # Compute exact raw area & Z range for staging table
         vs = rg.vertices
         fs = rg.faces
-        is_q = fs[:, 2] != fs[:, 3]
-        p0, p1, p2, p3 = vs[fs[:, 0]], vs[fs[:, 1]], vs[fs[:, 2]], vs[fs[:, 3]]
-        c1 = np.cross(p1 - p0, p2 - p0)
-        c2 = np.where(is_q[:, None], np.cross(p2 - p0, p3 - p0), 0.0)
-        areas = 0.5 * np.linalg.norm(c1 + c2, axis=1)
         g_zmin = float(np.min(vs[:, 2]))
         g_zmax = float(np.max(vs[:, 2]))
 
-        # Approximate above-ground area (for double-skinned solids divide by 2 for preview indicator)
-        centroids_z = np.where(is_q, 0.25 * (p0[:, 2] + p1[:, 2] + p2[:, 2] + p3[:, 2]), (p0[:, 2] + p1[:, 2] + p2[:, 2]) / 3.0)
-        above_z_mask = centroids_z >= (z0_cut - 0.05)
-        raw_area_above = float(np.sum(areas[above_z_mask]))
+        om = outer_metrics_by_group.get(rg.group_name)
+        if om is not None:
+            outer_area_m2 = round(float(om["outer_area_m2"]), 2)
+            outer_faces_cnt = int(om["outer_faces"])
+            if om.get("filtered_entry") is not None:
+                all_filtered_items.append(om["filtered_entry"])
+        else:
+            outer_area_m2 = 0.0
+            outer_faces_cnt = 0
 
         staging_groups.append({
             "group_id": rg.group_id,
@@ -533,7 +545,9 @@ def build_staging_inspection_payload(
             "is_auto_split_child": rg.is_auto_split_child,
             "composite_wwr": round(float(wwr_map.get(rg.group_name, 0.65)), 2) if eff_cat == "composite_cw" else None,
             "face_count": int(len(fs)),
-            "raw_area_m2": round(raw_area_above, 1),
+            "outer_faces": outer_faces_cnt,
+            "outer_area_m2": outer_area_m2,
+            "raw_area_m2": outer_area_m2,  # M11: Unified single definition of area = outer skin area!
             "z_range_m": [round(g_zmin, 2), round(g_zmax, 2)],
         })
 
@@ -635,11 +649,11 @@ def build_staging_inspection_payload(
             "interior_elements_filtered": audit.interior_elements_filtered,
             "hidden_objects_skipped": audit.hidden_objects_skipped,
             "missing_mesh": audit.missing_mesh,
-            "filtered_items": audit.filtered_items,
+            "filtered_items": all_filtered_items,
             "bim_storeys_count": len(audit.bim_storeys),
             "notes": audit.notes,
         },
-        "filtered_items": audit.filtered_items,
+        "filtered_items": all_filtered_items,
         "missing_mesh": audit.missing_mesh,
         "bounding_box": {
             "min": [round(float(x), 2) for x in b_min],
