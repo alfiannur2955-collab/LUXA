@@ -78,6 +78,7 @@ class EnvelopeParameters:
     unit_mode: str = "auto"  # 'auto' | 'm' | 'cm' | 'mm' | 'ft' | 'in'
     up_axis: str = "auto"    # 'auto' | 'Z' | 'Y'
     z_ground_cutoff_m: float = 0.0  # Ground plane Z0 cutoff (excludes basement faces below Z0)
+    restore_filtered: List[str] = field(default_factory=list)  # M4/M6: IDs of filtered_items to restore
 
     # Stage 2: 3-Tier Sub-Element Decomposer & 6-Role Envelope Classification
     auto_split_merged_cw: bool = False
@@ -897,7 +898,10 @@ def analyze_building_ottv(
         groups_to_auto_split=params.groups_to_auto_split,
         frame_width_threshold_m=params.frame_width_threshold_m,
         spandrel_height_threshold_m=params.spandrel_height_threshold_m,
+        restore_filtered=params.restore_filtered,
     )
+    runtime_filtered_items: List[Dict[str, Any]] = list(stage1_audit.filtered_items)
+    restore_set_engine = set(params.restore_filtered or [])
     if not raw_groups:
         raise ValueError("Tidak ditemukan geometri 3D pada file yang diunggah.")
 
@@ -1064,8 +1068,41 @@ def analyze_building_ottv(
         areas_v = areas[valid_mask]
         normals_v = cross_sum[valid_mask] / (2.0 * areas_v[:, None])
 
-        # Filter out horizontal roof/floor caps (|nz| > 0.85)
-        vert_mask = np.abs(normals_v[:, 2]) <= 0.85
+        # M6: Keep tilted/sloped glazing faces (skylight/sloped curtain wall); for opaque walls/spandrel,
+        # tag horizontal caps (|nz| > 0.85) in filtered_items and allow restore via restore_filtered.
+        non_vert_id = f"non_vertical::{rg.group_name}"
+        if eff_cat == "glazing" or non_vert_id in restore_set_engine:
+            if eff_cat == "glazing":
+                # Keep all tilted glazing; only exclude tiny horizontal top/bottom glass thickness edges (< 0.25 m2)
+                horiz_thin = (np.abs(normals_v[:, 2]) > 0.85) & (areas_v < 0.25)
+                if np.any(horiz_thin) and non_vert_id not in restore_set_engine:
+                    runtime_filtered_items.append({
+                        "id": non_vert_id,
+                        "group": rg.group_name,
+                        "reason": "horizontal_edge_cap",
+                        "reason_label": "Sisi horizontal tipis tepi kaca (< 0,25 m2)",
+                        "face_count": int(np.sum(horiz_thin)),
+                        "area_m2": round(float(np.sum(areas_v[horiz_thin])), 4),
+                        "restored": False,
+                    })
+                    vert_mask = ~horiz_thin
+                else:
+                    vert_mask = np.ones(len(areas_v), dtype=bool)
+            else:
+                vert_mask = np.ones(len(areas_v), dtype=bool)
+        else:
+            vert_mask = np.abs(normals_v[:, 2]) <= 0.85
+            n_non_vert = int(np.sum(~vert_mask))
+            if n_non_vert > 0:
+                runtime_filtered_items.append({
+                    "id": non_vert_id,
+                    "group": rg.group_name,
+                    "reason": "non_vertical_cap",
+                    "reason_label": "Bidang horizontal/datar pada dinding/spandrel (|nz| > 0,85)",
+                    "face_count": n_non_vert,
+                    "area_m2": round(float(np.sum(areas_v[~vert_mask])), 4),
+                    "restored": False,
+                })
         if not np.any(vert_mask):
             continue
 
@@ -1960,6 +1997,7 @@ def analyze_building_ottv(
             "interior_elements_filtered": stage1_audit.interior_elements_filtered,
             "hidden_objects_skipped": stage1_audit.hidden_objects_skipped,
             "missing_mesh": stage1_audit.missing_mesh,
+            "filtered_items": runtime_filtered_items,
             "exterior_detection_mode": ext_mode,
             "source_software": params.source_software,
             "z_ground_cutoff_m": round(z_ground_cut, 2),

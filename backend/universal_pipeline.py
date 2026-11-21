@@ -102,6 +102,7 @@ class Stage1GeometryAudit:
     interior_elements_filtered: int = 0
     hidden_objects_skipped: int = 0
     missing_mesh: List[Dict[str, Any]] = field(default_factory=list)
+    filtered_items: List[Dict[str, Any]] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
 
 
@@ -485,22 +486,25 @@ def _clean_solid_bim_element_faces(
     verts: np.ndarray,
     tris: np.ndarray,
     category: str,
-) -> Tuple[np.ndarray, np.ndarray, int]:
+    restore_slivers: bool = False,
+    restore_caps: bool = False,
+) -> Tuple[np.ndarray, np.ndarray, int, float, int, float]:
     """
     Cleans a single 3D solid BIM element (already in meters) BEFORE merging into a group:
     1. Merges coplanar triangle pairs into clean quads (0% area loss).
-    2. For `glazing`, `spandrel`, and `wall` thin solid panels (e.g. 2cm glass box or
-       5-15cm spandrel/wall slab), strips thin vertical thickness-edge slivers
-       (w_xy <= 0.10m AND area < 25% of largest vertical face on that element) so
-       panel thickness edges NEVER leak into exterior OTTV area or wrong compass directions.
-    Returns `(verts, cleaned_quads, slivers_removed_count)`.
+    2. M4: Tags thin vertical thickness-edge slivers (`w_xy <= thresh` & small area) and
+       allows restoring them via `restore_slivers=True`.
+    3. M6: Keeps tilted / skylight glazing faces intact (NEVER deletes non-vertical glazing!).
+       Horizontal top/bottom caps on opaque thin spandrel/wall panels are tagged and can be
+       restored via `restore_caps=True`.
+    Returns `(verts, cleaned_quads, sliver_count, sliver_area_m2, cap_count, cap_area_m2)`.
     """
     if len(verts) < 3 or len(tris) < 1:
-        return verts, np.empty((0, 4), dtype=np.int64), 0
+        return verts, np.empty((0, 4), dtype=np.int64), 0, 0.0, 0, 0.0
 
     quads = _merge_coplanar_tris_to_quads(verts, tris)
     if len(quads) == 0 or category not in ("glazing", "spandrel", "wall", "composite_cw"):
-        return verts, quads, 0
+        return verts, quads, 0, 0.0, 0, 0.0
 
     is_q = quads[:, 2] != quads[:, 3]
     p0 = verts[quads[:, 0]]
@@ -514,7 +518,7 @@ def _clean_solid_bim_element_faces(
     areas = 0.5 * np.linalg.norm(cross_sum, axis=1)
     valid = areas > 1e-5
     if not np.any(valid):
-        return verts, np.empty((0, 4), dtype=np.int64), len(quads)
+        return verts, np.empty((0, 4), dtype=np.int64), 0, 0.0, 0, 0.0
 
     quads = quads[valid]
     areas = areas[valid]
@@ -527,33 +531,58 @@ def _clean_solid_bim_element_faces(
     w_xy = np.hypot(spans[:, 0], spans[:, 1])
 
     is_vert = np.abs(normals[:, 2]) <= 0.85
+    # M6: If a glazing element is purely horizontal/tilted (skylight), KEEP ALL its faces!
     if not np.any(is_vert):
-        return verts, np.empty((0, 4), dtype=np.int64), len(quads)
+        if category == "glazing":
+            return verts, quads, 0, 0.0, 0, 0.0
+        cap_cnt = int(len(quads))
+        cap_area = float(np.sum(areas))
+        if restore_caps:
+            return verts, quads, 0, 0.0, cap_cnt, cap_area
+        return verts, np.empty((0, 4), dtype=np.int64), 0, 0.0, cap_cnt, cap_area
 
     max_vert_area = float(np.max(areas[is_vert]))
     elem_span = np.max(verts, axis=0) - np.min(verts, axis=0)
     min_elem_dim = float(np.min(elem_span))
 
-    # Strip top/bottom caps on thin glazing/spandrel panels & strip thin edge slivers (<= 10cm)
     sliver_thresh = 0.12 if category in ("glazing", "spandrel") else 0.08
     is_thin_edge = is_vert & (w_xy <= sliver_thresh) & (areas < 0.25 * max_vert_area)
-    if category in ("glazing", "spandrel") or min_elem_dim <= 0.14:
-        keep = is_vert & (~is_thin_edge)
+
+    # M6: For glazing, only horizontal thin edge caps (area < 25% max_vert_area) are panel edges;
+    # genuine tilted/skylight glazing faces are ALWAYS preserved!
+    if category == "glazing":
+        is_cap = (~is_vert) & (areas < 0.25 * max_vert_area) & (min_elem_dim <= 0.14)
+    elif category == "spandrel" or min_elem_dim <= 0.14:
+        is_cap = ~is_vert
     else:
-        keep = ~is_thin_edge
+        is_cap = np.zeros(len(quads), dtype=bool)
 
-    slivers_removed = int(np.sum(is_thin_edge))
+    sliver_count = int(np.sum(is_thin_edge))
+    sliver_area = float(np.sum(areas[is_thin_edge])) if sliver_count > 0 else 0.0
+    cap_count = int(np.sum(is_cap))
+    cap_area = float(np.sum(areas[is_cap])) if cap_count > 0 else 0.0
+
+    keep = np.ones(len(quads), dtype=bool)
+    if not restore_slivers:
+        keep &= ~is_thin_edge
+    if not restore_caps:
+        keep &= ~is_cap
+
     cleaned = quads[keep]
-    return verts, cleaned, slivers_removed
+    return verts, cleaned, sliver_count, sliver_area, cap_count, cap_area
 
 
-def _filter_thin_edge_slivers_on_group(rg: RawGroupMesh) -> int:
+def _filter_thin_edge_slivers_on_group(
+    rg: RawGroupMesh,
+    restore_filtered_set: Optional[set] = None,
+) -> Tuple[int, Optional[Dict[str, Any]]]:
     """
-    Post-normalization thin-edge sliver filter for non-IFC formats (.3dm, .obj, .glb)
-    whose solid glass/spandrel boxes were merged before element-level splitting.
+    M4: Non-destructive thin-edge sliver tagging for non-IFC formats (.3dm, .obj, .glb).
+    Records exact filtered face count & area into `audit.filtered_items`, and restores
+    the faces immediately if `f"sliver::{rg.group_name}"` is in `restore_filtered_set`.
     """
     if rg.default_category not in ("glazing", "spandrel") or len(rg.faces) < 4:
-        return 0
+        return 0, None
     vs = rg.vertices
     fs = rg.faces
     is_q = fs[:, 2] != fs[:, 3]
@@ -571,14 +600,28 @@ def _filter_thin_edge_slivers_on_group(rg: RawGroupMesh) -> int:
 
     is_vert = np.abs(normals[:, 2]) <= 0.85
     if not np.any(is_vert):
-        return 0
+        return 0, None
     med_area = float(np.percentile(areas[is_vert], 75))
     is_sliver = is_vert & (w_xy <= 0.085) & (areas < 0.22 * med_area) & (areas < 0.25)
     n_sliv = int(np.sum(is_sliver))
     if n_sliv > 0 and n_sliv < len(fs):
-        rg.faces = fs[~is_sliver]
-        return n_sliv
-    return 0
+        sliv_area = round(float(np.sum(areas[is_sliver])), 4)
+        fid = f"sliver::{rg.group_name}"
+        is_restored = bool(restore_filtered_set and fid in restore_filtered_set)
+        item = {
+            "id": fid,
+            "group": rg.group_name,
+            "reason": "thin_edge_sliver",
+            "reason_label": "Tepi tipis ketebalan kaca/spandrel (<= 8,5 cm)",
+            "face_count": n_sliv,
+            "area_m2": sliv_area,
+            "restored": is_restored,
+        }
+        if not is_restored:
+            rg.faces = fs[~is_sliver]
+            return n_sliv, item
+        return 0, item
+    return 0, None
 
 
 # ============================================================================
@@ -727,6 +770,7 @@ def _parse_obj_with_materials(filepath: str) -> Tuple[Dict[Tuple[str, str], Tupl
 
 def _parse_ifc_with_ifcopenshell(
     filepath: str,
+    restore_filtered_set: Optional[set] = None,
 ) -> Tuple[
     List[Tuple[str, str, str, str, np.ndarray, np.ndarray, Optional[bool], Optional[float]]],
     str,
@@ -734,6 +778,7 @@ def _parse_ifc_with_ifcopenshell(
     int,
     int,
     str,
+    List[Dict[str, Any]],
 ]:
     """
     Production-grade BIM IFC2x3 / IFC4 / IFC4X3 loader powered by IfcOpenShell (OpenCASCADE C++).
@@ -870,6 +915,10 @@ def _parse_ifc_with_ifcopenshell(
     chunks: List[Tuple[str, str, str, str, np.ndarray, np.ndarray, Optional[bool], Optional[float]]] = []
     slivers_removed_total = 0
     interior_filtered_total = 0
+    # M4/M6: Accumulate filtered slivers & horizontal caps per group for audit.filtered_items
+    sliver_stats_by_grp: Dict[str, List[float]] = {}  # g_name -> [count, area_m2]
+    cap_stats_by_grp: Dict[str, List[float]] = {}     # g_name -> [count, area_m2]
+    rf_set = restore_filtered_set or set()
 
     def _resolve_mat_label(m_obj: Any) -> Tuple[str, float]:
         raw_mname = str(getattr(m_obj, "name", "") or "")
@@ -971,16 +1020,61 @@ def _parse_ifc_with_ifcopenshell(
                                         cat = "spandrel"
                             g_name = f"{layer_label} :: {style_or_mat}" if style_or_mat != layer_label else layer_label
 
-                        v_clean, f_clean, n_sliv = _clean_solid_bim_element_faces(verts, sub_tris, cat)
-                        slivers_removed_total += n_sliv
+                        restore_sliv = f"sliver::{g_name}" in rf_set
+                        restore_caps = f"cap::{g_name}" in rf_set
+                        v_clean, f_clean, n_sliv, a_sliv, n_cap, a_cap = _clean_solid_bim_element_faces(
+                            verts, sub_tris, cat, restore_slivers=restore_sliv, restore_caps=restore_caps
+                        )
+                        if n_sliv > 0:
+                            st = sliver_stats_by_grp.setdefault(g_name, [0.0, 0.0])
+                            st[0] += n_sliv
+                            st[1] += a_sliv
+                            if not restore_sliv:
+                                slivers_removed_total += n_sliv
+                        if n_cap > 0:
+                            st = cap_stats_by_grp.setdefault(g_name, [0.0, 0.0])
+                            st[0] += n_cap
+                            st[1] += a_cap
                         if len(f_clean) > 0:
                             chunks.append((g_name, layer_label, style_or_mat, cat, v_clean, f_clean, is_ext, u_bim))
 
             if not iterator.next():
                 break
 
+    ifc_filtered_items: List[Dict[str, Any]] = []
+    for g_name, (cnt, area) in sorted(sliver_stats_by_grp.items()):
+        fid = f"sliver::{g_name}"
+        ifc_filtered_items.append({
+            "id": fid,
+            "group": g_name,
+            "reason": "thin_edge_sliver",
+            "reason_label": "Tepi tipis ketebalan panel BIM (<= 12 cm)",
+            "face_count": int(cnt),
+            "area_m2": round(float(area), 4),
+            "restored": fid in rf_set,
+        })
+    for g_name, (cnt, area) in sorted(cap_stats_by_grp.items()):
+        fid = f"cap::{g_name}"
+        ifc_filtered_items.append({
+            "id": fid,
+            "group": g_name,
+            "reason": "horizontal_cap",
+            "reason_label": "Sisi atas/bawah penutup ketebalan panel solid",
+            "face_count": int(cnt),
+            "area_m2": round(float(area), 4),
+            "restored": fid in rf_set,
+        })
+
     kernel_info = f"IfcOpenShell {ifcopenshell.version} (OpenCASCADE · {schema})"
-    return chunks, detected_unit, storeys, slivers_removed_total, interior_filtered_total, kernel_info
+    return (
+        chunks,
+        detected_unit,
+        storeys,
+        slivers_removed_total,
+        interior_filtered_total,
+        kernel_info,
+        ifc_filtered_items,
+    )
 
 
 # ============================================================================
@@ -1552,6 +1646,7 @@ def load_universal_model_stages_1_and_2(
     groups_to_auto_split: Optional[List[str]] = None,
     frame_width_threshold_m: float = 0.28,
     spandrel_height_threshold_m: float = 1.15,
+    restore_filtered: Optional[List[str]] = None,
 ) -> Tuple[List[RawGroupMesh], Stage1GeometryAudit]:
     """
     Executes Stage 1 (Geometry, Unit & Axis Normalization) and Stage 2 (Layer::Material +
@@ -1559,6 +1654,8 @@ def load_universal_model_stages_1_and_2(
     """
     mtime = os.path.getmtime(filepath) if os.path.exists(filepath) else 0.0
     split_tuple = tuple(sorted(groups_to_auto_split or []))
+    restore_tuple = tuple(sorted(restore_filtered or []))
+    restore_set = set(restore_tuple)
     cache_key = (
         filepath,
         mtime,
@@ -1570,6 +1667,7 @@ def load_universal_model_stages_1_and_2(
         split_tuple,
         round(frame_width_threshold_m, 3),
         round(spandrel_height_threshold_m, 3),
+        restore_tuple,
     )
     if cache_key in _UNIVERSAL_FILE_CACHE:
         return _UNIVERSAL_FILE_CACHE[cache_key]
@@ -1812,7 +1910,8 @@ def load_universal_model_stages_1_and_2(
                     slivers_rm,
                     interior_rm,
                     kernel_info,
-                ) = _parse_ifc_with_ifcopenshell(filepath)
+                    ifc_filtered_items,
+                ) = _parse_ifc_with_ifcopenshell(filepath, restore_filtered_set=restore_set)
                 if ios_chunks:
                     used_ifcopenshell = True
                     coords_already_in_meters = True
@@ -1823,6 +1922,7 @@ def load_universal_model_stages_1_and_2(
                     audit.total_raw_objects = len(ios_chunks)
                     audit.slivers_removed = slivers_rm
                     audit.interior_elements_filtered = interior_rm
+                    audit.filtered_items.extend(ifc_filtered_items)
                     for g_name, src_layer, src_mat, cat, v_arr, f_arr, is_ext, u_bim in ios_chunks:
                         _add_chunk(g_name, src_layer, src_mat, cat, v_arr, f_arr, is_ext=is_ext, u_bim=u_bim)
                     if slivers_rm > 0:
@@ -2016,12 +2116,8 @@ def load_universal_model_stages_1_and_2(
         v_merged = np.vstack(v_list)
         f_merged = np.vstack(f_list)
 
-        # NEVER stride-delete surface polygons (glazing/wall/spandrel/composite_cw) — preserves 100% exact area!
-        # Only cap ultra-dense non-area frame/shading meshes above 80,000 faces to protect RAM/raycast latency.
-        if cat in ("frame", "shading", "roof") and len(f_merged) > 80000:
-            step = max(1, int(math.ceil(len(f_merged) / 80000)))
-            f_merged = f_merged[::step]
-            audit.notes.append(f"Grup non-selubung '{g_name}' dioptimasi (stride {step}x) untuk performa raycast.")
+        # M5: NEVER stride-delete polygons from RawGroupMesh (preserves 100% geometry for
+        # area & visual display; any raycast simplification happens only on raycast buffers).
 
         raw_groups.append(
             RawGroupMesh(
@@ -2140,14 +2236,17 @@ def load_universal_model_stages_1_and_2(
         round(float(s_max[2] - s_min[2]), 2),
     ]
 
-    # Post-scaling thin-edge sliver cleanup for non-IfcOpenShell formats (.3dm, .obj, .glb)
+    # M4: Post-scaling non-destructive thin-edge sliver tagging for non-IfcOpenShell formats
     if not coords_already_in_meters:
         non_ifc_sliv = 0
         for rg in raw_groups:
-            non_ifc_sliv += _filter_thin_edge_slivers_on_group(rg)
+            n_sliv, f_item = _filter_thin_edge_slivers_on_group(rg, restore_filtered_set=restore_set)
+            non_ifc_sliv += n_sliv
+            if f_item is not None:
+                audit.filtered_items.append(f_item)
         if non_ifc_sliv > 0:
             audit.slivers_removed += non_ifc_sliv
-            audit.notes.append(f"{non_ifc_sliv} sisi tipis ketebalan kaca/spandrel (<=8cm) dibersihkan otomatis.")
+            audit.notes.append(f"{non_ifc_sliv} sisi tipis ketebalan kaca/spandrel (<=8.5cm) ditandai di filtered_items (dapat dikembalikan).")
 
     # ------------------------------------------------------------------------
     # STAGE 2: TIER 2 GEOMETRIC AUTO-SPLITTER FOR MERGED CURTAIN WALL GROUPS

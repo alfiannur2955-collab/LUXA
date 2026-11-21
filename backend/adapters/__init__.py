@@ -417,6 +417,7 @@ def build_staging_inspection_payload(
     spandrel_height_threshold_m: float = 1.15,
     face_category_overrides: Optional[Dict[str, str]] = None,
     auto_split_merged_cw: Optional[bool] = None,
+    restore_filtered: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Phase A (Fast Staging & 3D Inspection):
@@ -438,6 +439,7 @@ def build_staging_inspection_payload(
         groups_to_auto_split=groups_to_auto_split or [],
         frame_width_threshold_m=frame_width_threshold_m,
         spandrel_height_threshold_m=spandrel_height_threshold_m,
+        restore_filtered=restore_filtered,
     )
     raw_groups, adapter_notes = adapter.post_process_groups(raw_groups, audit, profile)
 
@@ -628,9 +630,12 @@ def build_staging_inspection_payload(
             "interior_elements_filtered": audit.interior_elements_filtered,
             "hidden_objects_skipped": audit.hidden_objects_skipped,
             "missing_mesh": audit.missing_mesh,
+            "filtered_items": audit.filtered_items,
             "bim_storeys_count": len(audit.bim_storeys),
             "notes": audit.notes,
         },
+        "filtered_items": audit.filtered_items,
+        "missing_mesh": audit.missing_mesh,
         "bounding_box": {
             "min": [round(float(x), 2) for x in b_min],
             "max": [round(float(x), 2) for x in b_max],
