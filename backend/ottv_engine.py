@@ -1219,13 +1219,17 @@ def analyze_building_ottv(
         else:
             unknown_groups.append(rg)
 
-    # Fallback only if NO explicit surface groups exist at all (e.g. untagged generic mesh like BoxTextured.glb)
-    if not surface_groups and raw_groups:
-        candidates = unknown_groups if unknown_groups else raw_groups
-        largest_rg = max(candidates, key=lambda r: len(r.faces))
-        if largest_rg in unknown_groups:
-            unknown_groups.remove(largest_rg)
-        surface_groups.append((largest_rg, "wall"))
+    # M7: Do NOT silently coerce 'unknown' groups into 'wall' — user must confirm roles in Periksa Model
+    if not surface_groups:
+        if unknown_groups:
+            raise ValueError(
+                f"Tidak ada grup selubung bangunan (kaca/dinding/spandrel) yang teridentifikasi otomatis. "
+                f"Terdapat {len(unknown_groups)} grup berstatus 'unknown' yang wajib dikonfirmasi perannya "
+                "terlebih dahulu di tahap Periksa Model."
+            )
+        raise ValueError(
+            "Tidak ada grup selubung bangunan (kaca/dinding/spandrel) yang dapat dievaluasi untuk OTTV."
+        )
 
     # Compute overall building horizontal center, bounding box & Z range across all surface groups
     all_surf_verts = np.vstack([rg.vertices for rg, _ in surface_groups])

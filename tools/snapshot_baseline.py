@@ -85,7 +85,12 @@ def evaluate_fixture(filepath: str, filename: str) -> Dict[str, Any]:
     )
 
     # 2. Full OTTV SNI 6389:2020 analysis with default EnvelopeParameters
-    ottv_res = analyze_building_ottv(filepath, filename, params)
+    ottv_error: str | None = None
+    try:
+        ottv_res = analyze_building_ottv(filepath, filename, params)
+    except ValueError as exc:
+        ottv_res = {}
+        ottv_error = str(exc)
 
     outer_area_by_role: Dict[str, float] = {}
     for g in ottv_res.get("groups", []):
@@ -104,7 +109,7 @@ def evaluate_fixture(filepath: str, filename: str) -> Dict[str, Any]:
         }
 
     summary = ottv_res.get("summary", {})
-    return {
+    record: Dict[str, Any] = {
         "filename": filename,
         "group_count": len(stage12_groups),
         "groups": stage12_groups,
@@ -123,6 +128,9 @@ def evaluate_fixture(filepath: str, filename: str) -> Dict[str, Any]:
         "ottv_total_wm2": round(float(ottv_res.get("ottv_total_wm2", 0.0)), 4),
         "ottv_by_orientation": ottv_by_orientation,
     }
+    if ottv_error is not None:
+        record["ottv_error"] = ottv_error
+    return record
 
 
 def evaluate_all_fixtures(fixtures_dir: str = FIXTURES_DIR) -> Dict[str, Any]:
