@@ -61,3 +61,38 @@ Branch: `fase-1c-ragam-model`
   3. Di `_measure_panel_sni_shading_ratios`, menambahkan pra-filter AABB 3D (`±12,5 m` XY, band Z jendela) yang 100% eksak terhadap `sni_shading_tris` -> waktu pengukuran peneduh turun dari `~50 s` menjadi `2,71 s`.
   4. Total waktu `Schependomlaan.ifc` turun dari **130,3 s** menjadi **~29,9 s** (`< 60 s`).
 - **Kasus Sintetis Regresi:** Ditambahkan kasus `22_ifc_covering_dan_id` (`fixtures/synthetic/22_ifc_covering_dan_id/model.ifc`) untuk mengunci perbaikan B6 & B7 secara permanen di `tests/test_synthetic.py`.
+
+---
+
+## Fase 1d — Perbaikan Hasil Review Fase 1c (`fase-1d-perbaikan`)
+
+### K1 (Kritis) — Isolasi Cache Raycast & Kunci Cache File/Parameter
+- **Masalah:** `_RAYCAST_TRI_CACHE` di `_get_tri_raycast_accel` memakai kunci `(id(tris), len(tris))`. Setelah array lama di-GC, alamat memori yang sama dapat digunakan ulang oleh model lain dengan jumlah segitiga identik (mis. `01_kotak_m` -> `04_kotak_putar30`), menyebabkan kontaminasi geometri antar-analisis. Selain itu `_PARSED_FILE_CACHE`, `_UNIVERSAL_FILE_CACHE`, dan `analyze_building_ottv._rc_cache` belum menyertakan ukuran file (`file_size`) dan seluruh parameter/hash masukan raycast.
+- **Perbaikan:**
+  1. `_get_tri_raycast_accel` di `backend/ottv_engine.py` kini memakai hash isi array `hashlib.blake2b(tris_c.view(np.uint8), digest_size=16).digest()` + `shape` + `dtype` (tidak lagi `id(tris)`), serta `detect_exterior_faces_raycast` meneruskan `shell_accel` secara eksplisit.
+  2. `_PARSED_FILE_CACHE` (`ottv_engine.py`), `_UNIVERSAL_FILE_CACHE` (`universal_pipeline.py`), dan `analyze_building_ottv._rc_cache` kini menyertakan `os.path.abspath`, `mtime`, `file_size`, seluruh parameter konfigurasi yang memengaruhi hasil, serta hash isi `obs_tris_all` & `origins_np` (dengan batas ukuran cache agar tidak membengkak).
+  3. Ditambahkan tes regresi `test_k1_cache_isolation_01_04_01_same_process` (`01_kotak_m -> 04_kotak_putar30 -> 01_kotak_m` dengan `gc.collect()` di antara pemanggilan) dan dukungan pengacakan urutan tes `--shuffle-seed` di `tests/conftest.py` (lulus 3× urutan acak + 2× berturut-turut).
+
+### K2 — Hapus Asumsi Diam-Diam `default_wall_wwr = 0.35` (`NO_GLAZING` & `ASSUMED_WWR`)
+- **Masalah:** Ketika model tidak memiliki grup kaca sama sekali (mis. `Building-Architecture_IFC43.ifc`), engine diam-diam memakai `default_wall_wwr = 0.35`, menghasilkan luas kaca fiktif dan `is_provisional = False`.
+- **Perbaikan:**
+  1. `EnvelopeParameters.default_wall_wwr` dan `SettingsConfig.default_wall_wwr` (di `backend/config_schema.py`) kini ber-default `None`.
+  2. Bila tidak ada grup kaca terdeteksi dan pengguna tidak mengisi `default_wall_wwr`/`wwr_override`: WWR dihitung **`0%`** dengan peringatan **`NO_GLAZING`** (`is_provisional = True`).
+  3. Bila pengguna secara eksplisit mengisi `default_wall_wwr` (atau `wwr_override`) pada model tanpa kaca: nilai tersebut dipakai dan tetap memunculkan peringatan **`ASSUMED_WWR`** (`is_provisional = True`).
+  4. Ditambahkan kasus sintetis `23_tanpa_kaca` (`3dm`, `obj`, `glb`, `ifc`) dan tes eksplisit `test_k2_explicit_default_wall_wwr_emits_assumed_wwr`.
+
+### K3 — `avg_sc_effective` Tertimbang Luas Kaca (Bukan Seluruh Bidang)
+- **Masalah:** Pembilang `_sum_sc_eff_area` pada `orientation_buckets` dan `orientation_floor_buckets` menjumlahkan `sc_eff * area` untuk dinding (ketika `glz_a == 0`), lalu dibagi `a_glz`, sehingga `avg_sc_effective` bisa melebihi `1.0` (mis. `0.58` pada Kasus 1 dan `1.74` pada `Duplex_A`). Selain itu `summary.avg_sc_effective` menimbang semua bidang termasuk dinding.
+- **Perbaikan:**
+  1. `orientation_breakdown[*].avg_sc_effective`, `orientation_floor_breakdown[*].avg_sc_eff`, dan `summary.avg_sc_effective` kini seragam: $\sum (SC_{\text{eff}} \cdot A_{\text{kaca}}) / \sum A_{\text{kaca}}$ (dan `0.0` bila $A_{\text{kaca}} = 0$).
+  2. Menyesuaikan tampilan `frontend/src/main.js` (3 desimal, `—` bila tanpa kaca) dan `backend/report_exporter.py` (menangani orientasi tanpa kaca tanpa fallback bias).
+  3. Menambahkan assert di `tests/test_synthetic.py`: `0 <= avg_sc_effective <= 1` untuk ringkasan & tiap orientasi, `0.0` bila tanpa kaca, serta cocok dengan `manual_calc.sc` bila orientasi memiliki satu kombinasi.
+
+### K5 — `detected_unit = None` ("tidak ada di file") untuk Format Tanpa Header Satuan
+- **Masalah:** Format tanpa header satuan (`.obj`, `.glb`, `.gltf`, `.stl`, `.ply`) sebelumnya mengisi `detected_unit = "m"` walau satuan terpakai ditebak `"mm"`.
+- **Perbaikan:** Di `backend/universal_pipeline.py`, format tanpa header satuan kini mengisi `detected_unit = None` (`detected_unit_label = "tidak ada di file"` di API, audit engine, dan `tools/model_report.py`) dengan `unit_source = "bbox_guess"`. Diverifikasi di `tests/test_synthetic.py`.
+
+### Dokumentasi & Rapor
+- Menambahkan `docs/FASE1C_SPEC.md` dan `docs/verifikasi_tabel_sni.docx` ke git.
+- Menjalankan ulang `tools/model_report.py` (`docs/RAPOR_MODEL.md` & `.csv` diperbarui dengan 23 kasus sintetis / 67 file Tingkat A, 8 Tingkat B, 3 Tingkat C; `Building-Architecture` kini jujur `WWR = 0%` + `NO_GLAZING`).
+- K4 tidak diubah di Fase 1d (masuk ruang lingkup Fase 6).
