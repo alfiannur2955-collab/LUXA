@@ -628,12 +628,37 @@ Uji dengan corpus/real/Facade only to Alfian.3dm: panel kaca Barat 56,44 W/m2 ko
 Catat di docs/CHANGELOG-fase4.md. Commit per fitur.
 ```
 
+### Review Fase 4b-2 (22 Nov 2026)
+
+Branch `fase-4b2-analisis` (8 commit, terakhir `e0ce201`). Uji klik dengan browser tanpa layar memakai contoh kotak dan `Facade only to Alfian.3dm`; tangkapan layar di `corpus/_review_4b2/`. Hasilnya **lolos**: boleh di-merge ke `main`. Tiga catatan kecil dikerjakan di awal 4c.
+
+**Target uji terpenuhi**
+
+- Klik panel kaca Barat (tampak Barat): label kaca di titik klik "Panel kaca · Barat 56,43 W/m² kontribusi" (target 56,44, beda pembulatan). Kartu Bidang terpilih: SF 219, SC 0,233, Uf 1,10, dan "seluruh kaca Barat menyumbang 32% panas".
+- Filter paparan 23 Sep pukul 13.00 lewat endpoint `exposure`: Barat 568 panel dan Utara 478 panel menyala, Selatan 0 (benar: di tanggal itu matahari sedikit di utara Jakarta). Pagi hari Timur dan Utara menyala.
+- R1: RTTV contoh kotak tampil "4,64 W/m² (atap 600 m²), Memenuhi (≤ 10 W/m²)".
+- R2: garis tepi elemen terlihat, model terbaca di tema gelap.
+- R4: Kartu Konfirmasi contoh kotak "4 lantai @ 4,0 m · dari pita kaca berulang"; model teman "15 lantai @ 3,6 m · dari pita kaca berulang", lengkap dengan catatan bahwa jumlah lantai tidak mengubah OTTV total.
+- R5: kamera awal memuat seluruh model.
+- Mode Klasifikasi, Orientasi, Heatmap (per arah / per panel), Kejanggalan, X-ray; kubah matahari dengan tiga lintasan dan info tinggi/azimut; pil rumus; panel Tampilan berisi Kamera, Matahari, Tampilkan fasad (dengan catatan SF).
+- pytest 152/154; dua yang gagal hanya karena huruf besar-kecil path (lihat S1). `vite build` berhasil.
+
+Catatan angka: model teman di UI memberi OTTV 38,80 (lewat API bawaan 38,79). Selisihnya wajar karena di uji klik muka tanah dipilih "z = 0 di file", sehingga bagian fasad di bawah tanah (z −3,58 sampai 0) tidak dihitung.
+
+**Perbaikan (kerjakan di awal 4c)**
+
+| # | Temuan | Perbaikan |
+| --- | --- | --- |
+| S1 | `tests/test_floor_detection.py` menulis `05_denah_l`, foldernya `05_denah_L`. Lolos di Windows, gagal di Linux (server publish, CI). | Betulkan path; tambahkan pengecekan di conftest bahwa semua path fixture yang dirujuk tes benar-benar ada dengan huruf persis. |
+| S2 | Kubah matahari default terlalu kecil untuk gedung tinggi (radius dari diagonal denah saja), dan label lintasan ("21 Mar / 23 Sep", "21 Des") menumpuk di atas badan gedung. | Radius default = maks(1,6 × setengah diagonal denah, 0,6 × tinggi). Label lintasan diletakkan di sisi luar busur dan disembunyikan bila tertutup gedung. |
+| S3 | Pil bawah menulis "Arah B" saat proyeksi Perspektif, padahal kamera melihat dari tenggara. Membingungkan karena di Tampak, "B" berarti fasad Barat. | Di Perspektif/2 titik/Akso tulis posisi kamera ("dari Tenggara"); "Tampak Barat" hanya untuk proyeksi Tampak. Samakan di palet Ctrl K dan nama view tersimpan. |
+
 ```text
 PROMPT FASE 4c (bandingkan, workspace, poles):
-Branch fase-4c-poles dari main setelah 4b-2 di-merge. Baca docs/FASE4_UI_SPEC.md bagian 3.6, 5, 8, 9 dan mockup 8.
+Commit dulu docs/RENCANA.md bila ada perubahan. Merge fase-4b2-analisis ke main, lalu branch fase-4c-poles dari main. Baca docs/RENCANA.md bagian 'Review Fase 4b-2' dan kerjakan S1 sampai S3 lebih dulu (commit 'fase-4c: perbaikan review 4b-2'). Setelah itu baca docs/FASE4_UI_SPEC.md bagian 3.6, 5, 8, 9 dan mockup 8.
 Kerjakan baris '4c' tabel bagian 10: mode Bandingkan (viewer terbelah, pembatas bisa digeser mouse dan keyboard, selisih per arah, daftar alternatif, Pakai alternatif dengan riwayat), workspace v1 (Belajar, Lanjut, Presentasi; urutkan ulang dan sembunyikan item dock), panel Material, Lokasi, Laporan, Bantuan, tooltip istilah dengan rujukan pasal, pemeriksaan aksesibilitas bagian 9, responsif 1440/1280/768 px.
-Uji: alternatif kaca elektrokromik (glz_kaca_elektrokromik) untuk model teman harus 27,71 W/m2.
-Siapkan docs/UJI_PENGGUNA_FASE4.md berisi skenario uji 3 mahasiswa dengan fasad_unitized_24lantai.3dm dan kolom catatan.
+Uji: alternatif kaca elektrokromik (glz_kaca_elektrokromik) untuk model teman dengan konfigurasi bawaan (tanpa mengubah muka tanah) harus 27,71 W/m2; sekarang-nya 38,79.
+Siapkan docs/UJI_PENGGUNA_FASE4.md berisi skenario uji 3 mahasiswa dengan contoh bawaan Fasad_Curtain_Wall_Baru.3dm (atau model studio pilihan Alfian) dan kolom catatan.
 Catat di docs/CHANGELOG-fase4.md. Commit per fitur.
 ```
 
