@@ -101,6 +101,7 @@ class Stage1GeometryAudit:
     slivers_removed: int = 0
     interior_elements_filtered: int = 0
     hidden_objects_skipped: int = 0
+    missing_mesh: List[Dict[str, Any]] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
 
 
@@ -1649,6 +1650,11 @@ def load_universal_model_stages_1_and_2(
         hidden_obj_mode = getattr(rhino3dm.ObjectMode, "Hidden", None)
         mat_from_parent = getattr(rhino3dm.ObjectMaterialSource, "MaterialFromParent", None)
         mat_from_object = getattr(rhino3dm.ObjectMaterialSource, "MaterialFromObject", None)
+        missing_mesh_counts: Dict[Tuple[str, str, str], int] = {}
+        rhino_mesh_export_instruction = (
+            "Di Rhino: tampilkan viewport dalam mode Shaded lalu Save (jangan gunakan SaveSmall), "
+            "atau jalankan perintah Mesh pada objek Brep/Surface sebelum menyimpan .3dm."
+        )
 
         def _process_rhino_obj(
             obj: Any,
@@ -1755,22 +1761,14 @@ def load_universal_model_stages_1_and_2(
                                 got_mesh = True
                                 break
                     if not got_mesh:
-                        srf = bf.UnderlyingSurface()
-                        if srf:
-                            u_d = 2 if cat in ("frame", "shading") else nurbs_u_div
-                            v_d = 2 if cat in ("frame", "shading") else nurbs_v_div
-                            lb_m = tessellate_nurbs_surface_with_ladybug(srf, u_d, v_d)
-                            res = _ladybug_mesh_to_numpy(lb_m)
-                            if res:
-                                _add_chunk(g_name, layer_name, src_mat, cat, _apply_xform(res[0], parent_xform), res[1])
+                        # M3: NEVER tessellate untrimmed UnderlyingSurface — record missing render mesh!
+                        mk = (g_name, layer_name, "Brep")
+                        missing_mesh_counts[mk] = missing_mesh_counts.get(mk, 0) + 1
 
             elif isinstance(geom, rhino3dm.Surface):
-                u_d = 2 if cat in ("frame", "shading") else nurbs_u_div
-                v_d = 2 if cat in ("frame", "shading") else nurbs_v_div
-                lb_m = tessellate_nurbs_surface_with_ladybug(geom, u_d, v_d)
-                res = _ladybug_mesh_to_numpy(lb_m)
-                if res:
-                    _add_chunk(g_name, layer_name, src_mat, cat, _apply_xform(res[0], parent_xform), res[1])
+                # M3: Standalone Surface without stored render mesh — record instead of fabricating untrimmed mesh
+                mk = (g_name, layer_name, "Surface")
+                missing_mesh_counts[mk] = missing_mesh_counts.get(mk, 0) + 1
 
         identity4 = np.eye(4, dtype=np.float64)
         idef_obj_mode = getattr(rhino3dm.ObjectMode, "InstanceDefinitionObject", None)
@@ -1780,6 +1778,22 @@ def load_universal_model_stages_1_and_2(
             if idef_obj_mode is not None and getattr(obj.Attributes, "Mode", None) == idef_obj_mode:
                 continue
             _process_rhino_obj(obj, identity4)
+
+        if missing_mesh_counts:
+            total_missing = 0
+            for (mg, ml, mtype), cnt in sorted(missing_mesh_counts.items()):
+                total_missing += cnt
+                audit.missing_mesh.append({
+                    "group": mg,
+                    "layer": ml,
+                    "object_type": mtype,
+                    "face_count": int(cnt),
+                    "instruction": rhino_mesh_export_instruction,
+                })
+            audit.notes.append(
+                f"Peringatan M3: {total_missing} permukaan tanpa render mesh tidak digambar ulang otomatis. "
+                f"{rhino_mesh_export_instruction}"
+            )
 
         if audit.hidden_objects_skipped > 0:
             audit.notes.append(f"{audit.hidden_objects_skipped} objek/layer tersembunyi (Hidden/Off) diabaikan otomatis.")

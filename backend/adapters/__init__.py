@@ -627,6 +627,7 @@ def build_staging_inspection_payload(
             "slivers_removed": audit.slivers_removed,
             "interior_elements_filtered": audit.interior_elements_filtered,
             "hidden_objects_skipped": audit.hidden_objects_skipped,
+            "missing_mesh": audit.missing_mesh,
             "bim_storeys_count": len(audit.bim_storeys),
             "notes": audit.notes,
         },

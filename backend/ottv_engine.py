@@ -1959,6 +1959,7 @@ def analyze_building_ottv(
             "slivers_removed": stage1_audit.slivers_removed,
             "interior_elements_filtered": stage1_audit.interior_elements_filtered,
             "hidden_objects_skipped": stage1_audit.hidden_objects_skipped,
+            "missing_mesh": stage1_audit.missing_mesh,
             "exterior_detection_mode": ext_mode,
             "source_software": params.source_software,
             "z_ground_cutoff_m": round(z_ground_cut, 2),
