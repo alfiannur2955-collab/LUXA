@@ -103,4 +103,32 @@ Dokumen ini mencatat perubahan arsitektur antarmuka dan pendukung backend pada F
 - **`frontend/src/viewer/exposure.js`, `panels/railPanels.js`, `viewer/vbar.js`**: Filter **Tampilkan fasad** (*Semua arah* / *Arah yang dipilih* / *Yang terkena matahari jam ini* mewarnai panel terpapar `heat-1` dan teduh `data-wall`, beserta catatan SF tahunan SNI), slider jam & tombol putar satu hari (`Spasi`, nonaktif pada `prefers-reduced-motion`).
 - **`frontend/src/viewer/formulaPill.js`**: Pil rumus kaca tingkat 1 di kiri kompas (`top: 16px, right: 76px, height: 52px`), dapat digeser via pointer maupun panah keyboard (posisi tersimpan di `localStorage`), dan dibuka untuk menampilkan persamaan SNI 6389:2020 beserta substitusi angka dari `manual_calc`.
 
+---
+
+## Fase 4c — Perbaikan Review 4b-2 (S1–S4), Mode Bandingkan, Workspace v1, Tooltip SNI, & Poles (`fase-4c-poles`)
+
+### 1. Perbaikan Review Fase 4b-2 (S1–S4)
+- **S1 (`tests/conftest.py`, `tests/test_floor_detection.py`)**: Memperbaiki kapitalisasi path `05_denah_l` -> `05_denah_L` dan menambahkan pengaman `pytest_sessionstart` di `tests/conftest.py` yang memverifikasi seluruh path `fixtures/...` di `tests/test_*.py` dengan pengecekan huruf besar-kecil persis agar tidak pernah lolos di Windows lalu gagal di Linux/CI.
+- **S2 (`frontend/src/viewer/sundome.js`)**: Radius kubah matahari bawaan diubah menjadi `max(1,6 × setengah diagonal denah, 0,6 × tinggi bangunan)` agar proporsional pada gedung tinggi. Label lintasan (`21 Jun`, `21 Mar / 23 Sep`, `21 Des`) ditempatkan di sisi luar busur dan disembunyikan otomatis bila menumpuk di atas proyeksi 2D badan bangunan.
+- **S3 (`frontend/src/viewer/cameras.js`, `vbar.js`, `views.js`, `ui/commandPalette.js`, `main.js`)**: Pil bawah, palet `Ctrl K`, dan nama view tersimpan kini membedakan posisi kamera 3D (`dari Tenggara`, `dari Barat`) pada Perspektif / 2 titik / Aksonometri dan `Tampak Barat` / `Tampak Atas` khusus untuk proyeksi Tampak. Arah kamera ikut diperbarui otomatis setelah orbit selesai.
+- **S4 (`frontend/src/viewer/modes.js`, `viewer.js`, `steps/results.js`, `views.js`, `theme.css`)**: Heatmap menggunakan **skala warna kontinu OKLab** (`0 = heat-0`, `25 = heat-1`, `35 = heat-2`, `50–60+ = heat-3`) dengan bilah gradasi 168 px bertanda batas tegas `35 batas` (`--ink`), serta sakelar **Halus** (default mati) yang mencampur warna antar-vertex tertimbang luas, menulis `"tampilan dihaluskan"` di legenda saat aktif, ikut tersimpan di `saved_views`, dan tetap menjaga nilai asli panel saat diklik.
+
+### 2. Mode Bandingkan (Viewer Terbelah) & Tes Kaca Elektrokromik
+- **`frontend/src/steps/compare.js` & `frontend/src/viewer/viewer.js`**: Viewer 3D terbelah tersinkronisasi (*scissor rendering* berbagi satu kamera & orbit) menampilkan **Sekarang** (kiri) dan **Alternatif** (kanan), dilengkapi pembatas geser (`cursor: ew-resize`, pointer & panah keyboard `ArrowLeft`/`ArrowRight`/`Home`/`End`), kartu **Selisih per arah (W/m²)** di bawah, ringkasan selisih total, tabel **Yang diubah** beserta catatan katalog material (mis. kondisi paling gelap pada kaca elektrokromik), pembuat **+ Tambah alternatif** (memanggil `engine.analyze` dari salinan `ProjectConfig`), dan tombol **Pakai Alternatif** yang menyimpan desain sebelumnya ke **Riwayat desain**.
+- **`tests/test_compare_electrochromic.py`**: Memverifikasi `corpus/real/Facade only to Alfian.3dm` dengan konfigurasi bawaan memberi `38,79 W/m²`, sedangkan alternatif `glz_kaca_elektrokromik` memberi **`27,71 W/m²`** (lolos batas 35).
+
+### 3. Workspace v1 & Kustomisasi Dock
+- **`frontend/src/ui/workspace.js`, `shell/rail.js`, `panels/railPanels.js`, `steps/results.js`, `main.js`**: Tiga preset workspace (**Belajar**, **Lanjut**, **Presentasi**) tersimpan di `localStorage` (`luxa.workspace.v1`):
+  - **Belajar**: tooltip istilah SNI aktif di seluruh kartu hasil.
+  - **Lanjut**: menampilkan **Data per bidang** (tabel panel dapat dicari & diklik ke 3D) dan **Override kaca per orientasi** di panel Material.
+  - **Presentasi**: menyembunyikan rel kiri dan kolom samping untuk viewer penuh dengan pil bawah tetap tampil dan tombol `Keluar Presentasi (Esc)`.
+  - Dialog **Atur urutan dan isi dock** (aksesibel keyboard) untuk mengurutkan ulang, menyembunyikan item rel, dan memindahkan posisi baris mode ke atas/bawah viewer.
+
+### 4. Panel Material, Lokasi, Laporan, Bantuan, Tooltip Istilah SNI, Aksesibilitas, & Uji Pengguna
+- **`frontend/src/ui/tooltips.js`**: Tooltip aksesibel (fokus, klik, hover) dengan penjelasan satu kalimat dan rujukan pasal/tabel SNI 6389:2020 untuk `OTTV`, `WWR`, `SC`, `SF`, `TDek`, `Uf`, `Uw`, `α`, dan `RTTV`.
+- **`frontend/src/panels/railPanels.js`**: Panel **Material** (catatan katalog + override per orientasi di Lanjut), **Lokasi** (54 kota Tabel 8 + 18 kota template, pratinjau SF 8 arah, unggah EPW kustom), **Laporan** (status kepatuhan + unduh `.xlsx`, `.csv`, `.pdf`, `.ottv.json`), dan **Bantuan** (glosarium SNI yang dapat dicari + panduan ekspor + tombol pintasan `?`).
+- **`frontend/src/theme.css`**: Poles aksesibilitas §9 dan responsif pada `1440`, `1280`, dan `768 px` (tanpa luapan horizontal, penataan ulang legenda/mode/pil/bandingkan di bawah `860 px`).
+- **`docs/UJI_PENGGUNA_FASE4.md`**: Skenario uji 3 mahasiswa arsitektur (< 10 menit) memakai `Fasad_Curtain_Wall_Baru.3dm` (atau model studio pilihan) lengkap dengan lembar catatan pengamatan.
+
+
 

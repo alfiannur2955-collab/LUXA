@@ -2542,6 +2542,35 @@ kbd {
     overflow-x: auto;
   }
 
+  .legend-lifted,
+  .legend-shifted {
+    left: 16px;
+    bottom: 184px;
+    max-width: calc(100% - 32px);
+  }
+
+  .formula-pill-wrap {
+    right: 72px;
+    max-width: calc(100% - 88px);
+  }
+
+  .compare-heads-row {
+    gap: 10px;
+  }
+
+  .compare-pane-head {
+    padding: 8px 10px;
+  }
+
+  .compare-pane-val {
+    font-size: 20px;
+    line-height: 24px;
+  }
+
+  .sundome-readout {
+    display: none !important;
+  }
+
   .vbar {
     flex-direction: column;
     align-items: stretch;
