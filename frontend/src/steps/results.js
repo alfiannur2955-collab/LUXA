@@ -78,13 +78,14 @@ export function renderResultsScreen(state, handlers) {
     `;
   } else if (activeMode === 'heatmap') {
     const gran = state.heatmapGranularity || 'orientation';
+    const isSmooth = Boolean(state.heatmapSmooth);
     const lblSpan = document.createElement('span');
     lblSpan.style.color = 'var(--ink)';
     lblSpan.textContent = 'OTTV';
 
     const toggleWrap = document.createElement('div');
     toggleWrap.className = 'legend-toggle';
-    toggleWrap.setAttribute('role', 'group');
+    toggleWrap.setAttribute('role', 'radiogroup');
     toggleWrap.setAttribute('aria-label', 'Skala heatmap');
 
     for (const [id, lbl] of [
@@ -93,28 +94,50 @@ export function renderResultsScreen(state, handlers) {
     ]) {
       const b = document.createElement('button');
       b.type = 'button';
+      b.setAttribute('role', 'radio');
       b.className = gran === id ? 'on' : '';
+      b.setAttribute('aria-checked', gran === id ? 'true' : 'false');
       b.setAttribute('aria-pressed', gran === id ? 'true' : 'false');
       b.textContent = lbl;
       b.addEventListener('click', () => handlers.onChangeHeatmapGranularity(id));
       toggleWrap.appendChild(b);
     }
 
-    const strip = document.createElement('span');
-    strip.className = 'heat-bar-strip';
-    strip.setAttribute('aria-hidden', 'true');
-    strip.innerHTML = `
-      <span style="background:var(--heat-0);"></span>
-      <span style="background:var(--heat-1);"></span>
-      <span style="background:var(--heat-2);"></span>
-      <span style="background:var(--heat-3);"></span>
-    `;
+    // S4: Continuous 168 px gradient bar with 0, 25, "35 batas" (ink mark at 58.3%), 60
+    const gradWrap = document.createElement('span');
+    gradWrap.className = 'heat-grad-wrap';
 
-    const scaleNum = document.createElement('span');
-    scaleNum.className = 'num';
-    scaleNum.textContent = '25 · 32 · 35 W/m²';
+    const gradBar = document.createElement('span');
+    gradBar.className = 'heat-grad-bar';
+    gradBar.setAttribute('aria-hidden', 'true');
+    const limitMark = document.createElement('i');
+    limitMark.className = 'heat-grad-limit';
+    gradBar.appendChild(limitMark);
 
-    legend.append(lblSpan, toggleWrap, strip, scaleNum);
+    const gradTicks = document.createElement('span');
+    gradTicks.className = 'heat-grad-ticks num';
+    gradTicks.innerHTML = '<span>0</span><span>25</span><span class="is-limit">35 batas</span><span>60</span>';
+    gradWrap.append(gradBar, gradTicks);
+
+    // S4: Halus vertex-smoothing toggle switch (default off)
+    const smoothLbl = document.createElement('label');
+    smoothLbl.className = 'legend-smooth-lbl';
+    const smoothCb = document.createElement('input');
+    smoothCb.type = 'checkbox';
+    smoothCb.setAttribute('role', 'switch');
+    smoothCb.checked = isSmooth;
+    smoothCb.setAttribute('aria-checked', isSmooth ? 'true' : 'false');
+    smoothCb.addEventListener('change', () => handlers.onToggleHeatmapSmooth?.(smoothCb.checked));
+    smoothLbl.append(smoothCb, document.createTextNode(' Halus'));
+
+    legend.append(lblSpan, toggleWrap, gradWrap, smoothLbl);
+
+    if (isSmooth) {
+      const smNote = document.createElement('span');
+      smNote.className = 'legend-smooth-note';
+      smNote.textContent = 'tampilan dihaluskan';
+      legend.appendChild(smNote);
+    }
     if (state.sunDomeVisible) {
       const sunHint = document.createElement('span');
       sunHint.className = 'legend-item';

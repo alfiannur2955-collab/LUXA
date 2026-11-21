@@ -76,8 +76,8 @@ def test_01_kotak_m_is_4_floors_at_4m(rel_path, expected_method):
 @pytest.mark.parametrize(
     "rel_path",
     [
-        "fixtures/synthetic/05_denah_l/model.3dm",
-        "fixtures/synthetic/05_denah_l/model.obj",
+        "fixtures/synthetic/05_denah_L/model.3dm",
+        "fixtures/synthetic/05_denah_L/model.obj",
         "fixtures/synthetic/06_courtyard/model.3dm",
         "fixtures/synthetic/06_courtyard/model.obj",
         "fixtures/synthetic/07_silinder/model.3dm",

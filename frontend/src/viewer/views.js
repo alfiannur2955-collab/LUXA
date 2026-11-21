@@ -4,12 +4,12 @@
  * in `.ottv.json` and `localStorage` autosave.
  */
 
-import { DIRECTION_NAMES, PROJECTION_SHORT } from './cameras.js';
+import { formatCameraDirectionLabel, PROJECTION_SHORT } from './cameras.js';
 
 export function suggestViewName(projection, direction, existingViews = []) {
-  const dirLabel = DIRECTION_NAMES[direction] || direction || 'Utama';
+  const dirPhrase = formatCameraDirectionLabel(projection, direction);
   const projLabel = PROJECTION_SHORT[projection] || 'Persp';
-  const base = `${dirLabel} · ${projLabel}`;
+  const base = projection === 'elevation' ? dirPhrase : `${dirPhrase} · ${projLabel}`;
   const existing = new Set((existingViews || []).map((v) => String(v.name || '').trim().toLowerCase()));
   if (!existing.has(base.toLowerCase())) return base;
   let idx = 2;
@@ -19,15 +19,16 @@ export function suggestViewName(projection, direction, existingViews = []) {
   return `${base} (${idx})`;
 }
 
-export function createSavedViewRecord({ name, cameraState, northAngleDeg = 0 }) {
+export function createSavedViewRecord({ name, cameraState, northAngleDeg = 0, heatmapSmooth = false }) {
   const cleanName = String(name || '').trim() || 'View baru';
   const id = `view_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
   return {
     id,
     name: cleanName,
     projection: cameraState?.projection || 'perspective',
-    direction: cameraState?.direction || 'B',
+    direction: cameraState?.direction || 'TG',
     north_angle_deg: Number(northAngleDeg) || 0,
+    heatmap_smooth: Boolean(heatmapSmooth),
     camera: { ...cameraState },
     created_at: new Date().toISOString(),
   };

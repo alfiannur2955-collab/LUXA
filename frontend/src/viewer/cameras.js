@@ -51,6 +51,18 @@ export const PROJECTION_SHORT = {
 };
 
 /**
+ * S3: Clear direction label distinguishing orthographic elevation ("Tampak Barat")
+ * from 3D camera vantage point ("dari Tenggara").
+ */
+export function formatCameraDirectionLabel(projection, direction) {
+  const dirName = DIRECTION_NAMES[direction] || direction || 'Tenggara';
+  if (projection === 'elevation') {
+    return direction === 'Atas' ? 'Tampak Atas' : `Tampak ${dirName}`;
+  }
+  return direction === 'Atas' ? 'dari Atas' : `dari ${dirName}`;
+}
+
+/**
  * Converts backend Z-up (x=East, y=North, z=Up) to Three.js Y-up (x=East, y=Up, z=-North).
  */
 export function toThreeCoords(x, y, z) {
@@ -91,6 +103,22 @@ export class CameraRig {
 
   getActiveCamera() {
     return this.activeCamera;
+  }
+
+  /**
+   * Computes the actual 8-compass camera vantage code (or 'Atas') from current camera pose.
+   */
+  getLiveDirection(controls) {
+    const cam = this.activeCamera;
+    const tgt = controls ? controls.target : this._getModelMetrics().center;
+    const rel = cam.position.clone().sub(tgt);
+    const hLen = Math.hypot(rel.x, rel.z);
+    if (rel.y > 0 && hLen < Math.max(0.5, rel.y * 0.2)) {
+      return 'Atas';
+    }
+    const az = ((Math.atan2(rel.x, -rel.z) * 180) / Math.PI - (Number(this.northAngleDeg) || 0) + 720) % 360;
+    const codes = ['U', 'TL', 'T', 'TG', 'S', 'BD', 'B', 'BL'];
+    return codes[Math.floor(((az + 22.5) % 360) / 45)] || 'TG';
   }
 
   setNorthAngle(deg) {

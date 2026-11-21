@@ -113,6 +113,7 @@ class LuxaViewer {
     this.lastRenderKey = null;
     this.onPickGroup = null;
     this.onPickPanel = null;
+    this.onCameraDirectionSettled = null;
     this.raycaster = new THREE.Raycaster();
     this.pointerDownPos = null;
     this.lastWidth = 800;
@@ -137,6 +138,12 @@ class LuxaViewer {
     this.controls.dampingFactor = 0.08;
     this.controls.maxDistance = 1600;
     this.controls.minDistance = 2;
+    this.controls.addEventListener('end', () => {
+      if (typeof this.onCameraDirectionSettled === 'function') {
+        const liveDir = this.rig.getLiveDirection(this.controls);
+        if (liveDir) this.onCameraDirectionSettled(liveDir);
+      }
+    });
 
     const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.88);
     hemi.position.set(0, 100, 0);
@@ -272,6 +279,15 @@ class LuxaViewer {
   setProjection(projection, opts = {}) {
     this._initThree();
     this.rig.setProjection(projection, this.controls, opts);
+  }
+
+  getLiveDirection() {
+    this._initThree();
+    return this.rig.getLiveDirection(this.controls);
+  }
+
+  setOnCameraDirectionSettled(cb) {
+    this.onCameraDirectionSettled = cb || null;
   }
 
   setRightInsetPx(px) {
@@ -455,6 +471,7 @@ class LuxaViewer {
       theme: state.theme,
       mode,
       heatmapGranularity: state.heatmapGranularity || 'orientation',
+      heatmapSmooth: Boolean(state.heatmapSmooth),
       facadeFilter: state.facadeFilter || 'all',
       expKey,
       hasAnalysis,
@@ -641,6 +658,7 @@ class LuxaViewer {
     }
 
     const granularity = state.heatmapGranularity || 'orientation';
+    const useSmooth = Boolean(state.heatmapSmooth) && mode === 'heatmap' && (state.facadeFilter || 'all') !== 'sunlit_now';
     const facadeFilter = state.facadeFilter || 'all';
     const selOrient = state.selectedOrientation || null;
     const northDeg = Number(state.config?.settings?.north_angle_deg || 0);
@@ -648,6 +666,35 @@ class LuxaViewer {
     const northDelta = northDeg - analysisNorthDeg;
     const sunlitSet = this._getSunlitPanelIdSet(state);
     const flaggedGroups = _computeFlaggedGroupSet(state.inspectData);
+
+    // S4: Precompute area-weighted vertex OTTV averages when Halus is enabled
+    const vKey = (pt) => `${Math.round(Number(pt[0]) * 200)},${Math.round(Number(pt[1]) * 200)},${Math.round(Number(pt[2]) * 200)}`;
+    const smoothVertexVal = useSmooth ? new Map() : null;
+    if (useSmooth) {
+      const accum = new Map(); // key -> { sumValArea, sumArea }
+      for (const p of panels) {
+        if (!p.active || !Array.isArray(p.vertices) || p.vertices.length < 3) continue;
+        let pCode = p.orientation_code || 'U';
+        if (Math.abs(northDelta) > 0.05 && Array.isArray(p.normal)) {
+          pCode = normalToOrientationCode(p.normal[0], p.normal[1], northDeg);
+        }
+        const val = granularity === 'panel' ? Number(p.ottv_panel_wm2 || 0) : (orientOttv[pCode] ?? 0);
+        const area = Math.max(0.01, Number(p.area_m2 || 1));
+        for (const pt of p.vertices) {
+          const k = vKey(pt);
+          const cur = accum.get(k);
+          if (cur) {
+            cur.sumValArea += val * area;
+            cur.sumArea += area;
+          } else {
+            accum.set(k, { sumValArea: val * area, sumArea: area });
+          }
+        }
+      }
+      for (const [k, acc] of accum.entries()) {
+        smoothVertexVal.set(k, acc.sumValArea / Math.max(1e-6, acc.sumArea));
+      }
+    }
 
     const cHeat1 = new THREE.Color(tokens.heat1);
     const cWall = new THREE.Color(tokens.wall);
@@ -720,18 +767,28 @@ class LuxaViewer {
       const p1 = _coordsArr(vs[1][0], vs[1][1], vs[1][2]);
       const p2 = _coordsArr(vs[2][0], vs[2][1], vs[2][2]);
 
+      const cForVert = (pt) => {
+        if (!useSmooth) return color;
+        const avgV = smoothVertexVal.get(vKey(pt));
+        return avgV !== undefined ? ottvToThreeColor(avgV, tokens) : color;
+      };
+      const c0 = cForVert(vs[0]);
+      const c1 = cForVert(vs[1]);
+      const c2 = cForVert(vs[2]);
+
       const dstCoords = isDimmed ? dimCoords : mainCoords;
       const dstColors = isDimmed ? dimColors : mainColors;
       const dstMap = isDimmed ? dimTriToPanel : mainTriToPanel;
 
       dstCoords.push(...p0, ...p1, ...p2);
-      dstColors.push(color.r, color.g, color.b, color.r, color.g, color.b, color.r, color.g, color.b);
+      dstColors.push(c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c2.r, c2.g, c2.b);
       dstMap.push(p);
 
       if (vs.length >= 4) {
         const p3 = _coordsArr(vs[3][0], vs[3][1], vs[3][2]);
+        const c3 = cForVert(vs[3]);
         dstCoords.push(...p0, ...p2, ...p3);
-        dstColors.push(color.r, color.g, color.b, color.r, color.g, color.b, color.r, color.g, color.b);
+        dstColors.push(c0.r, c0.g, c0.b, c2.r, c2.g, c2.b, c3.r, c3.g, c3.b);
         dstMap.push(p);
       }
     }

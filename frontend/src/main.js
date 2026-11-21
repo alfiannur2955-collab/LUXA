@@ -43,7 +43,11 @@ import { fmtFileSize } from './ui/escapeHtml.js';
 import { installShortcuts } from './ui/shortcuts.js';
 import { renderShortcutsModal } from './ui/shortcutsModal.js';
 import { showToast } from './ui/toast.js';
-import { DIRECTION_NAMES, PROJECTION_LABELS } from './viewer/cameras.js';
+import {
+  DIRECTION_NAMES,
+  formatCameraDirectionLabel,
+  PROJECTION_LABELS,
+} from './viewer/cameras.js';
 import { captureViewerPng } from './viewer/capture.js';
 import { pieMenu } from './viewer/pieMenu.js';
 import { viewer } from './viewer/viewer.js';
@@ -116,7 +120,13 @@ function buildInitialConfirmForInspect(inspectData, existingConfirm = null) {
 
 function handleSetProjection(projection) {
   viewer.setProjection(projection, { direction: getState().cameraDirection });
-  setState({ cameraProjection: projection, activeViewId: null, openPopover: null });
+  const liveDir = projection === 'elevation' ? getState().cameraDirection : viewer.getLiveDirection();
+  setState({
+    cameraProjection: projection,
+    cameraDirection: liveDir || getState().cameraDirection,
+    activeViewId: null,
+    openPopover: null,
+  });
 }
 
 function handleSelectDirection(code) {
@@ -144,6 +154,8 @@ function handleSaveView() {
   const s = getState();
   if (!s.inspectData && !s.analysisData) return;
   const camState = viewer.exportCameraState();
+  const effDir = camState.projection === 'elevation' ? camState.direction : viewer.getLiveDirection();
+  camState.direction = effDir || camState.direction;
   const name = suggestViewName(
     camState.projection,
     camState.direction,
@@ -153,6 +165,7 @@ function handleSaveView() {
     name,
     cameraState: camState,
     northAngleDeg: s.config?.settings?.north_angle_deg || 0,
+    heatmapSmooth: Boolean(s.heatmapSmooth),
   });
   updateConfig((cfg) => {
     cfg.saved_views = [...(cfg.saved_views || []), record];
@@ -167,7 +180,8 @@ function handleApplyView(view) {
   viewer.applyCameraState(view.camera);
   setState({
     cameraProjection: view.camera.projection || view.projection || 'perspective',
-    cameraDirection: view.camera.direction || view.direction || 'B',
+    cameraDirection: view.camera.direction || view.direction || 'TG',
+    heatmapSmooth: view.heatmap_smooth !== undefined ? Boolean(view.heatmap_smooth) : getState().heatmapSmooth,
     activeViewId: view.id,
   });
 }
@@ -845,6 +859,7 @@ function renderApp(state) {
         onChangeNorth: handleChangeNorthAngle,
         onToggleFormulaPill: (open) => setState({ formulaPillExpanded: Boolean(open) }),
         onChangeHeatmapGranularity: (gran) => setState({ heatmapGranularity: gran }),
+        onToggleHeatmapSmooth: (enabled) => setState({ heatmapSmooth: Boolean(enabled) }),
         onPickPanel: (panel, additive) => {
           if (!panel) {
             setState({ selectedPanelIds: [], selectedOrientation: null });
@@ -904,7 +919,8 @@ function renderApp(state) {
     },
     onSelectDirection: (c) => {
       handleSelectDirection(c);
-      showToast(`Arah pandang: ${DIRECTION_NAMES[c] || c}`, 'ok', 1800);
+      const s = getState();
+      showToast(`Kamera: ${formatCameraDirectionLabel(s.cameraProjection, c)}`, 'ok', 1800);
     },
     onFitCamera: handleFitCamera,
     onSaveView: handleSaveView,
@@ -958,7 +974,8 @@ installShortcuts({
     },
     onSelectDirection: (c) => {
       handleSelectDirection(c);
-      showToast(`Arah pandang: ${DIRECTION_NAMES[c] || c}`, 'ok', 1800);
+      const s = getState();
+      showToast(`Kamera: ${formatCameraDirectionLabel(s.cameraProjection, c)}`, 'ok', 1800);
     },
     onFitCamera: handleFitCamera,
     onSaveView: handleSaveView,
@@ -971,6 +988,12 @@ async function bootstrap() {
   const savedTheme = loadSavedTheme();
   applyThemeToDom(savedTheme);
   viewer.attachSunDomeController(new SunDomeController());
+  viewer.setOnCameraDirectionSettled((liveDir) => {
+    const s = getState();
+    if (s.cameraProjection !== 'elevation' && liveDir && liveDir !== s.cameraDirection) {
+      setState({ cameraDirection: liveDir });
+    }
+  });
   subscribe(renderApp);
   setState({ theme: savedTheme });
 

@@ -134,8 +134,9 @@ const initialState = {
   acknowledgedFlags: {}, // { [flagId]: { action, provisional } }
   viewerMode: 'classification', // 'classification' | 'orientation' | 'heatmap' | 'anomalies' | 'xray'
   heatmapGranularity: 'orientation', // 'orientation' | 'panel'
+  heatmapSmooth: false, // S4: Halus vertex-blending toggle (default off)
   cameraProjection: 'perspective', // 'perspective' | 'two_point' | 'axonometric' | 'elevation'
-  cameraDirection: 'B', // 'U' | 'TL' | 'T' | 'TG' | 'S' | 'BD' | 'B' | 'BL' | 'Atas'
+  cameraDirection: 'TG', // 'U' | 'TL' | 'T' | 'TG' | 'S' | 'BD' | 'B' | 'BL' | 'Atas'
   activeViewId: null,
   captureScale: 2, // 1 | 2 | 4
   openPopover: null, // null | 'direction' | 'views' | 'capture'
