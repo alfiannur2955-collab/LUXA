@@ -1751,7 +1751,12 @@ def load_universal_model_stages_1_and_2(
                     _add_chunk(g_name, layer_name, src_mat, cat, _apply_xform(res[0], parent_xform), res[1])
 
         identity4 = np.eye(4, dtype=np.float64)
+        idef_obj_mode = getattr(rhino3dm.ObjectMode, "InstanceDefinitionObject", None)
         for obj in model.Objects:
+            # M1: Skip block-definition template objects at top level; they are only
+            # processed via InstanceReference with their instance 4x4 transform.
+            if idef_obj_mode is not None and getattr(obj.Attributes, "Mode", None) == idef_obj_mode:
+                continue
             _process_rhino_obj(obj, identity4)
 
         if audit.hidden_objects_skipped > 0:
