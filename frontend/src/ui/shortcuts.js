@@ -57,7 +57,7 @@ export function installShortcuts({ getState, pieMenu, handlers }) {
         handlers.onClosePopover();
         return;
       }
-      if (s.activeRailCard) {
+      if (s.dockCustomizerOpen || s.activeRailCard || s.workspace?.preset === 'presentasi') {
         e.preventDefault();
         handlers.onCloseRailCard();
         return;
@@ -98,7 +98,8 @@ export function installShortcuts({ getState, pieMenu, handlers }) {
       return;
     }
 
-    const viewerActive = s.step === 'confirm' || s.step === 'inspect' || s.step === 'results';
+    const viewerActive =
+      s.step === 'confirm' || s.step === 'inspect' || s.step === 'results' || s.step === 'compare';
     if (!viewerActive) return;
 
     if (e.key === '1') {

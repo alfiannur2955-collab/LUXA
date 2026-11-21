@@ -2438,6 +2438,56 @@ kbd {
   }
 }
 
+@media (max-width: 1360px) {
+  .modes {
+    height: 46px;
+    padding: 3px;
+  }
+
+  .modes button {
+    height: 38px;
+    padding: 0 8px;
+    gap: 5px;
+    font-size: 11.5px;
+  }
+
+  .modes button svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .formula-pill-wrap {
+    right: 74px;
+  }
+
+  .formula-pill-bar {
+    height: 46px;
+    gap: 5px;
+    padding: 0 4px 0 2px;
+  }
+
+  .formula-pill-val {
+    font-size: 14px;
+  }
+
+  .pill {
+    height: 44px;
+    padding: 0 4px;
+    gap: 2px;
+  }
+
+  .pill .div {
+    margin: 0 2px;
+  }
+
+  .pill .b {
+    height: 34px;
+    padding: 0 7px;
+    gap: 4px;
+    font-size: 11.5px;
+  }
+}
+
 @media (max-width: 1140px) {
   .step-btn {
     padding: 6px 10px;
@@ -2453,6 +2503,10 @@ kbd {
 
   .top-actions .cmd-label {
     display: none;
+  }
+
+  .legend-lifted {
+    bottom: 124px;
   }
 }
 
