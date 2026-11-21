@@ -66,6 +66,50 @@ export function renderViewerBottomBar(state, handlers) {
   );
 
   leftPill.append(seg, div1, dirBtn);
+
+  // Fase 4b-2: Sun playback & hour slider in left pill on Results screen (mockup 4-hasil.html)
+  if (state.step === 'results' && state.analysisData && handlers.onChangeSunHour) {
+    const div2 = document.createElement('span');
+    div2.className = 'div';
+    div2.setAttribute('aria-hidden', 'true');
+
+    const playBtn = document.createElement('button');
+    playBtn.type = 'button';
+    playBtn.className = `b${state.sunPlaying ? ' on' : ''}`;
+    playBtn.style.padding = '0 9px';
+    playBtn.setAttribute(
+      'aria-label',
+      state.sunPlaying ? 'Jeda animasi matahari, pintasan Spasi' : 'Putar matahari satu hari, pintasan Spasi',
+    );
+    playBtn.title = state.sunPlaying ? 'Jeda (Spasi)' : 'Putar satu hari (Spasi)';
+    playBtn.setAttribute('aria-pressed', state.sunPlaying ? 'true' : 'false');
+    playBtn.innerHTML = icon(state.sunPlaying ? 'pause' : 'play', 14);
+    playBtn.addEventListener('click', () => handlers.onToggleSunPlay?.());
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '6';
+    slider.max = '18';
+    slider.step = '1';
+    slider.value = String(Math.round(Number(state.sunHour ?? 13)));
+    slider.setAttribute('aria-label', 'Jam matahari');
+    slider.style.width = '88px';
+    slider.style.accentColor = 'var(--sun)';
+    slider.addEventListener('input', () => {
+      handlers.onChangeSunHour(Number(slider.value));
+    });
+
+    const hourTxt = document.createElement('span');
+    hourTxt.className = 'num';
+    hourTxt.style.fontSize = '12px';
+    hourTxt.style.fontWeight = '700';
+    hourTxt.style.padding = '0 6px 0 4px';
+    hourTxt.style.whiteSpace = 'nowrap';
+    hourTxt.textContent = `${String(Math.round(Number(state.sunHour ?? 13))).padStart(2, '0')}.00`;
+
+    leftPill.append(div2, playBtn, slider, hourTxt);
+  }
+
   leftWrap.appendChild(leftPill);
 
   // Direction menu popover (keyboard navigable with arrow keys)

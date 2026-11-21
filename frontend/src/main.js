@@ -48,6 +48,8 @@ import { captureViewerPng } from './viewer/capture.js';
 import { pieMenu } from './viewer/pieMenu.js';
 import { viewer } from './viewer/viewer.js';
 import { togglePanelSelection } from './viewer/selection.js';
+import { SunDomeController } from './viewer/sundome.js';
+import { exposureController } from './viewer/exposure.js';
 import {
   createSavedViewRecord,
   deleteSavedViewInList,
@@ -201,6 +203,46 @@ async function handleCapturePng(scale = null) {
   }
 }
 
+function handleChangeNorthAngle(deg) {
+  const clean = ((Math.round(Number(deg) || 0) % 360) + 360) % 360;
+  updateConfig((cfg) => {
+    cfg.settings.north_angle_deg = clean;
+  });
+  const s = getState();
+  setState({ needsRecompute: Boolean(s.analysisData) });
+  saveProjectAutosave(getState());
+  if (s.analysisData && s.facadeFilter === 'sunlit_now') {
+    exposureController.ensureExposureLoaded(s.sunDate, clean);
+  }
+}
+
+function handleChangeSunDate(dateStr) {
+  if (!dateStr) return;
+  setState({ sunDate: dateStr, sunDomeVisible: true });
+  const s = getState();
+  if (s.analysisData && s.facadeFilter === 'sunlit_now') {
+    exposureController.ensureExposureLoaded(dateStr);
+  }
+}
+
+function handleChangeSunHour(hour) {
+  exposureController.stopPlayback();
+  const h = Math.max(6, Math.min(18, Math.round(Number(hour) || 13)));
+  setState({ sunHour: h, sunDomeVisible: true });
+  const s = getState();
+  if (s.analysisData && s.facadeFilter === 'sunlit_now' && !s.exposureData) {
+    exposureController.ensureExposureLoaded();
+  }
+}
+
+function handleChangeFacadeFilter(filterMode) {
+  setState({ facadeFilter: filterMode });
+  if (filterMode === 'sunlit_now' && getState().analysisData) {
+    setState({ sunDomeVisible: true });
+    exposureController.ensureExposureLoaded();
+  }
+}
+
 const vbarHandlers = {
   onSetProjection: handleSetProjection,
   onSelectDirection: handleSelectDirection,
@@ -211,6 +253,8 @@ const vbarHandlers = {
   onDeleteView: handleDeleteView,
   onSetCaptureScale: (sc) => setState({ captureScale: sc }),
   onCapturePng: handleCapturePng,
+  onChangeSunHour: handleChangeSunHour,
+  onToggleSunPlay: () => exposureController.togglePlayback(),
   onRerender: () => setState({}),
 };
 
@@ -506,12 +550,16 @@ async function handleCalculateOttv() {
       },
     });
 
+    exposureController.stopPlayback();
     const result = await engine.analyze(s.modelId, configToRun, { signal: ctrl.signal });
     const next = setState({
       config: configToRun,
       analysisData: result,
       viewerMode: 'heatmap',
       selectedOrientation: null,
+      selectedPanelIds: [],
+      exposureData: null,
+      facadeFilter: 'all',
       needsRecompute: false,
       step: 'results',
       loading: null,
@@ -600,13 +648,16 @@ const panelBuilders = createRailPanelBuilders({
     setState({ needsRecompute: Boolean(getState().analysisData) });
     saveProjectAutosave(getState());
   },
-  onChangeNorth: (deg) => {
-    updateConfig((cfg) => {
-      cfg.settings.north_angle_deg = deg;
-    });
-    setState({ needsRecompute: Boolean(getState().analysisData) });
-    saveProjectAutosave(getState());
+  onChangeNorth: handleChangeNorthAngle,
+  onChangeSunDate: handleChangeSunDate,
+  onChangeSunHour: handleChangeSunHour,
+  onChangeSunDomeScale: (pct) => setState({ sunDomeScale: Math.max(50, Math.min(200, Number(pct) || 100)), sunDomeVisible: true }),
+  onResetSunDomeScale: () => {
+    setState({ sunDomeScale: 100, sunDomeVisible: true });
+    handleFitCamera();
   },
+  onToggleSunPlay: () => exposureController.togglePlayback(),
+  onChangeFacadeFilter: handleChangeFacadeFilter,
   onChangeCalcMode: (mode) => {
     updateConfig((cfg) => {
       cfg.settings.mode = mode;
@@ -754,6 +805,7 @@ function renderApp(state) {
       renderInspectScreen(state, {
         vbarHandlers,
         onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
+        onChangeNorth: handleChangeNorthAngle,
         onSelectGroup: (groupName) => setState({ selectedGroup: groupName }),
         onChangeGroupCategory: async (groupName, newCat) => {
           updateConfig((cfg) => {
@@ -790,6 +842,7 @@ function renderApp(state) {
       renderResultsScreen(state, {
         vbarHandlers,
         onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
+        onChangeNorth: handleChangeNorthAngle,
         onChangeHeatmapGranularity: (gran) => setState({ heatmapGranularity: gran }),
         onPickPanel: (panel, additive) => {
           if (!panel) {
@@ -909,14 +962,14 @@ installShortcuts({
     onFitCamera: handleFitCamera,
     onSaveView: handleSaveView,
     onCapturePng: handleCapturePng,
-    onToggleSunPlayback: () =>
-      showToast('Animasi putar matahari satu hari akan hadir di tahap 4b-2.', 'ok', 2400),
+    onToggleSunPlayback: () => exposureController.togglePlayback(),
   },
 });
 
 async function bootstrap() {
   const savedTheme = loadSavedTheme();
   applyThemeToDom(savedTheme);
+  viewer.attachSunDomeController(new SunDomeController());
   subscribe(renderApp);
   setState({ theme: savedTheme });
 

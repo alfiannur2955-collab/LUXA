@@ -7,7 +7,8 @@
 
 import { collectAcceptedProvisionalFlags, evaluateConfirmGate } from '../state.js';
 import { fmtId } from '../ui/escapeHtml.js';
-import { compassDialSvg, icon } from '../ui/icons.js';
+import { icon } from '../ui/icons.js';
+import { renderInteractiveCompass } from '../viewer/compass.js';
 import { CATEGORY_LABELS, categorySwatchStyle, ORIENTATION_CODES, orientationToCssColor, readThemeTokens } from '../viewer/modes.js';
 import { renderViewerModeBar } from '../viewer/modeBar.js';
 import { renderViewerBottomBar } from '../viewer/vbar.js';
@@ -73,14 +74,13 @@ export function renderInspectScreen(state, handlers) {
     }),
   );
 
-  // Compass
-  const northDeg = Number(state.config?.settings?.north_angle_deg || 0);
-  const compass = document.createElement('div');
-  compass.className = 'glass compass';
-  compass.setAttribute('role', 'img');
-  compass.setAttribute('aria-label', `Kompas arah utara, ${northDeg} derajat`);
-  compass.innerHTML = compassDialSvg(northDeg);
-  viewerSec.appendChild(compass);
+  // Interactive North Compass (drag or keyboard arrows)
+  viewerSec.appendChild(
+    renderInteractiveCompass(state, {
+      onChangeNorth: handlers.onChangeNorth,
+      onRecompute: handlers.onCalculateOttv,
+    }),
+  );
 
   // Legend (lifted cleanly above bottom pills)
   const legend = document.createElement('div');

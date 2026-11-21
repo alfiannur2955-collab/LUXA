@@ -6,7 +6,8 @@
  */
 
 import { fmtId } from '../ui/escapeHtml.js';
-import { compassDialSvg, icon } from '../ui/icons.js';
+import { icon } from '../ui/icons.js';
+import { renderInteractiveCompass } from '../viewer/compass.js';
 import {
   ORIENTATION_CODES,
   orientationToCssColor,
@@ -50,14 +51,13 @@ export function renderResultsScreen(state, handlers) {
   const activeMode = state.viewerMode || 'heatmap';
   viewerSec.appendChild(renderViewerModeBar({ ...state, viewerMode: activeMode }, handlers.onChangeViewerMode));
 
-  // Compass (top-right, aligned at top: 16px, height: 52px)
-  const northDeg = Number(state.config?.settings?.north_angle_deg || 0);
-  const compass = document.createElement('div');
-  compass.className = 'glass compass';
-  compass.setAttribute('role', 'img');
-  compass.setAttribute('aria-label', `Kompas arah utara, ${northDeg} derajat`);
-  compass.innerHTML = compassDialSvg(northDeg);
-  viewerSec.appendChild(compass);
+  // Interactive North Compass (top-right, aligned at top: 16px, height: 52px) + Hitung ulang chip
+  viewerSec.appendChild(
+    renderInteractiveCompass(state, {
+      onChangeNorth: handlers.onChangeNorth,
+      onRecompute: handlers.onRecompute,
+    }),
+  );
 
   // Legend (lifted cleanly above bottom pills; shifts right if Tampilan card is open)
   const legend = document.createElement('div');
