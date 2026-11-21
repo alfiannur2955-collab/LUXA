@@ -905,12 +905,13 @@ def analyze_building_ottv(
     if not raw_groups:
         raise ValueError("Tidak ditemukan geometri 3D pada file yang diunggah.")
 
-    # Separate groups into surface groups ('wall', 'spandrel', 'glazing', 'composite_cw') vs 'frame', 'shading', 'roof', 'ignore'
+    # Separate groups into surface groups ('wall', 'spandrel', 'glazing', 'composite_cw') vs 'frame', 'shading', 'roof', 'ignore', 'unknown'
     surface_groups: List[Tuple[RawGroupMesh, str]] = []
     frame_groups: List[RawGroupMesh] = []
     shading_groups: List[RawGroupMesh] = []
     roof_groups: List[RawGroupMesh] = []
     ignored_groups: List[RawGroupMesh] = []
+    unknown_groups: List[RawGroupMesh] = []
     group_summaries: List[Dict[str, Any]] = []
 
     for rg in raw_groups:
@@ -923,14 +924,21 @@ def analyze_building_ottv(
             roof_groups.append(rg)
         elif eff_cat in ("ignore", "excluded"):
             ignored_groups.append(rg)
+        elif eff_cat == "unknown":
+            # M7: Unclassified groups (e.g. landscape trees) are NOT silently treated as 'wall'!
+            unknown_groups.append(rg)
         elif eff_cat in ("wall", "spandrel", "glazing", "composite_cw"):
             surface_groups.append((rg, eff_cat))
         else:
-            surface_groups.append((rg, "wall"))
+            unknown_groups.append(rg)
 
-    # Fallback: if all groups were classified as frame/shading/ignored, treat largest group as glazing
+    # Fallback only if NO explicit surface groups exist at all (e.g. untagged generic mesh like BoxTextured.glb)
     if not surface_groups and raw_groups:
-        surface_groups.append((raw_groups[0], "glazing"))
+        candidates = unknown_groups if unknown_groups else raw_groups
+        largest_rg = max(candidates, key=lambda r: len(r.faces))
+        if largest_rg in unknown_groups:
+            unknown_groups.remove(largest_rg)
+        surface_groups.append((largest_rg, "wall"))
 
     # Compute overall building horizontal center, bounding box & Z range across all surface groups
     all_surf_verts = np.vstack([rg.vertices for rg, _ in surface_groups])
@@ -1413,6 +1421,23 @@ def analyze_building_ottv(
             "outer_area_m2": 0.0,
             "material_id": None,
             "material_name": "Diabaikan (Tapak / Tanah / Interior)",
+            "enabled": False,
+        })
+    for rg in unknown_groups:
+        group_summaries.append({
+            "group_id": rg.group_id,
+            "group_name": rg.group_name,
+            "source_layer": rg.source_layer,
+            "source_material": rg.source_material,
+            "category": "unknown",
+            "role": "unknown",
+            "needs_confirmation": True,
+            "is_auto_split_child": rg.is_auto_split_child,
+            "total_faces": len(rg.faces),
+            "outer_faces": 0,
+            "outer_area_m2": 0.0,
+            "material_id": None,
+            "material_name": "Perlu Dicek (Peran Belum Dikenali)",
             "enabled": False,
         })
 

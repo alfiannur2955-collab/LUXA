@@ -106,155 +106,180 @@ class Stage1GeometryAudit:
     notes: List[str] = field(default_factory=list)
 
 
-def classify_layer_or_material_role(label: str) -> str:
+# ============================================================================
+# M7: TOKEN-BASED ENVELOPE ROLE CLASSIFIER (ID + EN DICTIONARIES + CONFIDENCE)
+# ============================================================================
+
+_SHADING_TOKENS_ID = frozenset({"peneduh", "sirip", "kanopi", "kisi"})
+_SHADING_TOKENS_EN = frozenset({
+    "shade", "shading", "louver", "louvre", "fin", "fins", "overhang",
+    "brise", "soleil", "canopy", "sunscreen", "skygarden", "ifcshadingdevice",
+})
+_SHADING_TOKENS = _SHADING_TOKENS_ID | _SHADING_TOKENS_EN
+
+_SPANDREL_TOKENS_ID = frozenset({"spandrel", "parapet"})
+_SPANDREL_TOKENS_EN = frozenset({"spandrel", "backpan", "shadowbox"})
+_SPANDREL_TOKENS = _SPANDREL_TOKENS_ID | _SPANDREL_TOKENS_EN
+
+_INSULATION_TOKENS = frozenset({"insulation", "insulasi", "fiberglass", "rockwool", "mineralwool", "glasswool"})
+_CURTAINWALL_CONTEXT_TOKENS = frozenset({"curtainwall", "curtain", "cw", "ifccurtainwall", "ifcplate", "spandrel"})
+
+_GLAZING_TOKENS_ID = frozenset({"kaca", "jendela", "bukaan"})
+_GLAZING_TOKENS_EN = frozenset({
+    "glass", "glas", "glazing", "glaze", "window", "vision", "fenestration",
+    "aperture", "skylight", "lowe", "stopsol", "sunergy", "ifcwindow", "crown",
+})
+_GLAZING_TOKENS = _GLAZING_TOKENS_ID | _GLAZING_TOKENS_EN
+_GLAZING_MAT_QUALIFIERS = frozenset({"clear", "tinted"})
+
+_WALL_TOKENS_ID = frozenset({"dinding", "tembok", "bata", "beton", "plester", "hebel", "fasad"})
+_WALL_TOKENS_EN = frozenset({
+    "wall", "cladding", "acp", "alucobond", "precast", "concrete", "masonry",
+    "brick", "aac", "plaster", "verputz", "facade", "ifcwall", "ifcwallstandardcase",
+})
+_WALL_TOKENS = _WALL_TOKENS_ID | _WALL_TOKENS_EN
+_SOLID_MASONRY_TOKENS = frozenset({"bata", "brick", "masonry", "concrete", "beton", "precast", "hebel", "aac"})
+
+_FRAME_TOKENS_ID = frozenset({"rangka", "kusen", "profil"})
+_FRAME_TOKENS_EN = frozenset({
+    "mullion", "transom", "frame", "ring", "rings", "profile", "stiffener",
+    "sash", "aluminium", "aluminum", "metal", "ifcmember", "railing",
+})
+_FRAME_TOKENS = _FRAME_TOKENS_ID | _FRAME_TOKENS_EN
+
+_ROOF_TOKENS_ID = frozenset({"atap", "dak", "plafon"})
+_ROOF_TOKENS_EN = frozenset({"roof", "slab", "ceiling", "ifcslab", "ifcroof"})
+_ROOF_TOKENS = _ROOF_TOKENS_ID | _ROOF_TOKENS_EN
+_FLOOR_ONLY_TOKENS = frozenset({"floor", "lantai"})
+
+_IGNORE_TOKENS_ID = frozenset({"interior", "partisi", "tapak", "tanah", "furnitur", "perabot"})
+_IGNORE_TOKENS_EN = frozenset({
+    "interior", "partition", "site", "terrain", "earthworks", "ground", "soil",
+    "furniture", "furnishing", "virtual", "spatialzone", "core",
+    "ifcsite", "ifcspace", "ifcfurnishingelement", "natur", "erde",
+})
+_IGNORE_TOKENS = _IGNORE_TOKENS_ID | _IGNORE_TOKENS_EN
+
+
+def _tokenize_label(text: str) -> List[str]:
+    """Splits a layer/material label into clean lowercase alphanumeric tokens (handles camelCase & digits)."""
+    if not text:
+        return []
+    # Split camelCase (e.g. IfcCurtainWall -> Ifc Curtain Wall) and letter-digit (Lantai2 -> Lantai 2)
+    expanded = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
+    expanded = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", expanded)
+    expanded = re.sub(r"([a-zA-Z])(\d)", r"\1 \2", expanded)
+    expanded = re.sub(r"(\d)([a-zA-Z])", r"\1 \2", expanded)
+    raw_toks = re.split(r"[\s_\-./:,;()\[\]{}]+", expanded.lower())
+    out = [t for t in raw_toks if t]
+    # Also preserve joined compound forms for exact IFC class names & low-e
+    raw_lo = text.lower()
+    if "low-e" in raw_lo or "lowe" in raw_lo:
+        out.append("lowe")
+    for ifc_cls in (
+        "ifcshadingdevice", "ifccurtainwall", "ifcwindow", "ifcwall",
+        "ifcwallstandardcase", "ifcmember", "ifcplate", "ifcslab",
+        "ifcroof", "ifcsite", "ifcspace", "ifcfurnishingelement",
+    ):
+        if ifc_cls in raw_lo:
+            out.append(ifc_cls)
+    return out
+
+
+def classify_layer_or_material_with_confidence(
+    label: str,
+    context: Optional[str] = None,
+) -> Tuple[str, float, str]:
     """
-    Classifies a layer/object/material name into one of the 6 SNI 6389:2020 envelope roles:
-    - 'shading': External shading fins, louvers, overhangs, canopies, sunscreens
-    - 'frame': Mullion, transom, curtain wall frame, structural rings, profiles
-    - 'spandrel': Curtain wall spandrel panel, shadow box, backpan insulation
-    - 'glazing': Vision glass, window, glazing, fenestration, skylight/crown glass
-    - 'roof': Roof, slab, floor plate, ceiling, interior partition, site context
-    - 'wall': Opaque wall, concrete, brick, AAC, precast, cladding
+    M7: Token-based role classifier returning `(role, confidence_0_to_1, reason)`.
+    Roles: 'shading' | 'spandrel' | 'glazing' | 'wall' | 'frame' | 'roof' | 'ignore' | 'unknown'.
+    Unrecognized labels return 'unknown' (NEVER silently defaulted to 'wall').
     """
     raw = (label or "").strip()
-    s = raw.lower()
-    # If composite 'Layer :: Material', inspect material token with high priority
-    parts = [p.strip().lower() for p in raw.split("::")] if "::" in raw else [s]
-    mat_part = parts[-1] if len(parts) > 1 else ""
+    ctx = (context or "").strip()
 
-    # 1. Explicit Shading devices (avoid matching 'fin' inside 'finish'!)
-    has_fin_word = bool(re.search(r"\b(fin|fins)\b", s))
-    if has_fin_word or any(
-        k in s
-        for k in (
-            "shade",
-            "shading",
-            "louver",
-            "louvre",
-            "overhang",
-            "brise",
-            "canopy",
-            "sunscreen",
-            "skygarden",
-            "ifcshadingdevice",
-        )
+    # Separate composite 'Layer :: Material' segments so material tokens take priority over generic layer names
+    segments = [seg.strip() for seg in raw.split("::")] if "::" in raw else [raw]
+    mat_seg = segments[-1] if len(segments) > 1 else ""
+    layer_seg = " ".join(segments[:-1]) if len(segments) > 1 else segments[0]
+
+    mat_tokens = set(_tokenize_label(mat_seg))
+    layer_tokens = set(_tokenize_label(layer_seg))
+    ctx_tokens = set(_tokenize_label(ctx))
+    all_tokens = mat_tokens | layer_tokens | ctx_tokens
+
+    # 1. Explicit Ignore (Interior, Site, Terrain, Partition, Core as whole token — never 'score' or 'background'!)
+    if all_tokens & _IGNORE_TOKENS:
+        matched = sorted(all_tokens & _IGNORE_TOKENS)
+        return "ignore", 0.92, f"Token non-selubung/abaikan: {', '.join(matched)}"
+
+    # 2. Explicit Shading devices ('fin'/'fins' as exact token, never inside 'finish')
+    if all_tokens & _SHADING_TOKENS:
+        matched = sorted(all_tokens & _SHADING_TOKENS)
+        return "shading", 0.95, f"Token peneduh: {', '.join(matched)}"
+
+    # 3. Explicit Spandrel tokens OR Insulation in CurtainWall context
+    if all_tokens & _SPANDREL_TOKENS:
+        matched = sorted(all_tokens & _SPANDREL_TOKENS)
+        return "spandrel", 0.95, f"Token spandrel: {', '.join(matched)}"
+
+    has_insulation = bool(all_tokens & _INSULATION_TOKENS)
+    has_cw_ctx = bool((all_tokens & _CURTAINWALL_CONTEXT_TOKENS) or ("curtain" in all_tokens and "wall" in all_tokens))
+    has_solid_masonry = bool(all_tokens & _SOLID_MASONRY_TOKENS)
+    if has_insulation and has_cw_ctx and not has_solid_masonry:
+        matched = sorted(all_tokens & _INSULATION_TOKENS)
+        return "spandrel", 0.90, f"Insulasi dalam konteks Curtain Wall: {', '.join(matched)}"
+
+    # 4. Glazing / Fenestration (check material tokens & overall tokens)
+    if (all_tokens & _GLAZING_TOKENS) or (
+        (mat_tokens & _GLAZING_MAT_QUALIFIERS) and (has_cw_ctx or bool(all_tokens & _GLAZING_TOKENS))
     ):
-        return "shading"
+        matched = sorted((all_tokens & _GLAZING_TOKENS) | (mat_tokens & _GLAZING_MAT_QUALIFIERS))
+        return "glazing", 0.95, f"Token kaca/bukaan: {', '.join(matched)}"
 
-    # 2. Spandrel / Insulation panels (e.g. ArchiCAD 'Insulation - Fiberglass', 'CW_Spandrel')
-    if any(
-        k in s
-        for k in (
-            "spandrel",
-            "backpan",
-            "shadowbox",
-            "shadow_box",
-            "parapet_glass",
-            "insulation",
-            "fiberglass",
-            "rockwool",
-            "mineral wool",
-        )
-    ):
-        return "spandrel"
+    # 5. Material-level Frame tokens take priority over generic layer name (e.g. 'A-WALL :: Metal - Aluminium')
+    if mat_tokens & _FRAME_TOKENS:
+        matched = sorted(mat_tokens & _FRAME_TOKENS)
+        return "frame", 0.92, f"Token rangka/logam pada material: {', '.join(matched)}"
 
-    # 3. Vision Glass / Fenestration (e.g. ArchiCAD 'Glass - Clear Fast', 'Glass - Blue')
-    if any(
-        k in s
-        for k in (
-            "glass",
-            "glaz",
-            "window",
-            "vision",
-            "fenestration",
-            "aperture",
-            "kaca",
-            "jendela",
-            "ifcwindow",
-            "low-e",
-            "lowe",
-            "stopsol",
-            "sunergy",
-        )
-    ) or any(k in mat_part for k in ("clear", "tinted")):
-        return "glazing"
+    # 6. Explicit Solid Masonry / Cladding / Wall tokens (beats 'lantai'/'floor' in e.g. 'Dinding_Lantai2'!)
+    #    Exclude 'wall' if it ONLY came from 'curtain wall' without solid wall indicators.
+    wall_hits = (all_tokens & _WALL_TOKENS) - ({"wall"} if has_cw_ctx and not (all_tokens & (_WALL_TOKENS - {"wall"})) else set())
+    if wall_hits and not (all_tokens & _FRAME_TOKENS):
+        return "wall", 0.90, f"Token dinding masif: {', '.join(sorted(wall_hits))}"
 
-    # 3B. Explicit Cladding / Facade Panel / Insulation boards (must precede generic 'aluminium' frame match!)
-    if any(
-        k in s
-        for k in (
-            "cladding",
-            "acp",
-            "alucobond",
-            "facade_panel",
-            "xps",
-            "eps",
-            "precast",
-            "concrete",
-            "masonry",
-            "brick",
-            "bata",
-            "verputz",
-            "plaster",
-        )
-    ):
-        return "wall"
+    # 7. Frame / Mullion / Transom tokens anywhere in label
+    if all_tokens & _FRAME_TOKENS:
+        matched = sorted(all_tokens & _FRAME_TOKENS)
+        return "frame", 0.90, f"Token rangka/mullion: {', '.join(matched)}"
 
-    # 4. Curtain Wall Frame / Mullion / Transom / Aluminium profiles
-    if any(
-        k in s
-        for k in (
-            "transom",
-            "mullion",
-            "rings",
-            "_ring",
-            "frame",
-            "rangka",
-            "profile",
-            "stiffener",
-            "kusen",
-            "ifcmember",
-            "aluminum_frame",
-            "metal - aluminium",
-            "metal - aluminum",
-            "aluminium",
-        )
-    ):
-        return "frame"
+    # 8. Wall hits even when paired with non-dominant words (e.g. generic wall + insulation)
+    if wall_hits:
+        return "wall", 0.85, f"Token dinding: {', '.join(sorted(wall_hits))}"
 
-    # 5. Roof / Slab / Floor / Ceiling / Interior / Site / Virtual
-    if any(
-        k in s
-        for k in (
-            "roof",
-            "atap",
-            "slab",
-            "floor",
-            "lantai",
-            "ceiling",
-            "plafon",
-            "ground",
-            "tapak",
-            "interior",
-            "partisi",
-            "core",
-            "ifcslab",
-            "ifcroof",
-            "ifcsite",
-            "virtual_",
-            "terrain",
-            "earthworks",
-            "spatialzone",
-            "natur erde",
-        )
-    ):
-        return "roof"
+    # 9. Roof / Slab / Ceiling (and standalone 'floor'/'lantai' ONLY when no wall/glazing matched)
+    if all_tokens & _ROOF_TOKENS:
+        matched = sorted(all_tokens & _ROOF_TOKENS)
+        return "roof", 0.92, f"Token atap/plat: {', '.join(matched)}"
+    if all_tokens & _FLOOR_ONLY_TOKENS:
+        matched = sorted(all_tokens & _FLOOR_ONLY_TOKENS)
+        return "roof", 0.78, f"Token lantai/plat datar: {', '.join(matched)}"
 
-    # 6. Generic Curtain Wall plate
-    if any(k in s for k in ("curtainwall", "curtain_wall", "ifccurtainwall", "cw_panel", "ifcplate")):
-        return "glazing"
+    # 10. Generic Curtain Wall plate without specific glass/spandrel/frame material
+    if has_cw_ctx:
+        return "glazing", 0.75, "Konteks Curtain Wall / IfcPlate"
 
-    return "wall"
+    # 11. Unrecognized -> 'unknown' (requires user confirmation in Periksa Model!)
+    return "unknown", 0.0, "Tidak ada token peran yang dikenali — perlu konfirmasi pengguna"
+
+
+def classify_layer_or_material_role(label: str, context: Optional[str] = None) -> str:
+    """
+    M7: Classifies a layer/object/material name into one of 8 roles:
+    'shading' | 'spandrel' | 'glazing' | 'wall' | 'frame' | 'roof' | 'ignore' | 'unknown'.
+    """
+    role, _, _ = classify_layer_or_material_with_confidence(label, context=context)
+    return role
 
 
 def suggest_material_id_for_group(
@@ -987,7 +1012,8 @@ def _parse_ifc_with_ifcopenshell(
                             continue
 
                         if is_ext is False:
-                            cat = "roof"
+                            # M7: Interior BIM elements belong to 'ignore' (not mixed with 'roof')
+                            cat = "ignore"
                             g_name = f"Interior :: {layer_label} :: {style_or_mat}"
                             interior_filtered_total += 1
                         else:
@@ -1011,13 +1037,15 @@ def _parse_ifc_with_ifcopenshell(
                                 cat = "glazing" if ("glass" in style_or_mat.lower() or tr_val > 0.12) else "wall"
                             else:
                                 if resolved_style:
-                                    cat = classify_layer_or_material_role(f"{resolved_style} {etype}")
+                                    cat = classify_layer_or_material_role(f"{resolved_style} {etype}", context=p_type)
                                 else:
-                                    cat = classify_layer_or_material_role(f"{style_or_mat} {elem.Name or ''} {etype}")
-                                if p_type == "IfcCurtainWall" and cat == "wall":
+                                    cat = classify_layer_or_material_role(f"{style_or_mat} {elem.Name or ''} {etype}", context=p_type)
+                                if p_type == "IfcCurtainWall" and cat in ("wall", "unknown"):
                                     z_span_el = float(np.max(verts[:, 2]) - np.min(verts[:, 2]))
                                     if z_span_el <= 1.35:
                                         cat = "spandrel"
+                                    elif cat == "unknown":
+                                        cat = "glazing"
                             g_name = f"{layer_label} :: {style_or_mat}" if style_or_mat != layer_label else layer_label
 
                         restore_sliv = f"sliver::{g_name}" in rf_set

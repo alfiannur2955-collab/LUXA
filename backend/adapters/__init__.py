@@ -391,16 +391,19 @@ def get_adapter_for_software(source_software: str) -> BaseSoftwareAdapter:
 
 def _estimate_group_confidence(rg: RawGroupMesh) -> Tuple[str, str]:
     """
-    Evaluates whether a group's auto-assigned role is high-confidence (explicit BIM /
-    physical transparency / clear naming) or 'review' (ambiguous/generic mesh name).
+    M7: Evaluates whether a group's auto-assigned role is high-confidence or 'review'
+    (including all 'unknown' groups which require explicit user confirmation).
     """
-    gn = (rg.group_name or "").lower()
+    if rg.default_category == "unknown":
+        return "review", "Peran belum dikenali — wajib dikonfirmasi di Periksa Model"
     if rg.is_external_bim is False:
-        return "high", "Metadata BIM IsExternal=False (Interior)"
+        return "high", "Metadata BIM IsExternal=False (Interior -> ignore)"
     if rg.is_auto_split_child:
         return "high", "Hasil Auto-Split Geometri (Tier 2)"
-    if any(k in gn for k in ("glass", "glas", "kaca", "vision", "spandrel", "mullion", "transom", "aluminium", "aluminum", "window", "curtain", "louver", "shade", "slab", "roof", "wall", "precast", "concrete", "paint -")):
-        return "high", "Teridentifikasi dari BIM / Material"
+    from universal_pipeline import classify_layer_or_material_with_confidence
+    _, score, reason = classify_layer_or_material_with_confidence(rg.group_name)
+    if score >= 0.80:
+        return "high", reason
     return "review", "Nama grup generik/ambigu — mohon verifikasi peran di 3D"
 
 
