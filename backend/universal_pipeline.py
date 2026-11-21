@@ -88,6 +88,8 @@ class Stage1GeometryAudit:
     detected_unit: str = "m"
     applied_unit: str = "m"
     scale_factor_to_m: float = 1.0
+    unit_source: str = "header"  # 'header' | 'user' | 'bbox_guess'
+    unit_needs_confirmation: bool = False
     detected_up_axis: str = "Z"
     applied_up_axis: str = "Z"
     raw_span_xyz: List[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
@@ -101,158 +103,211 @@ class Stage1GeometryAudit:
     slivers_removed: int = 0
     interior_elements_filtered: int = 0
     hidden_objects_skipped: int = 0
+    missing_mesh: List[Dict[str, Any]] = field(default_factory=list)
+    filtered_items: List[Dict[str, Any]] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
 
 
-def classify_layer_or_material_role(label: str) -> str:
+# ============================================================================
+# M7: TOKEN-BASED ENVELOPE ROLE CLASSIFIER (ID + EN DICTIONARIES + CONFIDENCE)
+# ============================================================================
+
+_SHADING_TOKENS_ID = frozenset({"peneduh", "sirip", "kanopi", "kisi"})
+_SHADING_TOKENS_EN = frozenset({
+    "shade", "shading", "louver", "louvre", "fin", "fins", "overhang",
+    "brise", "soleil", "canopy", "sunscreen", "skygarden", "ifcshadingdevice",
+})
+_SHADING_TOKENS = _SHADING_TOKENS_ID | _SHADING_TOKENS_EN
+
+_SPANDREL_TOKENS_ID = frozenset({"spandrel"})
+_SPANDREL_TOKENS_EN = frozenset({"spandrel", "backpan", "shadowbox"})
+_SPANDREL_TOKENS = _SPANDREL_TOKENS_ID | _SPANDREL_TOKENS_EN
+
+_INSULATION_TOKENS = frozenset({"insulation", "insulasi", "fiberglass", "rockwool", "mineralwool", "glasswool"})
+_CURTAINWALL_CONTEXT_TOKENS = frozenset({"curtainwall", "curtain", "cw", "ifccurtainwall", "ifcplate", "spandrel"})
+
+_GLAZING_TOKENS_ID = frozenset({"kaca", "jendela", "bukaan"})
+_GLAZING_TOKENS_EN = frozenset({
+    "glass", "glas", "glazing", "glaze", "window", "vision", "fenestration",
+    "aperture", "skylight", "lowe", "stopsol", "sunergy", "ifcwindow", "crown",
+})
+_GLAZING_TOKENS = _GLAZING_TOKENS_ID | _GLAZING_TOKENS_EN
+_GLAZING_MAT_QUALIFIERS = frozenset({"clear", "tinted"})
+
+_WALL_TOKENS_ID = frozenset({"dinding", "tembok", "bata", "beton", "plester", "hebel", "fasad", "grc", "parapet"})
+_WALL_TOKENS_EN = frozenset({
+    "wall", "cladding", "acp", "alucobond", "precast", "concrete", "masonry",
+    "brick", "aac", "plaster", "verputz", "facade", "ifcwall", "ifcwallstandardcase",
+    "grc", "parapet",
+})
+_WALL_TOKENS = _WALL_TOKENS_ID | _WALL_TOKENS_EN
+_SOLID_MASONRY_TOKENS = frozenset({"bata", "brick", "masonry", "concrete", "beton", "precast", "hebel", "aac", "grc"})
+
+_FRAME_TOKENS_ID = frozenset({"rangka", "kusen", "profil"})
+_FRAME_TOKENS_EN = frozenset({
+    "mullion", "transom", "frame", "ring", "rings", "profile", "stiffener",
+    "sash", "aluminium", "aluminum", "metal", "ifcmember",
+})
+_FRAME_TOKENS = _FRAME_TOKENS_ID | _FRAME_TOKENS_EN
+
+_ROOF_TOKENS_ID = frozenset({"atap", "dak", "plafon"})
+_ROOF_TOKENS_EN = frozenset({"roof", "slab", "ceiling", "ifcslab", "ifcroof"})
+_ROOF_TOKENS = _ROOF_TOKENS_ID | _ROOF_TOKENS_EN
+_FLOOR_ONLY_TOKENS = frozenset({"floor", "lantai"})
+
+_IGNORE_TOKENS_ID = frozenset({
+    "interior", "partisi", "tapak", "tanah", "furnitur", "perabot",
+    "pagar", "kolom", "balok",
+})
+_IGNORE_TOKENS_EN = frozenset({
+    "interior", "partition", "site", "terrain", "earthworks", "ground", "soil",
+    "furniture", "furnishing", "virtual", "spatialzone", "core",
+    "ifcsite", "ifcspace", "ifcfurnishingelement", "natur", "erde",
+    "railing", "balustrade", "column", "beam", "ifccolumn", "ifcbeam",
+})
+_IGNORE_TOKENS = _IGNORE_TOKENS_ID | _IGNORE_TOKENS_EN
+_WALL_HEAD_TOKENS = frozenset({"dinding", "wall", "tembok", "ifcwall", "ifcwallstandardcase"})
+_ROOF_EXPLICIT_TOKENS = frozenset({"atap", "roof", "dak", "ifcroof"})
+
+
+def _tokenize_label(text: str) -> List[str]:
+    """Splits a layer/material label into clean lowercase alphanumeric tokens (handles camelCase & digits)."""
+    if not text:
+        return []
+    # Split camelCase (e.g. IfcCurtainWall -> Ifc Curtain Wall) and letter-digit (Lantai2 -> Lantai 2)
+    expanded = re.sub(r"([a-z])([A-Z])", r"\1 \2", text)
+    expanded = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", expanded)
+    expanded = re.sub(r"([a-zA-Z])(\d)", r"\1 \2", expanded)
+    expanded = re.sub(r"(\d)([a-zA-Z])", r"\1 \2", expanded)
+    raw_toks = re.split(r"[\s_\-./:,;()\[\]{}]+", expanded.lower())
+    out = [t for t in raw_toks if t]
+    # Also preserve joined compound forms for exact IFC class names & low-e
+    raw_lo = text.lower()
+    if "low-e" in raw_lo or "lowe" in raw_lo:
+        out.append("lowe")
+    for ifc_cls in (
+        "ifcshadingdevice", "ifccurtainwall", "ifcwindow", "ifcwall",
+        "ifcwallstandardcase", "ifcmember", "ifcplate", "ifcslab",
+        "ifcroof", "ifcsite", "ifcspace", "ifcfurnishingelement",
+    ):
+        if ifc_cls in raw_lo:
+            out.append(ifc_cls)
+    return out
+
+
+def classify_layer_or_material_with_confidence(
+    label: str,
+    context: Optional[str] = None,
+) -> Tuple[str, float, str]:
     """
-    Classifies a layer/object/material name into one of the 6 SNI 6389:2020 envelope roles:
-    - 'shading': External shading fins, louvers, overhangs, canopies, sunscreens
-    - 'frame': Mullion, transom, curtain wall frame, structural rings, profiles
-    - 'spandrel': Curtain wall spandrel panel, shadow box, backpan insulation
-    - 'glazing': Vision glass, window, glazing, fenestration, skylight/crown glass
-    - 'roof': Roof, slab, floor plate, ceiling, interior partition, site context
-    - 'wall': Opaque wall, concrete, brick, AAC, precast, cladding
+    M7: Token-based role classifier returning `(role, confidence_0_to_1, reason)`.
+    Roles: 'shading' | 'spandrel' | 'glazing' | 'wall' | 'frame' | 'roof' | 'ignore' | 'unknown'.
+    Unrecognized labels return 'unknown' (NEVER silently defaulted to 'wall').
     """
     raw = (label or "").strip()
-    s = raw.lower()
-    # If composite 'Layer :: Material', inspect material token with high priority
-    parts = [p.strip().lower() for p in raw.split("::")] if "::" in raw else [s]
-    mat_part = parts[-1] if len(parts) > 1 else ""
+    ctx = (context or "").strip()
 
-    # 1. Explicit Shading devices (avoid matching 'fin' inside 'finish'!)
-    has_fin_word = bool(re.search(r"\b(fin|fins)\b", s))
-    if has_fin_word or any(
-        k in s
-        for k in (
-            "shade",
-            "shading",
-            "louver",
-            "louvre",
-            "overhang",
-            "brise",
-            "canopy",
-            "sunscreen",
-            "skygarden",
-            "ifcshadingdevice",
-        )
+    # Separate composite 'Layer :: Material' segments so material tokens take priority over generic layer names
+    segments = [seg.strip() for seg in raw.split("::")] if "::" in raw else [raw]
+    mat_seg = segments[-1] if len(segments) > 1 else ""
+    layer_seg = " ".join(segments[:-1]) if len(segments) > 1 else segments[0]
+
+    mat_tokens_seq = _tokenize_label(mat_seg)
+    layer_tokens_seq = _tokenize_label(layer_seg)
+    ctx_tokens_seq = _tokenize_label(ctx)
+    all_tokens_seq = layer_tokens_seq + mat_tokens_seq + ctx_tokens_seq
+
+    mat_tokens = set(mat_tokens_seq)
+    layer_tokens = set(layer_tokens_seq)
+    ctx_tokens = set(ctx_tokens_seq)
+    all_tokens = mat_tokens | layer_tokens | ctx_tokens
+
+    # 1. Explicit Ignore (Interior, Site, Terrain, Partition, Core, Railing/Balustrade/Pagar, Kolom/Balok)
+    if all_tokens & _IGNORE_TOKENS:
+        matched = sorted(all_tokens & _IGNORE_TOKENS)
+        return "ignore", 0.92, f"Token non-selubung/abaikan: {', '.join(matched)}"
+
+    # 1b. Ordered Indonesian/English interior wall pattern: 'dalam'/'interior' after 'dinding'/'wall' -> ignore
+    wall_head_indices = [i for i, t in enumerate(all_tokens_seq) if t in _WALL_HEAD_TOKENS]
+    if wall_head_indices:
+        first_wall_idx = wall_head_indices[0]
+        if any(t in ("dalam", "interior") for t in all_tokens_seq[first_wall_idx + 1:]):
+            return "ignore", 0.93, "Dinding interior/dalam (bukan selubung luar)"
+
+    # 1c. Floor slab ('pelat lantai' / 'plat lantai' / 'floor slab') -> ignore (NOT roof!)
+    if not (all_tokens & _ROOF_EXPLICIT_TOKENS):
+        if (("pelat" in all_tokens or "plat" in all_tokens) and "lantai" in all_tokens) or (
+            "floor" in all_tokens and ("slab" in all_tokens or "ifcslab" in all_tokens)
+        ):
+            return "ignore", 0.92, "Pelat lantai internal (bukan atap)"
+
+    # 2. Explicit Shading devices ('fin'/'fins' as exact token, never inside 'finish')
+    if all_tokens & _SHADING_TOKENS:
+        matched = sorted(all_tokens & _SHADING_TOKENS)
+        return "shading", 0.95, f"Token peneduh: {', '.join(matched)}"
+
+    # 3. Explicit Spandrel tokens OR Insulation in CurtainWall context
+    if all_tokens & _SPANDREL_TOKENS:
+        matched = sorted(all_tokens & _SPANDREL_TOKENS)
+        return "spandrel", 0.95, f"Token spandrel: {', '.join(matched)}"
+
+    has_insulation = bool(all_tokens & _INSULATION_TOKENS)
+    has_cw_ctx = bool((all_tokens & _CURTAINWALL_CONTEXT_TOKENS) or ("curtain" in all_tokens and "wall" in all_tokens))
+    has_solid_masonry = bool(all_tokens & _SOLID_MASONRY_TOKENS)
+    if has_insulation and has_cw_ctx and not has_solid_masonry:
+        matched = sorted(all_tokens & _INSULATION_TOKENS)
+        return "spandrel", 0.90, f"Insulasi dalam konteks Curtain Wall: {', '.join(matched)}"
+
+    # 4. Glazing / Fenestration (check material tokens & overall tokens)
+    if (all_tokens & _GLAZING_TOKENS) or (
+        (mat_tokens & _GLAZING_MAT_QUALIFIERS) and (has_cw_ctx or bool(all_tokens & _GLAZING_TOKENS))
     ):
-        return "shading"
+        matched = sorted((all_tokens & _GLAZING_TOKENS) | (mat_tokens & _GLAZING_MAT_QUALIFIERS))
+        return "glazing", 0.95, f"Token kaca/bukaan: {', '.join(matched)}"
 
-    # 2. Spandrel / Insulation panels (e.g. ArchiCAD 'Insulation - Fiberglass', 'CW_Spandrel')
-    if any(
-        k in s
-        for k in (
-            "spandrel",
-            "backpan",
-            "shadowbox",
-            "shadow_box",
-            "parapet_glass",
-            "insulation",
-            "fiberglass",
-            "rockwool",
-            "mineral wool",
-        )
-    ):
-        return "spandrel"
+    # 5. Material-level Frame tokens take priority over generic layer name (e.g. 'A-WALL :: Metal - Aluminium')
+    if mat_tokens & _FRAME_TOKENS:
+        matched = sorted(mat_tokens & _FRAME_TOKENS)
+        return "frame", 0.92, f"Token rangka/logam pada material: {', '.join(matched)}"
 
-    # 3. Vision Glass / Fenestration (e.g. ArchiCAD 'Glass - Clear Fast', 'Glass - Blue')
-    if any(
-        k in s
-        for k in (
-            "glass",
-            "glaz",
-            "window",
-            "vision",
-            "fenestration",
-            "aperture",
-            "kaca",
-            "jendela",
-            "ifcwindow",
-            "low-e",
-            "lowe",
-            "stopsol",
-            "sunergy",
-        )
-    ) or any(k in mat_part for k in ("clear", "tinted")):
-        return "glazing"
+    # 6. Explicit Solid Masonry / Cladding / Wall tokens (beats 'lantai'/'floor' in e.g. 'Dinding_Lantai2'!)
+    #    Exclude 'wall' if it ONLY came from 'curtain wall' without solid wall indicators.
+    wall_hits = (all_tokens & _WALL_TOKENS) - ({"wall"} if has_cw_ctx and not (all_tokens & (_WALL_TOKENS - {"wall"})) else set())
+    if wall_hits and not (all_tokens & _FRAME_TOKENS):
+        return "wall", 0.90, f"Token dinding masif: {', '.join(sorted(wall_hits))}"
 
-    # 3B. Explicit Cladding / Facade Panel / Insulation boards (must precede generic 'aluminium' frame match!)
-    if any(
-        k in s
-        for k in (
-            "cladding",
-            "acp",
-            "alucobond",
-            "facade_panel",
-            "xps",
-            "eps",
-            "precast",
-            "concrete",
-            "masonry",
-            "brick",
-            "bata",
-            "verputz",
-            "plaster",
-        )
-    ):
-        return "wall"
+    # 7. Frame / Mullion / Transom tokens anywhere in label
+    if all_tokens & _FRAME_TOKENS:
+        matched = sorted(all_tokens & _FRAME_TOKENS)
+        return "frame", 0.90, f"Token rangka/mullion: {', '.join(matched)}"
 
-    # 4. Curtain Wall Frame / Mullion / Transom / Aluminium profiles
-    if any(
-        k in s
-        for k in (
-            "transom",
-            "mullion",
-            "rings",
-            "_ring",
-            "frame",
-            "rangka",
-            "profile",
-            "stiffener",
-            "kusen",
-            "ifcmember",
-            "aluminum_frame",
-            "metal - aluminium",
-            "metal - aluminum",
-            "aluminium",
-        )
-    ):
-        return "frame"
+    # 8. Wall hits even when paired with non-dominant words (e.g. generic wall + insulation)
+    if wall_hits:
+        return "wall", 0.85, f"Token dinding: {', '.join(sorted(wall_hits))}"
 
-    # 5. Roof / Slab / Floor / Ceiling / Interior / Site / Virtual
-    if any(
-        k in s
-        for k in (
-            "roof",
-            "atap",
-            "slab",
-            "floor",
-            "lantai",
-            "ceiling",
-            "plafon",
-            "ground",
-            "tapak",
-            "interior",
-            "partisi",
-            "core",
-            "ifcslab",
-            "ifcroof",
-            "ifcsite",
-            "virtual_",
-            "terrain",
-            "earthworks",
-            "spatialzone",
-            "natur erde",
-        )
-    ):
-        return "roof"
+    # 9. Roof / Slab / Ceiling (and standalone 'floor'/'lantai' ONLY when no wall/glazing matched)
+    if all_tokens & _ROOF_TOKENS:
+        matched = sorted(all_tokens & _ROOF_TOKENS)
+        return "roof", 0.92, f"Token atap/plat: {', '.join(matched)}"
+    if all_tokens & _FLOOR_ONLY_TOKENS:
+        matched = sorted(all_tokens & _FLOOR_ONLY_TOKENS)
+        return "roof", 0.78, f"Token lantai/plat datar: {', '.join(matched)}"
 
-    # 6. Generic Curtain Wall plate
-    if any(k in s for k in ("curtainwall", "curtain_wall", "ifccurtainwall", "cw_panel", "ifcplate")):
-        return "glazing"
+    # 10. Generic Curtain Wall plate without specific glass/spandrel/frame material
+    if has_cw_ctx:
+        return "glazing", 0.75, "Konteks Curtain Wall / IfcPlate"
 
-    return "wall"
+    # 11. Unrecognized -> 'unknown' (requires user confirmation in Periksa Model!)
+    return "unknown", 0.0, "Tidak ada token peran yang dikenali — perlu konfirmasi pengguna"
+
+
+def classify_layer_or_material_role(label: str, context: Optional[str] = None) -> str:
+    """
+    M7: Classifies a layer/object/material name into one of 8 roles:
+    'shading' | 'spandrel' | 'glazing' | 'wall' | 'frame' | 'roof' | 'ignore' | 'unknown'.
+    """
+    role, _, _ = classify_layer_or_material_with_confidence(label, context=context)
+    return role
 
 
 def suggest_material_id_for_group(
@@ -484,22 +539,25 @@ def _clean_solid_bim_element_faces(
     verts: np.ndarray,
     tris: np.ndarray,
     category: str,
-) -> Tuple[np.ndarray, np.ndarray, int]:
+    restore_slivers: bool = False,
+    restore_caps: bool = False,
+) -> Tuple[np.ndarray, np.ndarray, int, float, int, float]:
     """
     Cleans a single 3D solid BIM element (already in meters) BEFORE merging into a group:
     1. Merges coplanar triangle pairs into clean quads (0% area loss).
-    2. For `glazing`, `spandrel`, and `wall` thin solid panels (e.g. 2cm glass box or
-       5-15cm spandrel/wall slab), strips thin vertical thickness-edge slivers
-       (w_xy <= 0.10m AND area < 25% of largest vertical face on that element) so
-       panel thickness edges NEVER leak into exterior OTTV area or wrong compass directions.
-    Returns `(verts, cleaned_quads, slivers_removed_count)`.
+    2. M4: Tags thin vertical thickness-edge slivers (`w_xy <= thresh` & small area) and
+       allows restoring them via `restore_slivers=True`.
+    3. M6: Keeps tilted / skylight glazing faces intact (NEVER deletes non-vertical glazing!).
+       Horizontal top/bottom caps on opaque thin spandrel/wall panels are tagged and can be
+       restored via `restore_caps=True`.
+    Returns `(verts, cleaned_quads, sliver_count, sliver_area_m2, cap_count, cap_area_m2)`.
     """
     if len(verts) < 3 or len(tris) < 1:
-        return verts, np.empty((0, 4), dtype=np.int64), 0
+        return verts, np.empty((0, 4), dtype=np.int64), 0, 0.0, 0, 0.0
 
     quads = _merge_coplanar_tris_to_quads(verts, tris)
     if len(quads) == 0 or category not in ("glazing", "spandrel", "wall", "composite_cw"):
-        return verts, quads, 0
+        return verts, quads, 0, 0.0, 0, 0.0
 
     is_q = quads[:, 2] != quads[:, 3]
     p0 = verts[quads[:, 0]]
@@ -513,7 +571,7 @@ def _clean_solid_bim_element_faces(
     areas = 0.5 * np.linalg.norm(cross_sum, axis=1)
     valid = areas > 1e-5
     if not np.any(valid):
-        return verts, np.empty((0, 4), dtype=np.int64), len(quads)
+        return verts, np.empty((0, 4), dtype=np.int64), 0, 0.0, 0, 0.0
 
     quads = quads[valid]
     areas = areas[valid]
@@ -526,33 +584,58 @@ def _clean_solid_bim_element_faces(
     w_xy = np.hypot(spans[:, 0], spans[:, 1])
 
     is_vert = np.abs(normals[:, 2]) <= 0.85
+    # M6: If a glazing element is purely horizontal/tilted (skylight), KEEP ALL its faces!
     if not np.any(is_vert):
-        return verts, np.empty((0, 4), dtype=np.int64), len(quads)
+        if category == "glazing":
+            return verts, quads, 0, 0.0, 0, 0.0
+        cap_cnt = int(len(quads))
+        cap_area = float(np.sum(areas))
+        if restore_caps:
+            return verts, quads, 0, 0.0, cap_cnt, cap_area
+        return verts, np.empty((0, 4), dtype=np.int64), 0, 0.0, cap_cnt, cap_area
 
     max_vert_area = float(np.max(areas[is_vert]))
     elem_span = np.max(verts, axis=0) - np.min(verts, axis=0)
     min_elem_dim = float(np.min(elem_span))
 
-    # Strip top/bottom caps on thin glazing/spandrel panels & strip thin edge slivers (<= 10cm)
     sliver_thresh = 0.12 if category in ("glazing", "spandrel") else 0.08
     is_thin_edge = is_vert & (w_xy <= sliver_thresh) & (areas < 0.25 * max_vert_area)
-    if category in ("glazing", "spandrel") or min_elem_dim <= 0.14:
-        keep = is_vert & (~is_thin_edge)
+
+    # M6: For glazing, only horizontal thin edge caps (area < 25% max_vert_area) are panel edges;
+    # genuine tilted/skylight glazing faces are ALWAYS preserved!
+    if category == "glazing":
+        is_cap = (~is_vert) & (areas < 0.25 * max_vert_area) & (min_elem_dim <= 0.14)
+    elif category == "spandrel" or min_elem_dim <= 0.14:
+        is_cap = ~is_vert
     else:
-        keep = ~is_thin_edge
+        is_cap = np.zeros(len(quads), dtype=bool)
 
-    slivers_removed = int(np.sum(is_thin_edge))
+    sliver_count = int(np.sum(is_thin_edge))
+    sliver_area = float(np.sum(areas[is_thin_edge])) if sliver_count > 0 else 0.0
+    cap_count = int(np.sum(is_cap))
+    cap_area = float(np.sum(areas[is_cap])) if cap_count > 0 else 0.0
+
+    keep = np.ones(len(quads), dtype=bool)
+    if not restore_slivers:
+        keep &= ~is_thin_edge
+    if not restore_caps:
+        keep &= ~is_cap
+
     cleaned = quads[keep]
-    return verts, cleaned, slivers_removed
+    return verts, cleaned, sliver_count, sliver_area, cap_count, cap_area
 
 
-def _filter_thin_edge_slivers_on_group(rg: RawGroupMesh) -> int:
+def _filter_thin_edge_slivers_on_group(
+    rg: RawGroupMesh,
+    restore_filtered_set: Optional[set] = None,
+) -> Tuple[int, Optional[Dict[str, Any]]]:
     """
-    Post-normalization thin-edge sliver filter for non-IFC formats (.3dm, .obj, .glb)
-    whose solid glass/spandrel boxes were merged before element-level splitting.
+    M4: Non-destructive thin-edge sliver tagging for non-IFC formats (.3dm, .obj, .glb).
+    Records exact filtered face count & area into `audit.filtered_items`, and restores
+    the faces immediately if `f"sliver::{rg.group_name}"` is in `restore_filtered_set`.
     """
     if rg.default_category not in ("glazing", "spandrel") or len(rg.faces) < 4:
-        return 0
+        return 0, None
     vs = rg.vertices
     fs = rg.faces
     is_q = fs[:, 2] != fs[:, 3]
@@ -570,14 +653,28 @@ def _filter_thin_edge_slivers_on_group(rg: RawGroupMesh) -> int:
 
     is_vert = np.abs(normals[:, 2]) <= 0.85
     if not np.any(is_vert):
-        return 0
+        return 0, None
     med_area = float(np.percentile(areas[is_vert], 75))
     is_sliver = is_vert & (w_xy <= 0.085) & (areas < 0.22 * med_area) & (areas < 0.25)
     n_sliv = int(np.sum(is_sliver))
     if n_sliv > 0 and n_sliv < len(fs):
-        rg.faces = fs[~is_sliver]
-        return n_sliv
-    return 0
+        sliv_area = round(float(np.sum(areas[is_sliver])), 4)
+        fid = f"sliver::{rg.group_name}"
+        is_restored = bool(restore_filtered_set and fid in restore_filtered_set)
+        item = {
+            "id": fid,
+            "group": rg.group_name,
+            "reason": "thin_edge_sliver",
+            "reason_label": "Tepi tipis ketebalan kaca/spandrel (<= 8,5 cm)",
+            "face_count": n_sliv,
+            "area_m2": sliv_area,
+            "restored": is_restored,
+        }
+        if not is_restored:
+            rg.faces = fs[~is_sliver]
+            return n_sliv, item
+        return 0, item
+    return 0, None
 
 
 # ============================================================================
@@ -726,6 +823,7 @@ def _parse_obj_with_materials(filepath: str) -> Tuple[Dict[Tuple[str, str], Tupl
 
 def _parse_ifc_with_ifcopenshell(
     filepath: str,
+    restore_filtered_set: Optional[set] = None,
 ) -> Tuple[
     List[Tuple[str, str, str, str, np.ndarray, np.ndarray, Optional[bool], Optional[float]]],
     str,
@@ -733,6 +831,7 @@ def _parse_ifc_with_ifcopenshell(
     int,
     int,
     str,
+    List[Dict[str, Any]],
 ]:
     """
     Production-grade BIM IFC2x3 / IFC4 / IFC4X3 loader powered by IfcOpenShell (OpenCASCADE C++).
@@ -869,6 +968,10 @@ def _parse_ifc_with_ifcopenshell(
     chunks: List[Tuple[str, str, str, str, np.ndarray, np.ndarray, Optional[bool], Optional[float]]] = []
     slivers_removed_total = 0
     interior_filtered_total = 0
+    # M4/M6: Accumulate filtered slivers & horizontal caps per group for audit.filtered_items
+    sliver_stats_by_grp: Dict[str, List[float]] = {}  # g_name -> [count, area_m2]
+    cap_stats_by_grp: Dict[str, List[float]] = {}     # g_name -> [count, area_m2]
+    rf_set = restore_filtered_set or set()
 
     def _resolve_mat_label(m_obj: Any) -> Tuple[str, float]:
         raw_mname = str(getattr(m_obj, "name", "") or "")
@@ -937,7 +1040,8 @@ def _parse_ifc_with_ifcopenshell(
                             continue
 
                         if is_ext is False:
-                            cat = "roof"
+                            # M7: Interior BIM elements belong to 'ignore' (not mixed with 'roof')
+                            cat = "ignore"
                             g_name = f"Interior :: {layer_label} :: {style_or_mat}"
                             interior_filtered_total += 1
                         else:
@@ -961,372 +1065,77 @@ def _parse_ifc_with_ifcopenshell(
                                 cat = "glazing" if ("glass" in style_or_mat.lower() or tr_val > 0.12) else "wall"
                             else:
                                 if resolved_style:
-                                    cat = classify_layer_or_material_role(f"{resolved_style} {etype}")
+                                    cat = classify_layer_or_material_role(f"{resolved_style} {etype}", context=p_type)
                                 else:
-                                    cat = classify_layer_or_material_role(f"{style_or_mat} {elem.Name or ''} {etype}")
-                                if p_type == "IfcCurtainWall" and cat == "wall":
+                                    cat = classify_layer_or_material_role(f"{style_or_mat} {elem.Name or ''} {etype}", context=p_type)
+                                if p_type == "IfcCurtainWall" and cat in ("wall", "unknown"):
                                     z_span_el = float(np.max(verts[:, 2]) - np.min(verts[:, 2]))
                                     if z_span_el <= 1.35:
                                         cat = "spandrel"
+                                    elif cat == "unknown":
+                                        cat = "glazing"
                             g_name = f"{layer_label} :: {style_or_mat}" if style_or_mat != layer_label else layer_label
 
-                        v_clean, f_clean, n_sliv = _clean_solid_bim_element_faces(verts, sub_tris, cat)
-                        slivers_removed_total += n_sliv
+                        restore_sliv = f"sliver::{g_name}" in rf_set
+                        restore_caps = f"cap::{g_name}" in rf_set
+                        v_clean, f_clean, n_sliv, a_sliv, n_cap, a_cap = _clean_solid_bim_element_faces(
+                            verts, sub_tris, cat, restore_slivers=restore_sliv, restore_caps=restore_caps
+                        )
+                        if n_sliv > 0:
+                            st = sliver_stats_by_grp.setdefault(g_name, [0.0, 0.0])
+                            st[0] += n_sliv
+                            st[1] += a_sliv
+                            if not restore_sliv:
+                                slivers_removed_total += n_sliv
+                        if n_cap > 0:
+                            st = cap_stats_by_grp.setdefault(g_name, [0.0, 0.0])
+                            st[0] += n_cap
+                            st[1] += a_cap
                         if len(f_clean) > 0:
                             chunks.append((g_name, layer_label, style_or_mat, cat, v_clean, f_clean, is_ext, u_bim))
 
             if not iterator.next():
                 break
 
+    ifc_filtered_items: List[Dict[str, Any]] = []
+    for g_name, (cnt, area) in sorted(sliver_stats_by_grp.items()):
+        fid = f"sliver::{g_name}"
+        ifc_filtered_items.append({
+            "id": fid,
+            "group": g_name,
+            "reason": "thin_edge_sliver",
+            "reason_label": "Tepi tipis ketebalan panel BIM (<= 12 cm)",
+            "face_count": int(cnt),
+            "area_m2": round(float(area), 4),
+            "restored": fid in rf_set,
+        })
+    for g_name, (cnt, area) in sorted(cap_stats_by_grp.items()):
+        fid = f"cap::{g_name}"
+        ifc_filtered_items.append({
+            "id": fid,
+            "group": g_name,
+            "reason": "horizontal_cap",
+            "reason_label": "Sisi atas/bawah penutup ketebalan panel solid",
+            "face_count": int(cnt),
+            "area_m2": round(float(area), 4),
+            "restored": fid in rf_set,
+        })
+
     kernel_info = f"IfcOpenShell {ifcopenshell.version} (OpenCASCADE · {schema})"
-    return chunks, detected_unit, storeys, slivers_removed_total, interior_filtered_total, kernel_info
+    return (
+        chunks,
+        detected_unit,
+        storeys,
+        slivers_removed_total,
+        interior_filtered_total,
+        kernel_info,
+        ifc_filtered_items,
+    )
 
 
 # ============================================================================
-# NATIVE BIM .IFC (STEP) UNIVERSAL PARSER & SAMPLE GENERATOR
+# NATIVE BIM .IFC SAMPLE GENERATOR (Fallback STEP parser _parse_ifc_file dihapus)
 # ============================================================================
-
-def _parse_ifc_file(
-    filepath: str,
-) -> Tuple[Dict[Tuple[str, str], List[Tuple[np.ndarray, np.ndarray]]], str, List[Dict[str, Any]]]:
-    """
-    Universal pure-Python IFC2x3 / IFC4 STEP parser for architectural envelope simulation.
-    Extracts:
-    - Unit scale ('mm' or 'm') from IFCSIUNIT
-    - Native BIM storeys (`IFCBUILDINGSTOREY`) with name and elevation in meters
-    - Semantic BIM elements (`IFCCURTAINWALL`, `IFCPLATE`, `IFCMEMBER`, `IFCWALL`,
-      `IFCWALLSTANDARDCASE`, `IFCWINDOW`, `IFCSLAB`, `IFCROOF`, `IFCSHADINGDEVICE`)
-    - 3D Geometry from `IFCPOLYGONALFACESET`, `IFCTRIANGULATEDFACESET`, `IFCFACETEDBREP`,
-      and `IFCEXTRUDEDAREASOLID`.
-    """
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-        text = f.read()
-
-    # 1. Detect length unit (MILLI + METRE vs METRE)
-    detected_unit = "m"
-    if re.search(r"IFCSIUNIT\s*\([^;]*\.LENGTHUNIT\.\s*,\s*\.MILLI\.\s*,\s*\.METRE\.", text, re.IGNORECASE):
-        detected_unit = "mm"
-    elif re.search(r"IFCSIUNIT\s*\([^;]*\.LENGTHUNIT\.\s*,\s*\.CENTI\.\s*,\s*\.METRE\.", text, re.IGNORECASE):
-        detected_unit = "cm"
-    unit_scale = UNIT_SCALE_TO_METERS.get(detected_unit, 1.0)
-
-    # Parse all #ID = ENTITYTYPE(args); statements
-    entity_map: Dict[int, Tuple[str, str]] = {}
-    for m in re.finditer(r"#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(([^;]*)\)\s*;", text):
-        eid = int(m.group(1))
-        etype = m.group(2).upper()
-        eargs = m.group(3).strip()
-        entity_map[eid] = (etype, eargs)
-
-    # Extract Cartesian Points (#id -> (x, y, z))
-    pts_2d3d: Dict[int, Tuple[float, ...]] = {}
-    dirs_2d3d: Dict[int, Tuple[float, ...]] = {}
-    for eid, (etype, eargs) in entity_map.items():
-        if etype == "IFCCARTESIANPOINT":
-            cm = re.search(r"\(([-+0-9.,Ee\s]+)\)", eargs)
-            if cm:
-                coords = [float(x) for x in cm.group(1).split(",") if x.strip()]
-                pts_2d3d[eid] = tuple(coords)
-        elif etype == "IFCDIRECTION":
-            cm = re.search(r"\(([-+0-9.,Ee\s]+)\)", eargs)
-            if cm:
-                coords = [float(x) for x in cm.group(1).split(",") if x.strip()]
-                dirs_2d3d[eid] = tuple(coords)
-        elif etype == "IFCCARTESIANPOINTLIST3D":
-            pts_list = []
-            for pm in re.finditer(r"\(([-+0-9.,Ee\s]+)\)", eargs):
-                c = [float(x) for x in pm.group(1).split(",") if x.strip()]
-                if len(c) >= 3:
-                    pts_list.append((c[0], c[1], c[2]))
-            pts_2d3d[eid] = tuple(pts_list)  # type: ignore
-
-    # Extract IFCBUILDINGSTOREY
-    storeys: List[Dict[str, Any]] = []
-    for eid, (etype, eargs) in entity_map.items():
-        if etype == "IFCBUILDINGSTOREY":
-            # IFCBUILDINGSTOREY('guid', #owner, 'Name', 'Desc', ..., Elevation)
-            strs = re.findall(r"'([^']*)'", eargs)
-            name = strs[1] if len(strs) >= 2 and strs[1] else (strs[0] if strs else f"Storey_{eid}")
-            nums = re.findall(r"(?<=[,\s])([-+]?\d+(?:\.\d+)?(?:[Ee][-+]?\d+)?)\s*$", eargs)
-            elev_raw = float(nums[-1]) if nums else 0.0
-            storeys.append({
-                "id": eid,
-                "name": name,
-                "elevation_m": round(elev_raw * unit_scale, 3),
-            })
-    storeys.sort(key=lambda s: s["elevation_m"])
-
-    # Helper: resolve IFCAXIS2PLACEMENT3D & IFCLOCALPLACEMENT into 4x4 matrix
-    def _resolve_axis2placement3d(aid: int) -> np.ndarray:
-        mat = np.eye(4, dtype=np.float64)
-        if aid not in entity_map:
-            return mat
-        etype, eargs = entity_map[aid]
-        if etype != "IFCAXIS2PLACEMENT3D":
-            return mat
-        refs = [int(x) for x in re.findall(r"#(\d+)", eargs)]
-        loc = pts_2d3d.get(refs[0], (0.0, 0.0, 0.0)) if len(refs) >= 1 else (0.0, 0.0, 0.0)
-        z_dir = np.array([0.0, 0.0, 1.0], dtype=np.float64)
-        x_dir = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-        # Parse positional args (Location, Axis, RefDirection)
-        parts = [p.strip() for p in eargs.split(",")]
-        if len(parts) >= 2 and parts[1].startswith("#"):
-            d_z = dirs_2d3d.get(int(parts[1][1:]))
-            if d_z and len(d_z) >= 3:
-                z_dir = np.array(d_z[:3], dtype=np.float64)
-                z_dir /= max(1e-9, np.linalg.norm(z_dir))
-        if len(parts) >= 3 and parts[2].startswith("#"):
-            d_x = dirs_2d3d.get(int(parts[2][1:]))
-            if d_x and len(d_x) >= 3:
-                x_dir = np.array(d_x[:3], dtype=np.float64)
-                x_dir = x_dir - np.dot(x_dir, z_dir) * z_dir
-                n_x = np.linalg.norm(x_dir)
-                if n_x > 1e-6:
-                    x_dir /= n_x
-        y_dir = np.cross(z_dir, x_dir)
-        y_dir /= max(1e-9, np.linalg.norm(y_dir))
-        x_dir = np.cross(y_dir, z_dir)
-        mat[:3, 0] = x_dir
-        mat[:3, 1] = y_dir
-        mat[:3, 2] = z_dir
-        if len(loc) >= 3:
-            mat[:3, 3] = [loc[0], loc[1], loc[2]]
-        return mat
-
-    placement_cache: Dict[int, np.ndarray] = {}
-
-    def _resolve_local_placement(pid: int, depth: int = 0) -> np.ndarray:
-        if pid in placement_cache:
-            return placement_cache[pid]
-        if depth > 12 or pid not in entity_map:
-            return np.eye(4, dtype=np.float64)
-        etype, eargs = entity_map[pid]
-        if etype != "IFCLOCALPLACEMENT":
-            return _resolve_axis2placement3d(pid)
-        parts = [p.strip() for p in eargs.split(",")]
-        parent_mat = np.eye(4, dtype=np.float64)
-        rel_mat = np.eye(4, dtype=np.float64)
-        if len(parts) >= 1 and parts[0].startswith("#"):
-            parent_mat = _resolve_local_placement(int(parts[0][1:]), depth + 1)
-        if len(parts) >= 2 and parts[1].startswith("#"):
-            rel_mat = _resolve_axis2placement3d(int(parts[1][1:]))
-        res = parent_mat @ rel_mat
-        placement_cache[pid] = res
-        return res
-
-    # Helper: extract mesh from a geometric representation item (#id)
-    def _extract_geom_item(gid: int) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-        if gid not in entity_map:
-            return None
-        etype, eargs = entity_map[gid]
-
-        if etype == "IFCFACETEDBREP":
-            refs = [int(x) for x in re.findall(r"#(\d+)", eargs)]
-            if not refs:
-                return None
-            shell_id = refs[0]
-            if shell_id not in entity_map:
-                return None
-            _, s_args = entity_map[shell_id]
-            face_ids = [int(x) for x in re.findall(r"#(\d+)", s_args)]
-            v_list: List[Tuple[float, float, float]] = []
-            f_list: List[Tuple[int, int, int, int]] = []
-            for fid in face_ids:
-                if fid not in entity_map:
-                    continue
-                _, f_args = entity_map[fid]
-                bound_ids = [int(x) for x in re.findall(r"#(\d+)", f_args)]
-                for bid in bound_ids:
-                    if bid not in entity_map:
-                        continue
-                    _, b_args = entity_map[bid]
-                    loop_ids = [int(x) for x in re.findall(r"#(\d+)", b_args)]
-                    for lid in loop_ids:
-                        if lid not in entity_map:
-                            continue
-                        ltype, l_args = entity_map[lid]
-                        if ltype == "IFCPOLYLOOP":
-                            pt_ids = [int(x) for x in re.findall(r"#(\d+)", l_args)]
-                            pts = [pts_2d3d.get(pid) for pid in pt_ids if pid in pts_2d3d]
-                            pts3 = [(p[0], p[1], p[2]) for p in pts if p and len(p) >= 3]
-                            if len(pts3) >= 3:
-                                base = len(v_list)
-                                v_list.extend(pts3)
-                                if len(pts3) == 3:
-                                    f_list.append((base, base + 1, base + 2, base + 2))
-                                elif len(pts3) == 4:
-                                    f_list.append((base, base + 1, base + 2, base + 3))
-                                else:
-                                    for k in range(1, len(pts3) - 1):
-                                        f_list.append((base, base + k, base + k + 1, base + k + 1))
-            if v_list and f_list:
-                return np.array(v_list, dtype=np.float64), np.array(f_list, dtype=np.int64)
-
-        elif etype == "IFCEXTRUDEDAREASOLID":
-            # IFCEXTRUDEDAREASOLID(#SweptArea, #Position, #ExtrudedDirection, Depth)
-            parts = [p.strip() for p in eargs.split(",")]
-            if len(parts) < 4:
-                return None
-            prof_id = int(parts[0][1:]) if parts[0].startswith("#") else -1
-            pos_id = int(parts[1][1:]) if parts[1].startswith("#") else -1
-            dir_id = int(parts[2][1:]) if parts[2].startswith("#") else -1
-            try:
-                depth = float(parts[3])
-            except ValueError:
-                depth = 1.0
-
-            if prof_id not in entity_map:
-                return None
-            ptype, p_args = entity_map[prof_id]
-            loop_2d: List[Tuple[float, float]] = []
-            if ptype == "IFCRECTANGLEPROFILEDEF":
-                # IFCRECTANGLEPROFILEDEF(.AREA., 'Name', #Pos, XDim, YDim)
-                pp = [x.strip() for x in p_args.split(",")]
-                if len(pp) >= 5:
-                    try:
-                        xdim = float(pp[-2])
-                        ydim = float(pp[-1])
-                        hx, hy = 0.5 * xdim, 0.5 * ydim
-                        loop_2d = [(-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy)]
-                    except ValueError:
-                        pass
-            elif ptype == "IFCARBITRARYCLOSEDPROFILEDEF":
-                refs = [int(x) for x in re.findall(r"#(\d+)", p_args)]
-                if refs and refs[-1] in entity_map:
-                    _, c_args = entity_map[refs[-1]]
-                    pt_ids = [int(x) for x in re.findall(r"#(\d+)", c_args)]
-                    for pid in pt_ids:
-                        p2 = pts_2d3d.get(pid)
-                        if p2 and len(p2) >= 2:
-                            loop_2d.append((p2[0], p2[1]))
-                    if len(loop_2d) > 2 and loop_2d[0] == loop_2d[-1]:
-                        loop_2d.pop()
-
-            if len(loop_2d) < 3:
-                return None
-
-            ext_dir = dirs_2d3d.get(dir_id, (0.0, 0.0, 1.0))
-            dx = (ext_dir[0] if len(ext_dir) >= 1 else 0.0) * depth
-            dy = (ext_dir[1] if len(ext_dir) >= 2 else 0.0) * depth
-            dz = (ext_dir[2] if len(ext_dir) >= 3 else 1.0) * depth
-
-            n_p = len(loop_2d)
-            bot_pts = [(x, y, 0.0) for x, y in loop_2d]
-            top_pts = [(x + dx, y + dy, dz) for x, y in loop_2d]
-            verts = np.array(bot_pts + top_pts, dtype=np.float64)
-            faces: List[Tuple[int, int, int, int]] = []
-            for i in range(n_p):
-                j = (i + 1) % n_p
-                faces.append((i, j, n_p + j, n_p + i))
-            pos_mat = _resolve_axis2placement3d(pos_id) if pos_id > 0 else np.eye(4, dtype=np.float64)
-            verts = _apply_xform(verts, pos_mat)
-            return verts, np.array(faces, dtype=np.int64)
-
-        return None
-
-    # Helper: traverse IFCPRODUCTDEFINITIONSHAPE -> IFCSHAPEREPRESENTATION -> Items
-    def _extract_product_meshes(prod_args: str) -> List[Tuple[np.ndarray, np.ndarray]]:
-        # Product args typically: ('Guid', #Owner, 'Name', 'Desc', 'ObjType', #ObjectPlacement, #Representation, ...)
-        refs = [int(x) for x in re.findall(r"#(\d+)", prod_args)]
-        if len(refs) < 2:
-            return []
-        place_id = -1
-        rep_id = -1
-        for r in refs:
-            if r in entity_map:
-                rt, _ = entity_map[r]
-                if rt == "IFCLOCALPLACEMENT" and place_id < 0:
-                    place_id = r
-                elif rt in ("IFCPRODUCTDEFINITIONSHAPE", "IFCSHAPEREPRESENTATION") and rep_id < 0:
-                    rep_id = r
-
-        if rep_id < 0:
-            return []
-
-        place_mat = _resolve_local_placement(place_id) if place_id > 0 else np.eye(4, dtype=np.float64)
-
-        shape_rep_ids: List[int] = []
-        rt, r_args = entity_map[rep_id]
-        if rt == "IFCPRODUCTDEFINITIONSHAPE":
-            shape_rep_ids = [int(x) for x in re.findall(r"#(\d+)", r_args)]
-        else:
-            shape_rep_ids = [rep_id]
-
-        meshes: List[Tuple[np.ndarray, np.ndarray]] = []
-        for srid in shape_rep_ids:
-            if srid not in entity_map:
-                continue
-            st, s_args = entity_map[srid]
-            if st != "IFCSHAPEREPRESENTATION":
-                continue
-            item_ids = [int(x) for x in re.findall(r"#(\d+)", s_args)]
-            for iid in item_ids:
-                if iid not in entity_map:
-                    continue
-                it_type, it_args = entity_map[iid]
-                if it_type == "IFCMAPPEDITEM":
-                    # IFCMAPPEDITEM(#MappingSource, #MappingTarget)
-                    m_refs = [int(x) for x in re.findall(r"#(\d+)", it_args)]
-                    if m_refs and m_refs[0] in entity_map:
-                        _, ms_args = entity_map[m_refs[0]]
-                        ms_refs = [int(x) for x in re.findall(r"#(\d+)", ms_args)]
-                        if len(ms_refs) >= 2:
-                            origin_mat = _resolve_axis2placement3d(ms_refs[0])
-                            sub_sr_id = ms_refs[1]
-                            if sub_sr_id in entity_map:
-                                _, sub_args = entity_map[sub_sr_id]
-                                for sub_iid in [int(x) for x in re.findall(r"#(\d+)", sub_args)]:
-                                    gm = _extract_geom_item(sub_iid)
-                                    if gm:
-                                        v_t = _apply_xform(_apply_xform(gm[0], origin_mat), place_mat)
-                                        meshes.append((v_t, gm[1]))
-                else:
-                    gm = _extract_geom_item(iid)
-                    if gm:
-                        v_t = _apply_xform(gm[0], place_mat)
-                        meshes.append((v_t, gm[1]))
-        return meshes
-
-    target_bim_types = {
-        "IFCCURTAINWALL": ("BIM_CurtainWall", "Composite_CurtainWall"),
-        "IFCPLATE": ("BIM_CurtainWall_Panel", "Glazing_or_Spandrel"),
-        "IFCMEMBER": ("BIM_CurtainWall_Frame", "Aluminum_Mullion_Transom"),
-        "IFCWINDOW": ("BIM_Window_Glazing", "Vision_Glass"),
-        "IFCWALL": ("BIM_Exterior_Wall", "Opaque_Wall"),
-        "IFCWALLSTANDARDCASE": ("BIM_Exterior_Wall", "Opaque_Wall"),
-        "IFCSHADINGDEVICE": ("BIM_External_Shading", "Sun_Louver_Fin"),
-        "IFCSLAB": ("BIM_Floor_Slab", "Concrete_Slab"),
-        "IFCROOF": ("BIM_Roof_Slab", "Roof_Assembly"),
-    }
-
-    chunks: Dict[Tuple[str, str], List[Tuple[np.ndarray, np.ndarray]]] = {}
-    for eid, (etype, eargs) in entity_map.items():
-        if etype not in target_bim_types:
-            continue
-        default_layer, default_mat = target_bim_types[etype]
-        strs = re.findall(r"'([^']*)'", eargs)
-        elem_name = strs[1] if len(strs) >= 2 and strs[1] else default_layer
-        obj_type_tag = strs[3] if len(strs) >= 4 and strs[3] else default_mat
-
-        # Clean layer & material group naming for BIM element
-        layer_label = f"{etype.replace('IFC', 'IFC_')}"
-        mat_label = obj_type_tag if obj_type_tag else elem_name
-        if "spandrel" in elem_name.lower() or "spandrel" in mat_label.lower():
-            mat_label = "Spandrel_Panel"
-        elif "vision" in elem_name.lower() or "glass" in elem_name.lower() or "kaca" in elem_name.lower():
-            mat_label = "Vision_Glass"
-        elif "mullion" in elem_name.lower() or "transom" in elem_name.lower() or etype == "IFCMEMBER":
-            mat_label = "Mullion_Frame"
-
-        meshes = _extract_product_meshes(eargs)
-        if not meshes:
-            continue
-        key = (layer_label, mat_label)
-        if key not in chunks:
-            chunks[key] = []
-        chunks[key].extend(meshes)
-
-    return chunks, detected_unit, storeys
 
 
 def create_sample_ifc_preset(output_path: str) -> str:
@@ -1551,6 +1360,7 @@ def load_universal_model_stages_1_and_2(
     groups_to_auto_split: Optional[List[str]] = None,
     frame_width_threshold_m: float = 0.28,
     spandrel_height_threshold_m: float = 1.15,
+    restore_filtered: Optional[List[str]] = None,
 ) -> Tuple[List[RawGroupMesh], Stage1GeometryAudit]:
     """
     Executes Stage 1 (Geometry, Unit & Axis Normalization) and Stage 2 (Layer::Material +
@@ -1558,6 +1368,8 @@ def load_universal_model_stages_1_and_2(
     """
     mtime = os.path.getmtime(filepath) if os.path.exists(filepath) else 0.0
     split_tuple = tuple(sorted(groups_to_auto_split or []))
+    restore_tuple = tuple(sorted(restore_filtered or []))
+    restore_set = set(restore_tuple)
     cache_key = (
         filepath,
         mtime,
@@ -1569,6 +1381,7 @@ def load_universal_model_stages_1_and_2(
         split_tuple,
         round(frame_width_threshold_m, 3),
         round(spandrel_height_threshold_m, 3),
+        restore_tuple,
     )
     if cache_key in _UNIVERSAL_FILE_CACHE:
         return _UNIVERSAL_FILE_CACHE[cache_key]
@@ -1646,10 +1459,20 @@ def load_universal_model_stages_1_and_2(
 
         audit.total_raw_objects = len(model.Objects)
 
+        hidden_obj_mode = getattr(rhino3dm.ObjectMode, "Hidden", None)
+        mat_from_parent = getattr(rhino3dm.ObjectMaterialSource, "MaterialFromParent", None)
+        mat_from_object = getattr(rhino3dm.ObjectMaterialSource, "MaterialFromObject", None)
+        missing_mesh_counts: Dict[Tuple[str, str, str], int] = {}
+        rhino_mesh_export_instruction = (
+            "Di Rhino: tampilkan viewport dalam mode Shaded lalu Save (jangan gunakan SaveSmall), "
+            "atau jalankan perintah Mesh pada objek Brep/Surface sebelum menyimpan .3dm."
+        )
+
         def _process_rhino_obj(
             obj: Any,
             parent_xform: np.ndarray,
-            override_layer: Optional[str] = None,
+            parent_layer: Optional[str] = None,
+            parent_mat_idx: int = -1,
             depth: int = 0,
         ) -> None:
             if depth > 8:
@@ -1657,23 +1480,40 @@ def load_universal_model_stages_1_and_2(
             geom = obj.Geometry
             attr = obj.Attributes
 
-            # Skip explicitly hidden Rhino objects or objects on turned-off layers (top-level only)
+            # M9: Check object & layer visibility at ALL nesting depths (not just depth == 0)
             l_name, l_vis, l_mat_idx = layer_info_cache.get(attr.LayerIndex, ("Default", True, -1))
-            if depth == 0:
-                if not getattr(attr, "Visible", True) or not l_vis:
-                    audit.hidden_objects_skipped += 1
-                    return
+            is_hidden_mode = hidden_obj_mode is not None and getattr(attr, "Mode", None) == hidden_obj_mode
+            if not getattr(attr, "Visible", True) or is_hidden_mode or not l_vis:
+                audit.hidden_objects_skipped += 1
+                return
 
-            layer_name = override_layer or l_name
-            # Support Material-by-Layer when attr.MaterialIndex < 0
-            eff_mat_idx = attr.MaterialIndex if attr.MaterialIndex >= 0 else l_mat_idx
+            # M9: Block child uses its OWN layer; parent_layer is fallback only for Default / By Parent
+            own_layer_clean = (l_name or "").strip()
+            if own_layer_clean and own_layer_clean.lower() not in ("default", "by parent", "byparent"):
+                layer_name = own_layer_clean
+            else:
+                layer_name = parent_layer or own_layer_clean or "Default"
+
+            # M9: Block child resolves its OWN material first (respecting ObjectMaterialSource)
+            mat_src = getattr(attr, "MaterialSource", None)
+            if mat_from_parent is not None and mat_src == mat_from_parent:
+                eff_mat_idx = parent_mat_idx if parent_mat_idx >= 0 else l_mat_idx
+            elif mat_from_object is not None and mat_src == mat_from_object and attr.MaterialIndex >= 0:
+                eff_mat_idx = attr.MaterialIndex
+            elif attr.MaterialIndex >= 0:
+                eff_mat_idx = attr.MaterialIndex
+            elif l_mat_idx >= 0:
+                eff_mat_idx = l_mat_idx
+            else:
+                eff_mat_idx = parent_mat_idx
+
             mat_name = mat_names.get(eff_mat_idx, "")
             m_transp = mat_transp.get(eff_mat_idx, 0.0)
             obj_name = (attr.Name or "").strip()
 
             if obj_name and obj_name.lower() != layer_name.lower():
-                g_name = obj_name if layer_name == "Default" else f"{obj_name}"
-                src_mat = obj_name
+                g_name = obj_name if layer_name == "Default" else f"{layer_name} :: {obj_name}"
+                src_mat = mat_name or obj_name
             elif mat_name:
                 g_name = f"{layer_name} :: {mat_name}"
                 src_mat = mat_name
@@ -1681,7 +1521,8 @@ def load_universal_model_stages_1_and_2(
                 g_name = layer_name
                 src_mat = "Default"
 
-            cat = "glazing" if m_transp > 0.15 else classify_layer_or_material_role(f"{g_name} {layer_name} {mat_name}")
+            base_cat = classify_layer_or_material_role(f"{g_name} {layer_name} {mat_name}")
+            cat = "ignore" if base_cat == "ignore" else ("glazing" if m_transp > 0.15 else base_cat)
 
             if isinstance(geom, rhino3dm.InstanceReference):
                 iref_id = str(geom.ParentIdefId)
@@ -1691,7 +1532,7 @@ def load_universal_model_stages_1_and_2(
                     for child_id in idef.GetObjectIds():
                         child_obj = obj_by_id.get(str(child_id))
                         if child_obj:
-                            _process_rhino_obj(child_obj, xf_mat, layer_name, depth + 1)
+                            _process_rhino_obj(child_obj, xf_mat, layer_name, eff_mat_idx, depth + 1)
                 return
 
             if isinstance(geom, rhino3dm.Mesh):
@@ -1733,76 +1574,89 @@ def load_universal_model_stages_1_and_2(
                                 got_mesh = True
                                 break
                     if not got_mesh:
-                        srf = bf.UnderlyingSurface()
-                        if srf:
-                            u_d = 2 if cat in ("frame", "shading") else nurbs_u_div
-                            v_d = 2 if cat in ("frame", "shading") else nurbs_v_div
-                            lb_m = tessellate_nurbs_surface_with_ladybug(srf, u_d, v_d)
-                            res = _ladybug_mesh_to_numpy(lb_m)
-                            if res:
-                                _add_chunk(g_name, layer_name, src_mat, cat, _apply_xform(res[0], parent_xform), res[1])
+                        # M3: NEVER tessellate untrimmed UnderlyingSurface — record missing render mesh!
+                        mk = (g_name, layer_name, "Brep")
+                        missing_mesh_counts[mk] = missing_mesh_counts.get(mk, 0) + 1
 
             elif isinstance(geom, rhino3dm.Surface):
-                u_d = 2 if cat in ("frame", "shading") else nurbs_u_div
-                v_d = 2 if cat in ("frame", "shading") else nurbs_v_div
-                lb_m = tessellate_nurbs_surface_with_ladybug(geom, u_d, v_d)
-                res = _ladybug_mesh_to_numpy(lb_m)
-                if res:
-                    _add_chunk(g_name, layer_name, src_mat, cat, _apply_xform(res[0], parent_xform), res[1])
+                # M3: Standalone Surface without stored render mesh — record instead of fabricating untrimmed mesh
+                mk = (g_name, layer_name, "Surface")
+                missing_mesh_counts[mk] = missing_mesh_counts.get(mk, 0) + 1
 
         identity4 = np.eye(4, dtype=np.float64)
+        idef_obj_mode = getattr(rhino3dm.ObjectMode, "InstanceDefinitionObject", None)
         for obj in model.Objects:
+            # M1: Skip block-definition template objects at top level; they are only
+            # processed via InstanceReference with their instance 4x4 transform.
+            if idef_obj_mode is not None and getattr(obj.Attributes, "Mode", None) == idef_obj_mode:
+                continue
             _process_rhino_obj(obj, identity4)
+
+        if missing_mesh_counts:
+            total_missing = 0
+            for (mg, ml, mtype), cnt in sorted(missing_mesh_counts.items()):
+                total_missing += cnt
+                audit.missing_mesh.append({
+                    "group": mg,
+                    "layer": ml,
+                    "object_type": mtype,
+                    "face_count": int(cnt),
+                    "instruction": rhino_mesh_export_instruction,
+                })
+            audit.notes.append(
+                f"Peringatan M3: {total_missing} permukaan tanpa render mesh tidak digambar ulang otomatis. "
+                f"{rhino_mesh_export_instruction}"
+            )
 
         if audit.hidden_objects_skipped > 0:
             audit.notes.append(f"{audit.hidden_objects_skipped} objek/layer tersembunyi (Hidden/Off) diabaikan otomatis.")
 
     # ------------------------------------------------------------------------
-    # B. NATIVE BIM .IFC — PRIMARY: IfcOpenShell (OpenCASCADE C++), FALLBACK: STEP
+    # B. NATIVE BIM .IFC — STRICT IfcOpenShell (OpenCASCADE C++)
     # ------------------------------------------------------------------------
     elif ext == ".ifc":
-        used_ifcopenshell = False
-        if HAS_IFCOPENSHELL:
-            try:
-                (
-                    ios_chunks,
-                    ifc_unit,
-                    ifc_storeys,
-                    slivers_rm,
-                    interior_rm,
-                    kernel_info,
-                ) = _parse_ifc_with_ifcopenshell(filepath)
-                if ios_chunks:
-                    used_ifcopenshell = True
-                    coords_already_in_meters = True
-                    audit.geometry_kernel = kernel_info
-                    audit.detected_unit = ifc_unit
-                    audit.detected_up_axis = "Z"
-                    audit.bim_storeys = ifc_storeys
-                    audit.total_raw_objects = len(ios_chunks)
-                    audit.slivers_removed = slivers_rm
-                    audit.interior_elements_filtered = interior_rm
-                    for g_name, src_layer, src_mat, cat, v_arr, f_arr, is_ext, u_bim in ios_chunks:
-                        _add_chunk(g_name, src_layer, src_mat, cat, v_arr, f_arr, is_ext=is_ext, u_bim=u_bim)
-                    if slivers_rm > 0:
-                        audit.notes.append(f"Filter BIM membersihkan {slivers_rm} tepi tipis panel solid & menggabung segitiga koplanar.")
-                    if interior_rm > 0:
-                        audit.notes.append(f"{interior_rm} elemen interior (IsExternal=False) dipisahkan dari selubung OTTV.")
-            except Exception as e_ios:
-                audit.notes.append(f"Fallback STEP parser digunakan ({type(e_ios).__name__}).")
+        if not HAS_IFCOPENSHELL:
+            raise ValueError(
+                "IfcOpenShell tidak terpasang di server. Modul IfcOpenShell wajib tersedia "
+                "untuk membaca file BIM .IFC secara akurat."
+            )
+        try:
+            (
+                ios_chunks,
+                ifc_unit,
+                ifc_storeys,
+                slivers_rm,
+                interior_rm,
+                kernel_info,
+                ifc_filtered_items,
+            ) = _parse_ifc_with_ifcopenshell(filepath, restore_filtered_set=restore_set)
+        except Exception as e_ios:
+            raise ValueError(
+                f"File IFC tidak dapat dibaca oleh IfcOpenShell ({type(e_ios).__name__}: {e_ios}). "
+                "Pastikan file IFC valid (IFC2x3/IFC4/IFC4.3) dan tidak rusak."
+            ) from e_ios
 
-        if not used_ifcopenshell:
-            ifc_chunks, ifc_unit, ifc_storeys = _parse_ifc_file(filepath)
-            audit.geometry_kernel = "Pure-Python IFC STEP Fallback"
-            audit.detected_unit = ifc_unit
-            audit.detected_up_axis = "Z"
-            audit.bim_storeys = ifc_storeys
-            audit.total_raw_objects = len(ifc_chunks)
-            for (layer_label, mat_label), m_list in ifc_chunks.items():
-                g_name = f"{layer_label} :: {mat_label}" if mat_label != layer_label else layer_label
-                cat = classify_layer_or_material_role(f"{layer_label} {mat_label}")
-                for v_arr, f_arr in m_list:
-                    _add_chunk(g_name, layer_label, mat_label, cat, v_arr, f_arr)
+        if not ios_chunks:
+            raise ValueError(
+                "IfcOpenShell tidak menemukan geometri bangunan yang dapat dibaca pada file IFC ini. "
+                "Pastikan elemen selubung (IfcWall/IfcCurtainWall/IfcPlate/IfcWindow) diekspor bersama representasi 3D (Body)."
+            )
+
+        coords_already_in_meters = True
+        audit.geometry_kernel = kernel_info
+        audit.detected_unit = ifc_unit
+        audit.detected_up_axis = "Z"
+        audit.bim_storeys = ifc_storeys
+        audit.total_raw_objects = len(ios_chunks)
+        audit.slivers_removed = slivers_rm
+        audit.interior_elements_filtered = interior_rm
+        audit.filtered_items.extend(ifc_filtered_items)
+        for g_name, src_layer, src_mat, cat, v_arr, f_arr, is_ext, u_bim in ios_chunks:
+            _add_chunk(g_name, src_layer, src_mat, cat, v_arr, f_arr, is_ext=is_ext, u_bim=u_bim)
+        if slivers_rm > 0:
+            audit.notes.append(f"Filter BIM membersihkan {slivers_rm} tepi tipis panel solid & menggabung segitiga koplanar.")
+        if interior_rm > 0:
+            audit.notes.append(f"{interior_rm} elemen interior (IsExternal=False) dipisahkan dari selubung OTTV.")
 
     # ------------------------------------------------------------------------
     # C. WAVEFRONT .OBJ + .MTL (TRANSPARENCY & LAYER::USEMTL DECOMPOSITION)
@@ -1876,7 +1730,8 @@ def load_universal_model_stages_1_and_2(
             v_arr = np.asarray(tm.vertices, dtype=np.float64)
             f_in = np.asarray(tm.faces, dtype=np.int64)
             f_arr = _merge_coplanar_tris_to_quads(v_arr, f_in[:, :3]) if f_in.shape[1] == 3 else f_in[:, :4]
-            cat = "glazing" if is_pbr_glass else classify_layer_or_material_role(f"{node_name} {mat_name}")
+            base_cat = classify_layer_or_material_role(f"{node_name} {mat_name}")
+            cat = "ignore" if base_cat == "ignore" else ("glazing" if is_pbr_glass else base_cat)
             _add_chunk(g_name, node_name, mat_name or "Default", cat, v_arr, f_arr)
 
     # ------------------------------------------------------------------------
@@ -1957,44 +1812,51 @@ def load_universal_model_stages_1_and_2(
     else:
         raise ValueError(f"Format file '{ext}' tidak didukung.")
 
-    # Merge chunks per group — ZERO-DESTRUCTIVE for all surface groups (0% area loss!)
+    # M8: Merge chunks per group — if a group contains mixed categories, split into per-category sub-groups!
     raw_groups: List[RawGroupMesh] = []
-    for g_idx, (g_name, chunks) in enumerate(groups_map.items()):
-        v_list = []
-        f_list = []
-        v_offset = 0
-        cat = chunks[0][2]
-        src_layer = chunks[0][3]
-        src_mat = chunks[0][4]
-        is_ext_g = chunks[0][5]
-        u_bim_g = chunks[0][6]
-        for v_arr, f_arr, _, _, _, _, _ in chunks:
-            v_list.append(v_arr)
-            f_list.append(f_arr + v_offset)
-            v_offset += len(v_arr)
-        v_merged = np.vstack(v_list)
-        f_merged = np.vstack(f_list)
-
-        # NEVER stride-delete surface polygons (glazing/wall/spandrel/composite_cw) — preserves 100% exact area!
-        # Only cap ultra-dense non-area frame/shading meshes above 80,000 faces to protect RAM/raycast latency.
-        if cat in ("frame", "shading", "roof") and len(f_merged) > 80000:
-            step = max(1, int(math.ceil(len(f_merged) / 80000)))
-            f_merged = f_merged[::step]
-            audit.notes.append(f"Grup non-selubung '{g_name}' dioptimasi (stride {step}x) untuk performa raycast.")
-
-        raw_groups.append(
-            RawGroupMesh(
-                group_id=f"R-{g_idx + 1}",
-                group_name=g_name,
-                source_layer=src_layer,
-                source_material=src_mat,
-                default_category=cat,
-                vertices=v_merged,
-                faces=f_merged,
-                is_external_bim=is_ext_g,
-                thermal_u_bim=u_bim_g,
+    g_counter = 0
+    for g_name, chunks in groups_map.items():
+        by_cat: Dict[str, List[Tuple[np.ndarray, np.ndarray, str, str, str, Optional[bool], Optional[float]]]] = {}
+        for ch in chunks:
+            by_cat.setdefault(ch[2], []).append(ch)
+        is_mixed = len(by_cat) > 1
+        if is_mixed:
+            audit.notes.append(
+                f"M8: Grup '{g_name}' memiliki kategori campur ({', '.join(sorted(by_cat.keys()))}) -> dipecah per kategori."
             )
-        )
+        for sub_cat, sub_chunks in by_cat.items():
+            g_counter += 1
+            eff_g_name = f"{g_name} :: {sub_cat}" if is_mixed else g_name
+            v_list = []
+            f_list = []
+            v_offset = 0
+            src_layer = sub_chunks[0][3]
+            src_mat = sub_chunks[0][4]
+            is_ext_g = sub_chunks[0][5]
+            u_bim_g = sub_chunks[0][6]
+            for v_arr, f_arr, _, _, _, _, _ in sub_chunks:
+                v_list.append(v_arr)
+                f_list.append(f_arr + v_offset)
+                v_offset += len(v_arr)
+            v_merged = np.vstack(v_list)
+            f_merged = np.vstack(f_list)
+
+            # M5: NEVER stride-delete polygons from RawGroupMesh (preserves 100% geometry for
+            # area & visual display; any raycast simplification happens only on raycast buffers).
+
+            raw_groups.append(
+                RawGroupMesh(
+                    group_id=f"R-{g_counter}",
+                    group_name=eff_g_name,
+                    source_layer=src_layer,
+                    source_material=src_mat,
+                    default_category=sub_cat,
+                    vertices=v_merged,
+                    faces=f_merged,
+                    is_external_bim=is_ext_g,
+                    thermal_u_bim=u_bim_g,
+                )
+            )
 
     if not raw_groups:
         raise ValueError("Tidak ditemukan geometri 3D pada file yang diunggah.")
@@ -2030,32 +1892,54 @@ def load_universal_model_stages_1_and_2(
     audit.raw_span_xyz = [round(float(x), 2) for x in raw_span]
     max_raw_span = float(np.max(raw_span))
 
-    # Resolve unit scale to meters (also run BBox sanity guard even on IfcOpenShell if IFC header unit was broken!)
+    # M10: Resolve unit scale to meters & flag `unit_needs_confirmation=True` whenever unit is guessed from BBox!
     eff_unit = (unit_mode or "auto").lower()
+    has_authoritative_unit_header = ext in (".3dm", ".ifc", ".hbjson", ".json")
     if coords_already_in_meters and eff_unit == "auto":
         if max_raw_span > 1500.0:
             scale_to_m = 0.001
             audit.applied_unit = "mm"
             audit.scale_factor_to_m = 0.001
-            audit.notes.append(f"Koordinat IFC ({max_raw_span:.0f}) masih dalam milimeter meski header berbeda -> otomatis diskalakan ke meter.")
+            audit.unit_source = "bbox_guess"
+            audit.unit_needs_confirmation = True
+            audit.notes.append(f"Koordinat IFC ({max_raw_span:.0f}) masih dalam milimeter meski header berbeda -> ditebak mm (mohon konfirmasi).")
         else:
             scale_to_m = 1.0
             audit.applied_unit = audit.detected_unit
             audit.scale_factor_to_m = UNIT_SCALE_TO_METERS.get(audit.detected_unit, 1.0)
+            audit.unit_source = "header"
+            audit.unit_needs_confirmation = False
     else:
         if eff_unit == "auto":
-            if audit.detected_unit in UNIT_SCALE_TO_METERS and audit.detected_unit != "m":
+            if has_authoritative_unit_header and audit.detected_unit in UNIT_SCALE_TO_METERS:
                 eff_unit = audit.detected_unit
+                audit.unit_source = "header"
+                audit.unit_needs_confirmation = False
             elif max_raw_span > 3500.0:
                 eff_unit = "mm"
-                audit.notes.append(f"Dimensi mentah ({max_raw_span:.0f}) terdeteksi milimeter (mm) -> otomatis dikonversi ke meter.")
+                audit.unit_source = "bbox_guess"
+                audit.unit_needs_confirmation = True
+                audit.notes.append(f"Dimensi mentah ({max_raw_span:.0f}) ditebak milimeter (mm) dari BBox -> mohon konfirmasi satuan.")
             elif max_raw_span > 650.0:
                 eff_unit = "cm"
-                audit.notes.append(f"Dimensi mentah ({max_raw_span:.0f}) terdeteksi sentimeter (cm) -> otomatis dikonversi ke meter.")
+                audit.unit_source = "bbox_guess"
+                audit.unit_needs_confirmation = True
+                audit.notes.append(f"Dimensi mentah ({max_raw_span:.0f}) ditebak sentimeter (cm) dari BBox -> mohon konfirmasi satuan.")
             else:
                 eff_unit = "m"
+                if ext in (".obj", ".stl", ".ply"):
+                    audit.unit_source = "bbox_guess"
+                    audit.unit_needs_confirmation = True
+                else:
+                    audit.unit_source = "header"
+                    audit.unit_needs_confirmation = False
         elif eff_unit not in UNIT_SCALE_TO_METERS:
             eff_unit = "m"
+            audit.unit_source = "user"
+            audit.unit_needs_confirmation = False
+        else:
+            audit.unit_source = "user"
+            audit.unit_needs_confirmation = False
 
         scale_to_m = UNIT_SCALE_TO_METERS[eff_unit]
         if coords_already_in_meters:
@@ -2069,13 +1953,34 @@ def load_universal_model_stages_1_and_2(
         for rg in raw_groups:
             rg.vertices = rg.vertices * scale_to_m
 
-    # Ground Z zeroing + XY UTM World-Coordinate Recentering (prevents Float32 jitter on Revit/GIS models!)
+    # M2: Ground Z reference from BIM storey elevations (if available) OR envelope geometry ONLY
+    # (glazing/wall/spandrel/composite_cw) — never from trees ('unknown'), site ('ignore'), or context!
     all_v_scaled = np.vstack([rg.vertices for rg in raw_groups])
     s_min = np.min(all_v_scaled, axis=0)
     s_max = np.max(all_v_scaled, axis=0)
-    z_offset = float(s_min[2])
-    cx_raw = 0.5 * float(s_min[0] + s_max[0])
-    cy_raw = 0.5 * float(s_min[1] + s_max[1])
+
+    env_groups_for_z = [
+        rg for rg in raw_groups
+        if rg.default_category in ("glazing", "wall", "spandrel", "composite_cw") and len(rg.vertices) > 0
+    ]
+    if env_groups_for_z:
+        env_v = np.vstack([rg.vertices for rg in env_groups_for_z])
+        env_min = np.min(env_v, axis=0)
+        env_max = np.max(env_v, axis=0)
+    else:
+        env_min, env_max = s_min, s_max
+
+    if audit.bim_storeys:
+        storey_elevs = [float(st["elevation_m"]) for st in audit.bim_storeys if "elevation_m" in st]
+        non_neg = [e for e in storey_elevs if e >= -0.05]
+        z_offset = min(non_neg) if non_neg else (min(storey_elevs) if storey_elevs else float(env_min[2]))
+        z_ref_src = "BIM storey"
+    else:
+        z_offset = float(env_min[2])
+        z_ref_src = "geometri selubung"
+
+    cx_raw = 0.5 * float(env_min[0] + env_max[0])
+    cy_raw = 0.5 * float(env_min[1] + env_max[1])
     audit.z_ground_offset_m = round(z_offset, 3)
 
     if abs(z_offset) > 0.25:
@@ -2084,7 +1989,8 @@ def load_universal_model_stages_1_and_2(
         for st in audit.bim_storeys:
             st["elevation_m"] = round(st["elevation_m"] - z_offset, 3)
         s_max[2] -= z_offset
-        s_min[2] = 0.0
+        s_min[2] -= z_offset
+        audit.notes.append(f"M2: Elevasi Z dinolkan sebesar {z_offset:.3f} m berdasarkan {z_ref_src}.")
 
     if max(abs(cx_raw), abs(cy_raw)) > 500.0:
         for rg in raw_groups:
@@ -2099,14 +2005,17 @@ def load_universal_model_stages_1_and_2(
         round(float(s_max[2] - s_min[2]), 2),
     ]
 
-    # Post-scaling thin-edge sliver cleanup for non-IfcOpenShell formats (.3dm, .obj, .glb)
+    # M4: Post-scaling non-destructive thin-edge sliver tagging for non-IfcOpenShell formats
     if not coords_already_in_meters:
         non_ifc_sliv = 0
         for rg in raw_groups:
-            non_ifc_sliv += _filter_thin_edge_slivers_on_group(rg)
+            n_sliv, f_item = _filter_thin_edge_slivers_on_group(rg, restore_filtered_set=restore_set)
+            non_ifc_sliv += n_sliv
+            if f_item is not None:
+                audit.filtered_items.append(f_item)
         if non_ifc_sliv > 0:
             audit.slivers_removed += non_ifc_sliv
-            audit.notes.append(f"{non_ifc_sliv} sisi tipis ketebalan kaca/spandrel (<=8cm) dibersihkan otomatis.")
+            audit.notes.append(f"{non_ifc_sliv} sisi tipis ketebalan kaca/spandrel (<=8.5cm) ditandai di filtered_items (dapat dikembalikan).")
 
     # ------------------------------------------------------------------------
     # STAGE 2: TIER 2 GEOMETRIC AUTO-SPLITTER FOR MERGED CURTAIN WALL GROUPS

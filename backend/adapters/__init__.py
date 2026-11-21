@@ -86,7 +86,7 @@ SOFTWARE_PROFILES: Dict[str, Dict[str, Any]] = {
         "id": "sketchup_mesh",
         "name": "SketchUp / Blender / 3ds Max",
         "subtitle": "Polygon Mesh & 3D Warehouse / Sketchfab",
-        "badge": "Y-Up + PBR/MTL Glass + Normal Fix",
+        "badge": "Y-Up + PBR/MTL Glass",
         "supported_formats": [".glb", ".gltf", ".obj", ".zip", ".ifc", ".stl"],
         "recommended_format": ".glb",
         "default_up_axis": "Y",
@@ -94,7 +94,7 @@ SOFTWARE_PROFILES: Dict[str, Dict[str, Any]] = {
         "adapter_class": "SketchUpMeshAdapter",
         "export_tips": [
             "Format terbaik: .glb (semua transformasi komponen & transparansi kaca PBR ikut terbawa) atau .zip berisi (.obj + .mtl).",
-            "Adapter otomatis memperbaiki sumbu Y-Up -> Z-Up dan membalik normal 'muka biru' SketchUp yang menghadap ke dalam.",
+            "Adapter otomatis mengonversi sumbu Y-Up -> Z-Up dan membaca transparansi material PBR/MTL. Pastikan sisi depan (front face / putih) di SketchUp sudah menghadap keluar sebelum ekspor.",
             "Jika seluruh bangunan menyatu di 1 grup, gunakan fitur Auto-Split atau Seleksi per Bidang / Lantai langsung di Preview 3D Inspeksi.",
         ],
     },
@@ -355,7 +355,7 @@ class SketchUpMeshAdapter(BaseSoftwareAdapter):
         audit: Stage1GeometryAudit,
         profile: ModelIntakeProfile,
     ) -> Tuple[List[RawGroupMesh], List[str]]:
-        notes = [f"Adapter SketchUp/Mesh aktif ({audit.geometry_kernel}): sumbu {audit.applied_up_axis}-Up + PBR/MTL transparansi + perbaikan normal."]
+        notes = [f"Adapter SketchUp/Mesh aktif ({audit.geometry_kernel}): sumbu {audit.applied_up_axis}-Up + PBR/MTL transparansi."]
         return raw_groups, notes
 
 
@@ -391,16 +391,19 @@ def get_adapter_for_software(source_software: str) -> BaseSoftwareAdapter:
 
 def _estimate_group_confidence(rg: RawGroupMesh) -> Tuple[str, str]:
     """
-    Evaluates whether a group's auto-assigned role is high-confidence (explicit BIM /
-    physical transparency / clear naming) or 'review' (ambiguous/generic mesh name).
+    M7: Evaluates whether a group's auto-assigned role is high-confidence or 'review'
+    (including all 'unknown' groups which require explicit user confirmation).
     """
-    gn = (rg.group_name or "").lower()
+    if rg.default_category == "unknown":
+        return "review", "Peran belum dikenali — wajib dikonfirmasi di Periksa Model"
     if rg.is_external_bim is False:
-        return "high", "Metadata BIM IsExternal=False (Interior)"
+        return "high", "Metadata BIM IsExternal=False (Interior -> ignore)"
     if rg.is_auto_split_child:
         return "high", "Hasil Auto-Split Geometri (Tier 2)"
-    if any(k in gn for k in ("glass", "glas", "kaca", "vision", "spandrel", "mullion", "transom", "aluminium", "aluminum", "window", "curtain", "louver", "shade", "slab", "roof", "wall", "precast", "concrete", "paint -")):
-        return "high", "Teridentifikasi dari BIM / Material"
+    from universal_pipeline import classify_layer_or_material_with_confidence
+    _, score, reason = classify_layer_or_material_with_confidence(rg.group_name)
+    if score >= 0.80:
+        return "high", reason
     return "review", "Nama grup generik/ambigu — mohon verifikasi peran di 3D"
 
 
@@ -417,6 +420,7 @@ def build_staging_inspection_payload(
     spandrel_height_threshold_m: float = 1.15,
     face_category_overrides: Optional[Dict[str, str]] = None,
     auto_split_merged_cw: Optional[bool] = None,
+    restore_filtered: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Phase A (Fast Staging & 3D Inspection):
@@ -438,6 +442,7 @@ def build_staging_inspection_payload(
         groups_to_auto_split=groups_to_auto_split or [],
         frame_width_threshold_m=frame_width_threshold_m,
         spandrel_height_threshold_m=spandrel_height_threshold_m,
+        restore_filtered=restore_filtered,
     )
     raw_groups, adapter_notes = adapter.post_process_groups(raw_groups, audit, profile)
 
@@ -486,6 +491,19 @@ def build_staging_inspection_payload(
     active_envelope_groups = 0
     review_needed_count = 0
 
+    # M11: Compute exact outer-skin area per group using the SAME shared function as Results (`ottv_engine`)!
+    from ottv_engine import compute_outer_skin_areas_by_group
+    outer_metrics_by_group = compute_outer_skin_areas_by_group(
+        raw_groups=raw_groups,
+        group_category_overrides=cat_overrides,
+        disabled_groups=list(disabled_set),
+        z_ground_cutoff_m=z0_cut,
+        exterior_detection_mode=eff_cfg.get("exterior_detection_mode", "auto"),
+        bim_storeys=audit.bim_storeys,
+        restore_filtered=restore_filtered,
+    )
+    all_filtered_items = list(audit.filtered_items)
+
     for rg in raw_groups:
         eff_cat = cat_overrides.get(rg.group_name, rg.default_category)
         is_enabled = rg.group_name not in disabled_set
@@ -499,21 +517,20 @@ def build_staging_inspection_payload(
         if is_enabled and eff_cat in ("glazing", "spandrel", "wall", "composite_cw"):
             active_envelope_groups += 1
 
-        # Compute exact raw area & Z range for staging table
         vs = rg.vertices
         fs = rg.faces
-        is_q = fs[:, 2] != fs[:, 3]
-        p0, p1, p2, p3 = vs[fs[:, 0]], vs[fs[:, 1]], vs[fs[:, 2]], vs[fs[:, 3]]
-        c1 = np.cross(p1 - p0, p2 - p0)
-        c2 = np.where(is_q[:, None], np.cross(p2 - p0, p3 - p0), 0.0)
-        areas = 0.5 * np.linalg.norm(c1 + c2, axis=1)
         g_zmin = float(np.min(vs[:, 2]))
         g_zmax = float(np.max(vs[:, 2]))
 
-        # Approximate above-ground area (for double-skinned solids divide by 2 for preview indicator)
-        centroids_z = np.where(is_q, 0.25 * (p0[:, 2] + p1[:, 2] + p2[:, 2] + p3[:, 2]), (p0[:, 2] + p1[:, 2] + p2[:, 2]) / 3.0)
-        above_z_mask = centroids_z >= (z0_cut - 0.05)
-        raw_area_above = float(np.sum(areas[above_z_mask]))
+        om = outer_metrics_by_group.get(rg.group_name)
+        if om is not None:
+            outer_area_m2 = round(float(om["outer_area_m2"]), 2)
+            outer_faces_cnt = int(om["outer_faces"])
+            if om.get("filtered_entry") is not None:
+                all_filtered_items.append(om["filtered_entry"])
+        else:
+            outer_area_m2 = 0.0
+            outer_faces_cnt = 0
 
         staging_groups.append({
             "group_id": rg.group_id,
@@ -528,7 +545,9 @@ def build_staging_inspection_payload(
             "is_auto_split_child": rg.is_auto_split_child,
             "composite_wwr": round(float(wwr_map.get(rg.group_name, 0.65)), 2) if eff_cat == "composite_cw" else None,
             "face_count": int(len(fs)),
-            "raw_area_m2": round(raw_area_above, 1),
+            "outer_faces": outer_faces_cnt,
+            "outer_area_m2": outer_area_m2,
+            "raw_area_m2": outer_area_m2,  # M11: Unified single definition of area = outer skin area!
             "z_range_m": [round(g_zmin, 2), round(g_zmax, 2)],
         })
 
@@ -619,6 +638,8 @@ def build_staging_inspection_payload(
             "detected_unit": audit.detected_unit,
             "applied_unit": audit.applied_unit,
             "scale_factor_to_m": audit.scale_factor_to_m,
+            "unit_source": audit.unit_source,
+            "unit_needs_confirmation": audit.unit_needs_confirmation,
             "detected_up_axis": audit.detected_up_axis,
             "applied_up_axis": audit.applied_up_axis,
             "normalized_span_m": audit.normalized_span_m,
@@ -627,9 +648,13 @@ def build_staging_inspection_payload(
             "slivers_removed": audit.slivers_removed,
             "interior_elements_filtered": audit.interior_elements_filtered,
             "hidden_objects_skipped": audit.hidden_objects_skipped,
+            "missing_mesh": audit.missing_mesh,
+            "filtered_items": all_filtered_items,
             "bim_storeys_count": len(audit.bim_storeys),
             "notes": audit.notes,
         },
+        "filtered_items": all_filtered_items,
+        "missing_mesh": audit.missing_mesh,
         "bounding_box": {
             "min": [round(float(x), 2) for x in b_min],
             "max": [round(float(x), 2) for x in b_max],

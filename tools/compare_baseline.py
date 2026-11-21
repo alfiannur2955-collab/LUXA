@@ -52,6 +52,8 @@ def compare_fixture_records(fname: str, base: Dict[str, Any], cur: Dict[str, Any
     check_scalar("total_floors", base.get("total_floors", 0), cur.get("total_floors", 0), is_float=False)
     check_scalar("wwr", base.get("wwr", 0.0), cur.get("wwr", 0.0), is_float=True)
     check_scalar("ottv_total_wm2", base.get("ottv_total_wm2", 0.0), cur.get("ottv_total_wm2", 0.0), is_float=True)
+    if base.get("ottv_error") != cur.get("ottv_error"):
+        diffs.append((fname, "ottv_error", base.get("ottv_error"), cur.get("ottv_error"), "DIFF"))
 
     # Compare bounding box vectors
     b_box = base.get("bbox", {})
