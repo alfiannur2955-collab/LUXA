@@ -8,31 +8,28 @@ import * as THREE from 'three';
 export function readThemeTokens() {
   const root = document.getElementById('app') || document.documentElement;
   const cs = window.getComputedStyle(root);
-  const get = (name, fallback) => {
-    const v = cs.getPropertyValue(name).trim();
-    return v || fallback;
-  };
+  const get = (name) => cs.getPropertyValue(name).trim();
   return {
-    paper: get('--paper', '#f8f7f4'),
-    surface: get('--surface', '#ffffff'),
-    sunken: get('--surface-sunken', '#eae7e0'),
-    ink: get('--ink', '#1b1a17'),
-    muted: get('--ink-muted', '#5e5a52'),
-    line: get('--line', '#ddd9d0'),
-    sun: get('--sun', '#a35400'),
-    ok: get('--ok', '#0f766e'),
-    warn: get('--warn', '#9a5800'),
-    fail: get('--fail', '#b3261e'),
-    glazing: get('--data-glazing', '#4f86b5'),
-    wall: get('--data-wall', '#b9b2a6'),
-    shading: get('--data-shading', '#138e86'),
-    unknown: get('--data-unknown', '#d9a400'),
-    frame: get('--data-frame', '#55524c'),
-    roof: get('--data-roof', '#8b857a'),
-    heat0: get('--heat-0', '#f6e7c8'),
-    heat1: get('--heat-1', '#eeb066'),
-    heat2: get('--heat-2', '#cf5a1f'),
-    heat3: get('--heat-3', '#7d1d10'),
+    paper: get('--paper'),
+    surface: get('--surface'),
+    sunken: get('--surface-sunken'),
+    ink: get('--ink'),
+    muted: get('--ink-muted'),
+    line: get('--line'),
+    sun: get('--sun'),
+    ok: get('--ok'),
+    warn: get('--warn'),
+    fail: get('--fail'),
+    glazing: get('--data-glazing'),
+    wall: get('--data-wall'),
+    shading: get('--data-shading'),
+    unknown: get('--data-unknown'),
+    frame: get('--data-frame'),
+    roof: get('--data-roof'),
+    heat0: get('--heat-0'),
+    heat1: get('--heat-1'),
+    heat2: get('--heat-2'),
+    heat3: get('--heat-3'),
   };
 }
 
