@@ -452,6 +452,7 @@ export function renderInspectScreen(state, handlers) {
 
   window.requestAnimationFrame(() => {
     if (canvasHost.isConnected) {
+      viewer.setRightInsetPx(0);
       viewer.mount(canvasHost, {
         onPickGroup: (meta) => {
           handlers.onSelectGroup(meta?.groupName || null);

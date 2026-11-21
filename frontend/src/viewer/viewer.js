@@ -155,6 +155,11 @@ class LuxaViewer {
     this.rig.setProjection(projection, this.controls, opts);
   }
 
+  setRightInsetPx(px) {
+    this._initThree();
+    this.rig.setRightInsetPx(px);
+  }
+
   lookAtDirection(direction, opts = {}) {
     this._initThree();
     this.rig.lookAtDirection(direction, this.controls, opts);
@@ -310,6 +315,22 @@ class LuxaViewer {
     }
   }
 
+  _addEdgeLines(geom, tokens, { opacity = 0.42 } = {}) {
+    try {
+      const edges = new THREE.EdgesGeometry(geom, 18);
+      const lineMat = new THREE.LineBasicMaterial({
+        color: new THREE.Color(tokens.lineStrong || tokens.muted),
+        transparent: true,
+        opacity,
+      });
+      const lines = new THREE.LineSegments(edges, lineMat);
+      lines.raycast = () => {};
+      this.modelRoot.add(lines);
+    } catch {
+      // Ignore degenerate geometries
+    }
+  }
+
   _renderPreviewMeshes(state, tokens) {
     const meshes = state.inspectData?.preview_meshes || [];
     const overrides = state.config?.roles?.group_category_overrides || {};
@@ -351,6 +372,7 @@ class LuxaViewer {
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData = { groupName: gName, category: cat };
       this.modelRoot.add(mesh);
+      this._addEdgeLines(geom, tokens, { opacity: dimmed ? 0.14 : 0.45 });
     }
   }
 
@@ -394,6 +416,7 @@ class LuxaViewer {
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData = { orientationCode: code };
       this.modelRoot.add(mesh);
+      this._addEdgeLines(geom, tokens, { opacity: dimmed ? 0.16 : 0.48 });
     }
 
     this._renderContextElements(analysis.shading_elements, 'shading', tokens, Boolean(selectedOrientation));
@@ -431,6 +454,7 @@ class LuxaViewer {
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData = { groupName: b.groupName, category: b.category };
       this.modelRoot.add(mesh);
+      this._addEdgeLines(geom, tokens, { opacity: dimmed ? 0.14 : 0.45 });
     }
 
     this._renderContextElements(analysis.shading_elements, 'shading', tokens, false);
@@ -469,6 +493,7 @@ class LuxaViewer {
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData = { groupName: el.group_name, category };
       this.modelRoot.add(mesh);
+      this._addEdgeLines(geom, tokens, { opacity: dimmed ? 0.12 : 0.32 });
     }
   }
 }

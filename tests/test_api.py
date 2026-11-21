@@ -400,3 +400,50 @@ def test_saved_views_roundtrip_in_project_config(isolated_client):
     assert get_resp.status_code == 200
     assert get_resp.json()["config"]["saved_views"] == [sample_view]
 
+
+def test_ui_response_contract_rttv_and_panel_fields(isolated_client):
+    """Contract test for UI-consumed keys (R1) using builtin contoh_kotak_m."""
+    client, _ = isolated_client
+
+    # Analyze contoh_kotak_m with default ProjectConfig
+    ana_resp = client.post(
+        "/api/models/contoh_kotak_m/analyze",
+        json=ProjectConfig().model_dump(mode="json"),
+    )
+    assert ana_resp.status_code == 200, ana_resp.text
+    data = ana_resp.json()
+
+    # R1: RTTV contract keys
+    rttv = data.get("rttv")
+    assert isinstance(rttv, dict)
+    assert rttv["applicable"] is True
+    assert abs(float(rttv["rttv_wm2"]) - 4.64) <= 0.15
+    assert abs(float(rttv["total_roof_area_m2"]) - 600.0) <= 1.0
+    assert float(rttv["limit_wm2"]) == 10.0
+    assert rttv["compliant"] is True
+
+    # Panel contract keys required by Fase 4b-2 viewer
+    panels = [p for p in data.get("panels", []) if p.get("active")]
+    assert len(panels) > 0
+    required_panel_keys = {
+        "id",
+        "group_name",
+        "element_type",
+        "orientation_code",
+        "area_m2",
+        "centroid",
+        "normal",
+        "sf_wm2",
+        "sc_effective",
+        "u_fen_eff",
+        "u_wall_eff",
+        "alpha_wall_eff",
+        "td_ek_eff",
+        "sunlit_mask",
+        "ottv_panel_wm2",
+        "heat_gain_w",
+    }
+    for key in required_panel_keys:
+        assert key in panels[0], f"Missing required panel key: {key}"
+
+

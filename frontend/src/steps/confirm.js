@@ -597,10 +597,11 @@ export function renderConfirmScreen(state, handlers) {
   viewerSec.appendChild(card);
   main.appendChild(viewerSec);
 
-  // Mount & sync Three.js viewer after insertion
+  // Mount & sync Three.js viewer after insertion (R5: reserve right space for floating confirm card)
   window.requestAnimationFrame(() => {
     if (canvasHost.isConnected) {
-      viewer.mount(canvasHost);
+      viewer.mount(canvasHost, { showGizmo: false });
+      viewer.setRightInsetPx(window.innerWidth > 860 ? 446 : 0);
       viewer.syncState({ ...state, viewerMode: 'classification' });
     }
   });

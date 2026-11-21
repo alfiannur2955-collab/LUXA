@@ -74,6 +74,7 @@ export class CameraRig {
     this.direction = 'B'; // 'U'..'BL' | 'Atas'
     this.northAngleDeg = 0;
     this.twoPointShiftY = 0; // normalized vertical lens shift (-0.35 .. 0.35)
+    this.rightInsetPx = 0; // occluded right-side overlay width (e.g. Konfirmasi floating card)
     this.bbox = null;
 
     this.perspCamera = new THREE.PerspectiveCamera(42, 4 / 3, 0.1, 4000);
@@ -98,6 +99,15 @@ export class CameraRig {
 
   setBBox(bbox) {
     this.bbox = bbox || null;
+  }
+
+  setRightInsetPx(px) {
+    const next = Math.max(0, Math.round(Number(px) || 0));
+    if (next === this.rightInsetPx) return;
+    this.rightInsetPx = next;
+    this._applyPerspViewOffset();
+    this.perspCamera.updateProjectionMatrix();
+    this._updateOrthoFrustum();
   }
 
   _getModelMetrics() {
@@ -127,29 +137,53 @@ export class CameraRig {
     const aspect = this.width / this.height;
 
     this.perspCamera.aspect = aspect;
-    if (this.projection === 'two_point') {
-      this._applyTwoPointViewOffset();
-    } else {
-      this.perspCamera.clearViewOffset();
-    }
+    this._applyPerspViewOffset();
     this.perspCamera.updateProjectionMatrix();
 
     this._updateOrthoFrustum();
   }
 
-  _applyTwoPointViewOffset() {
-    const offsetPx = Math.round(this.twoPointShiftY * this.height);
-    this.perspCamera.setViewOffset(this.width, this.height, 0, offsetPx, this.width, this.height);
+  _applyPerspViewOffset() {
+    const offsetX = this.rightInsetPx > 0 ? Math.round(Math.min(this.rightInsetPx, this.width * 0.6) * 0.5) : 0;
+    const offsetY = this.projection === 'two_point' ? Math.round(this.twoPointShiftY * this.height) : 0;
+    if (offsetX !== 0 || offsetY !== 0) {
+      this.perspCamera.setViewOffset(this.width, this.height, offsetX, offsetY, this.width, this.height);
+    } else {
+      this.perspCamera.clearViewOffset();
+    }
   }
 
   _updateOrthoFrustum() {
     const aspect = this.width / Math.max(1, this.height);
     const hh = Math.max(1, this.orthoHalfHeight);
-    this.orthoCamera.left = -hh * aspect;
-    this.orthoCamera.right = hh * aspect;
+    const clampedInset = this.rightInsetPx > 0 ? Math.min(this.rightInsetPx, this.width * 0.6) : 0;
+    const shiftWorld = (clampedInset / Math.max(1, this.width)) * (hh * aspect);
+    this.orthoCamera.left = -hh * aspect + shiftWorld;
+    this.orthoCamera.right = hh * aspect + shiftWorld;
     this.orthoCamera.top = hh;
     this.orthoCamera.bottom = -hh;
     this.orthoCamera.updateProjectionMatrix();
+  }
+
+  _computeFitDistance(m) {
+    const clampedInset = this.rightInsetPx > 0 ? Math.min(this.rightInsetPx, this.width * 0.6) : 0;
+    const effW = Math.max(160, this.width - clampedInset);
+    const effH = Math.max(160, this.height);
+    const vFov = (this.perspCamera.fov * Math.PI) / 180;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * (effW / effH));
+    const distV = m.radius / Math.sin(vFov / 2);
+    const distH = m.radius / Math.sin(Math.min(Math.PI * 0.48, hFov / 2));
+    // 1.15 factor guarantees >= 10% breathing margin inside the unoccluded area
+    return Math.max(distV, distH, m.maxDim * 1.65) * 1.15;
+  }
+
+  _computeFitOrthoHalf(m) {
+    const clampedInset = this.rightInsetPx > 0 ? Math.min(this.rightInsetPx, this.width * 0.6) : 0;
+    const effW = Math.max(160, this.width - clampedInset);
+    const effH = Math.max(160, this.height);
+    const effAspect = effW / effH;
+    const baseHalf = Math.max(m.radius * 1.18, m.maxDim * 0.68);
+    return effAspect < 1 ? baseHalf / effAspect : baseHalf;
   }
 
   /**
@@ -180,7 +214,7 @@ export class CameraRig {
    */
   _computeTargetPose(projection, direction, controls) {
     const m = this._getModelMetrics();
-    const dist = Math.max(m.radius * 2.7, m.maxDim * 1.75);
+    const dist = this._computeFitDistance(m);
     const curPos = this.activeCamera.position.clone();
     const curTarget = controls ? controls.target.clone() : m.center.clone();
     const rel = curPos.clone().sub(curTarget);
@@ -189,7 +223,7 @@ export class CameraRig {
     let pos = new THREE.Vector3();
     let target = m.center.clone();
     let up = new THREE.Vector3(0, 1, 0);
-    let orthoHalf = Math.max(m.radius * 1.28, m.maxDim * 0.72);
+    let orthoHalf = this._computeFitOrthoHalf(m);
     let shiftY = 0;
 
     if (projection === 'perspective') {
@@ -199,8 +233,8 @@ export class CameraRig {
           pos.set(m.center.x + dist * 0.68, m.center.y + dist * 0.45, m.center.z + dist * 0.72);
         } else {
           horiz.normalize();
-          const elev = Math.max(curDist * 0.25, Math.min(curDist * 0.75, rel.y > 0.5 ? rel.y : curDist * 0.35));
-          pos.copy(m.center).addScaledVector(horiz, Math.sqrt(Math.max(1, curDist * curDist - elev * elev)));
+          const elev = dist * 0.36;
+          pos.copy(m.center).addScaledVector(horiz, Math.sqrt(Math.max(1, dist * dist - elev * elev)));
           pos.y = m.center.y + elev;
         }
       } else {
@@ -219,7 +253,7 @@ export class CameraRig {
       }
       const eyeY = m.center.y - m.spanZ * 0.12;
       target.set(m.center.x, eyeY, m.center.z);
-      pos.copy(target).addScaledVector(horiz, Math.max(dist, curDist * 0.95));
+      pos.copy(target).addScaledVector(horiz, dist);
       pos.y = eyeY; // pitch strictly 0!
       // Vertical view offset shifts the horizon slightly down so tall towers sit gracefully in frame
       shiftY = -0.10;
@@ -240,7 +274,7 @@ export class CameraRig {
         m.center.y + dist * Math.sin(elevRad),
         m.center.z - dist * cosE * Math.cos(rad),
       );
-      orthoHalf = Math.max(m.radius * 1.25, m.maxDim * 0.72);
+      orthoHalf = this._computeFitOrthoHalf(m);
     } else {
       // elevation ('Tampak')
       if (direction === 'Atas') {
@@ -286,11 +320,7 @@ export class CameraRig {
     this.orthoCamera.far = Math.max(2500, m.maxDim * 35);
 
     this.activeCamera.up.copy(pose.up);
-    if (projection === 'two_point') {
-      this._applyTwoPointViewOffset();
-    } else {
-      this.perspCamera.clearViewOffset();
-    }
+    this._applyPerspViewOffset();
     this.perspCamera.updateProjectionMatrix();
 
     this._startTransition({
@@ -313,7 +343,7 @@ export class CameraRig {
   lookAtDirection(direction, controls, { forceElevation = false, animate = true } = {}) {
     this.direction = direction;
     const m = this._getModelMetrics();
-    const dist = Math.max(m.radius * 2.6, m.maxDim * 1.72);
+    const dist = this._computeFitDistance(m);
     const startPos = this.activeCamera.position.clone();
     const startTarget = controls ? controls.target.clone() : m.center.clone();
     const startHalf = this.orthoHalfHeight;
@@ -329,7 +359,7 @@ export class CameraRig {
     let endPos = new THREE.Vector3();
     let endTarget = m.center.clone();
     let up = new THREE.Vector3(0, 1, 0);
-    let endHalf = Math.max(m.radius * 1.25, m.maxDim * 0.70);
+    let endHalf = this._computeFitOrthoHalf(m);
     let shiftY = 0;
 
     if (direction === 'Atas') {
@@ -361,11 +391,7 @@ export class CameraRig {
 
     this.twoPointShiftY = shiftY;
     this.activeCamera.up.copy(up);
-    if (targetProj === 'two_point') {
-      this._applyTwoPointViewOffset();
-    } else {
-      this.perspCamera.clearViewOffset();
-    }
+    this._applyPerspViewOffset();
     this.perspCamera.updateProjectionMatrix();
 
     this._startTransition({
@@ -479,11 +505,7 @@ export class CameraRig {
     const upArr = camState.up || [0, 1, 0];
     this.activeCamera.up.set(upArr[0], upArr[1], upArr[2]);
 
-    if (this.projection === 'two_point') {
-      this._applyTwoPointViewOffset();
-    } else {
-      this.perspCamera.clearViewOffset();
-    }
+    this._applyPerspViewOffset();
     this.perspCamera.updateProjectionMatrix();
 
     const endHalf = Number(camState.orthoHalfHeight || this.orthoHalfHeight || 20);

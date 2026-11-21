@@ -354,14 +354,34 @@ export function renderResultsScreen(state, handlers) {
     compGrid.appendChild(cell);
   }
 
-  const rttvLine = document.createElement('p');
-  rttvLine.className = 'muted num';
+  const rttvLine = document.createElement('div');
   rttvLine.style.margin = '8px 0 0';
-  rttvLine.style.fontSize = '12.5px';
-  if (rttv && rttv.has_roof && rttv.rttv_wm2 !== null && rttv.rttv_wm2 !== undefined) {
-    rttvLine.textContent = `RTTV atap: ${fmtId(rttv.rttv_wm2, 2)} W/m² (luas atap ${fmtId(rttv.total_roof_area_m2 || 0, 1)} m²).`;
+  rttvLine.style.display = 'grid';
+  rttvLine.style.gap = '6px';
+  if (rttv && rttv.applicable) {
+    const rttvVal = Number(rttv.rttv_wm2 ?? 0);
+    const rttvLimit = Number(rttv.limit_wm2 ?? 10);
+    const rttvOk = rttv.compliant !== undefined && rttv.compliant !== null ? Boolean(rttv.compliant) : rttvVal <= rttvLimit;
+    const pTxt = document.createElement('p');
+    pTxt.className = 'muted num';
+    pTxt.style.margin = '0';
+    pTxt.style.fontSize = '12.5px';
+    pTxt.textContent = `RTTV atap: ${fmtId(rttvVal, 2)} W/m² (luas atap ${fmtId(rttv.total_roof_area_m2 || 0, 1)} m²).`;
+
+    const rChip = document.createElement('span');
+    rChip.className = `chip ${rttvOk ? 'st-ok' : 'st-fail'}`;
+    rChip.style.justifySelf = 'start';
+    rChip.innerHTML = rttvOk
+      ? `${icon('check', 13)}<span>Memenuhi (≤ ${fmtId(rttvLimit, 0)} W/m²)</span>`
+      : `${icon('close', 13)}<span>Tidak memenuhi, batas ${fmtId(rttvLimit, 0)}</span>`;
+    rttvLine.append(pTxt, rChip);
   } else {
-    rttvLine.textContent = 'RTTV tidak dihitung (tidak ada atap atau skylight aktif di model).';
+    const pTxt = document.createElement('p');
+    pTxt.className = 'muted num';
+    pTxt.style.margin = '0';
+    pTxt.style.fontSize = '12.5px';
+    pTxt.textContent = 'RTTV tidak dihitung (tidak ada atap atau skylight aktif di model).';
+    rttvLine.appendChild(pTxt);
   }
 
   rttvCard.append(rtTitle, compGrid, rttvLine);
@@ -392,6 +412,7 @@ export function renderResultsScreen(state, handlers) {
 
   window.requestAnimationFrame(() => {
     if (canvasHost.isConnected) {
+      viewer.setRightInsetPx(0);
       viewer.mount(canvasHost, {
         onPickGroup: (meta) => {
           if (meta?.orientationCode) {

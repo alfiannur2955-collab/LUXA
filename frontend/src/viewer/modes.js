@@ -16,6 +16,7 @@ export function readThemeTokens() {
     ink: get('--ink'),
     muted: get('--ink-muted'),
     line: get('--line'),
+    lineStrong: get('--line-strong'),
     sun: get('--sun'),
     ok: get('--ok'),
     warn: get('--warn'),
