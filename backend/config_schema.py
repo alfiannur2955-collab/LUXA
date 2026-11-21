@@ -141,9 +141,9 @@ class SettingsConfig(BaseModel):
     wwr_override: Optional[float] = Field(default=None, ge=0.05, le=0.95)
     default_wall_wwr: Optional[float] = Field(default=None, ge=0.0, le=0.95)
 
-    # Floor detection & sectioning
+    # Floor detection & sectioning (floor_height_m is None unless explicitly filled by user — R4)
     floor_mode: Literal["auto", "uniform", "custom"] = "auto"
-    floor_height_m: float = Field(default=3.60, ge=2.20, le=10.00)
+    floor_height_m: Optional[float] = Field(default=None, ge=2.20, le=10.00)
     custom_floor_zones: List[Dict[str, Any]] = Field(default_factory=list)
     section_floor_min: Optional[int] = None
     section_floor_max: Optional[int] = None
@@ -215,6 +215,7 @@ class ProjectConfig(BaseModel):
             default_wall_wwr=self.settings.default_wall_wwr,
             floor_mode=self.settings.floor_mode,
             floor_height_m=self.settings.floor_height_m,
+            expected_floors=self.model.expected_floors,
             custom_floor_zones=copy.deepcopy(self.settings.custom_floor_zones),
             section_floor_min=self.settings.section_floor_min,
             section_floor_max=self.settings.section_floor_max,
@@ -236,6 +237,7 @@ class InspectRequest(BaseModel):
 
     model: ModelConfig = Field(default_factory=ModelConfig)
     roles: RolesConfig = Field(default_factory=RolesConfig)
+    settings: Optional[SettingsConfig] = None
     advanced: AdvancedConfig = Field(default_factory=AdvancedConfig)
     user_answers: Dict[str, Any] = Field(default_factory=dict)
 

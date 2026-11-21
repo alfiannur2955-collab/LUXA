@@ -112,9 +112,10 @@ class EnvelopeParameters:
     face_category_overrides: Dict[str, str] = field(default_factory=dict)
     face_z_band_overrides: List[Dict[str, Any]] = field(default_factory=list)
 
-    # Stage 3: Universal Dynamic Floor Detection
+    # Stage 3: Universal Dynamic Floor Detection (R4: floor_height_m is None unless explicitly filled)
     floor_mode: str = "auto"  # 'auto' | 'uniform' | 'custom'
-    floor_height_m: float = 3.60
+    floor_height_m: Optional[float] = None
+    expected_floors: Optional[int] = None
     custom_floor_zones: List[Dict[str, Any]] = field(default_factory=list)
     section_floor_min: Optional[int] = None
     section_floor_max: Optional[int] = None
@@ -1300,8 +1301,11 @@ def compute_outer_skin_areas_by_group(
         z_min_bldg=z_min,
         z_max_bldg=z_max,
         floor_mode="auto",
-        floor_height_m=3.6,
+        floor_height_m=None,
         bim_storeys=bim_storeys or [],
+        raw_groups=raw_groups,
+        disabled_groups=list(dis_set),
+        group_category_overrides=group_category_overrides,
     )
     total_floors = max(1, len(floor_defs))
     floor_centers = np.zeros((total_floors, 2), dtype=np.float64)
@@ -1868,7 +1872,7 @@ def analyze_building_ottv(
         if float(st.get("z_max", st.get("z_min", 0.0) + 3.0)) > (z_ground_cut + 0.3)
     ] if z_ground_cut > 0.05 else stage1_audit.bim_storeys
 
-    # STAGE 3: Build Dynamic Floor Levels (`auto` | `uniform` | `custom`)
+    # STAGE 3: Build Dynamic Floor Levels (`auto` | `uniform` | `custom`) — R4 Tiered Detection
     floor_defs, floor_detection_method = build_dynamic_floor_levels(
         z_min_bldg=z_min_bldg,
         z_max_bldg=z_max_bldg,
@@ -1878,6 +1882,10 @@ def analyze_building_ottv(
         panel_z_mins=p_zmin_concat,
         panel_z_maxs=p_zmax_concat,
         custom_floor_zones=params.custom_floor_zones,
+        raw_groups=raw_groups,
+        expected_floors=params.expected_floors,
+        disabled_groups=list(params.disabled_groups),
+        group_category_overrides=params.group_category_overrides,
     )
     total_floors = max(1, len(floor_defs))
     floor_h = round(span_z / total_floors, 2)

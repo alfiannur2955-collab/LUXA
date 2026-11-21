@@ -47,7 +47,7 @@ export function createDefaultConfig() {
       wwr_override: null,
       default_wall_wwr: null,
       floor_mode: 'auto',
-      floor_height_m: 3.6,
+      floor_height_m: null,
       custom_floor_zones: [],
       section_floor_min: null,
       section_floor_max: null,

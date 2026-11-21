@@ -57,6 +57,7 @@ export async function inspect(modelId, config, { userAnswers = {}, signal } = {}
   const payload = {
     model: config?.model || {},
     roles: config?.roles || {},
+    settings: config?.settings || null,
     advanced: config?.advanced || {},
     user_answers: userAnswers || {},
   };

@@ -684,11 +684,13 @@ function renderApp(state) {
           });
           await refreshInspectReadOnly();
         },
-        onChangeFloorHeight: (h) => {
+        onChangeFloorHeight: async (h) => {
           updateConfig((cfg) => {
             cfg.settings.floor_height_m = h;
+            cfg.settings.floor_mode = h != null ? 'uniform' : 'auto';
           });
           saveProjectAutosave(getState());
+          await refreshInspectReadOnly();
         },
         onChangeExpectedFloors: async (n) => {
           updateConfig((cfg) => {
