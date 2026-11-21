@@ -158,6 +158,13 @@ const initialState = {
   exposureLoading: false,
   formulaPillExpanded: false,
 
+  // Fase 4c: Compare mode & design history
+  alternatives: [], // [{ id, code, name, config, analysisData, createdAt }]
+  activeAlternativeId: null,
+  compareSplitRatio: 0.5, // 0.10 .. 0.90
+  compareBusy: false,
+  designHistory: [], // [{ id, label, config, analysisData, savedAt }]
+
   // Catalog caches
   materials: {
     materials: [],
@@ -310,6 +317,7 @@ export const STEP_TITLES = {
   confirm: 'Konfirmasi model',
   inspect: 'Inspeksi model',
   results: 'Hasil',
+  compare: 'Bandingkan',
   loading: 'Memproses model',
   error: 'Terjadi kendala',
 };

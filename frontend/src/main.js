@@ -36,6 +36,7 @@ import {
 import { renderConfirmScreen } from './steps/confirm.js';
 import { renderInspectScreen } from './steps/inspect.js';
 import { renderResultsScreen } from './steps/results.js';
+import { renderCompareScreen } from './steps/compare.js';
 import { renderErrorScreen, renderLoadingScreen } from './steps/status.js';
 import { renderUploadScreen } from './steps/upload.js';
 import { renderCommandPalette } from './ui/commandPalette.js';
@@ -255,6 +256,99 @@ function handleChangeFacadeFilter(filterMode) {
     setState({ sunDomeVisible: true });
     exposureController.ensureExposureLoaded();
   }
+}
+
+async function handleCreateAlternative({ name, glazingMaterialId, wallMaterialId, northAngleDeg }) {
+  const s = getState();
+  if (!s.modelId || !s.analysisData) return;
+
+  const altConfig = mergeConfig(s.config);
+  if (glazingMaterialId) altConfig.settings.glazing_material_id = glazingMaterialId;
+  if (wallMaterialId) altConfig.settings.wall_material_id = wallMaterialId;
+  if (Number.isFinite(Number(northAngleDeg))) {
+    altConfig.settings.north_angle_deg = Number(northAngleDeg);
+  }
+
+  setState({ compareBusy: true });
+  try {
+    const result = await engine.analyze(s.modelId, altConfig);
+    const existing = getState().alternatives || [];
+    const codeChar = String.fromCharCode(65 + (existing.length % 26));
+    const altRec = {
+      id: `alt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+      code: codeChar,
+      name: String(name || `Variasi ${codeChar}`).trim(),
+      config: altConfig,
+      analysisData: result,
+      createdAt: new Date().toISOString(),
+    };
+    setState({
+      alternatives: [...existing, altRec],
+      activeAlternativeId: altRec.id,
+      compareBusy: false,
+    });
+    showToast(`Alternatif ${codeChar} selesai dihitung (${result.ottv_total_wm2} W/m²).`, 'ok', 2800);
+  } catch (err) {
+    setState({ compareBusy: false });
+    showToast(err.message || 'Gagal menghitung alternatif desain.', 'fail');
+  }
+}
+
+function handleApplyAlternative(altId) {
+  const s = getState();
+  const alt = (s.alternatives || []).find((a) => a.id === altId);
+  if (!alt || !alt.analysisData) return;
+
+  const prevGlz = (s.materials?.materials || []).find((m) => m.id === s.config?.settings?.glazing_material_id);
+  const histEntry = {
+    id: `hist_${Date.now().toString(36)}`,
+    label: prevGlz ? prevGlz.name : 'Desain sebelumnya',
+    config: mergeConfig(s.config),
+    analysisData: s.analysisData,
+    savedAt: new Date().toISOString(),
+  };
+
+  viewer.clearCompareMode();
+  const next = setState({
+    config: mergeConfig(alt.config),
+    analysisData: alt.analysisData,
+    designHistory: [histEntry, ...(s.designHistory || [])].slice(0, 12),
+    selectedPanelIds: [],
+    selectedOrientation: null,
+    exposureData: null,
+    needsRecompute: false,
+    step: 'results',
+    viewerMode: 'heatmap',
+  });
+  saveProjectAutosave(next);
+  showToast(`Alternatif ${alt.code} diterapkan. Desain sebelumnya tersimpan di riwayat.`, 'ok', 3200);
+}
+
+function handleRestoreHistory(histId) {
+  const s = getState();
+  const item = (s.designHistory || []).find((h) => h.id === histId);
+  if (!item) return;
+
+  const curGlz = (s.materials?.materials || []).find((m) => m.id === s.config?.settings?.glazing_material_id);
+  const swapEntry = {
+    id: `hist_${Date.now().toString(36)}`,
+    label: curGlz ? curGlz.name : 'Desain sebelumnya',
+    config: mergeConfig(s.config),
+    analysisData: s.analysisData,
+    savedAt: new Date().toISOString(),
+  };
+  const nextHistory = [swapEntry, ...(s.designHistory || []).filter((h) => h.id !== histId)].slice(0, 12);
+  const next = setState({
+    config: mergeConfig(item.config),
+    analysisData: item.analysisData,
+    designHistory: nextHistory,
+    selectedPanelIds: [],
+    selectedOrientation: null,
+    exposureData: null,
+    needsRecompute: false,
+  });
+  saveProjectAutosave(next);
+  showToast(`Desain "${item.label}" dipulihkan.`, 'ok', 2600);
 }
 
 const vbarHandlers = {
@@ -684,6 +778,14 @@ const panelBuilders = createRailPanelBuilders({
   onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
   onFitCamera: handleFitCamera,
   onToggleTheme: toggleTheme,
+  onOpenCompare: () => {
+    if (!getState().analysisData) {
+      showToast('Hitung OTTV terlebih dahulu sebelum membuka Bandingkan.', 'warn');
+      return;
+    }
+    exposureController.stopPlayback();
+    setState({ step: 'compare', activeRailCard: null, openPopover: null });
+  },
   onRecompute: () => handleCalculateOttv(),
   onDownloadExcel: () => handleExportFormat('template_prodi'),
   onDownloadFormat: (fmt) => handleExportFormat(fmt),
@@ -713,11 +815,22 @@ function renderApp(state) {
 
   frag.appendChild(
     renderRail(state, {
-      onToggleCard: (cardId) =>
+      onToggleCard: (cardId) => {
+        if (cardId === 'compare' && state.analysisData) {
+          if (state.step === 'compare') {
+            viewer.clearCompareMode();
+            setState({ step: 'results', activeRailCard: null, openPopover: null });
+          } else {
+            exposureController.stopPlayback();
+            setState({ step: 'compare', activeRailCard: null, openPopover: null });
+          }
+          return;
+        }
         setState({
           activeRailCard: state.activeRailCard === cardId ? null : cardId,
           openPopover: null,
-        }),
+        });
+      },
     }),
   );
 
@@ -849,6 +962,28 @@ function renderApp(state) {
         onOpenMaterialPanel: () => setState({ activeRailCard: 'material', openPopover: null }),
         onGoToResults: () => setState({ step: 'results', viewerMode: 'heatmap', openPopover: null }),
         onCalculateOttv: () => handleCalculateOttv(),
+      }),
+    );
+  } else if (state.step === 'compare') {
+    frag.appendChild(
+      renderCompareScreen(state, {
+        onExitCompare: () => {
+          viewer.clearCompareMode();
+          setState({ step: 'results', openPopover: null });
+        },
+        onChangeSplitRatio: (ratio) => setState({ compareSplitRatio: ratio }),
+        onSelectAlternative: (altId) => setState({ activeAlternativeId: altId }),
+        onDeleteAlternative: (altId) => {
+          const remaining = (getState().alternatives || []).filter((a) => a.id !== altId);
+          setState({
+            alternatives: remaining,
+            activeAlternativeId: remaining[0]?.id || null,
+          });
+        },
+        onCreateAlternative: handleCreateAlternative,
+        onApplyAlternative: handleApplyAlternative,
+        onRestoreHistory: handleRestoreHistory,
+        onRerender: () => setState({}),
       }),
     );
   } else if (state.step === 'results') {

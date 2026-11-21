@@ -561,13 +561,24 @@ export function createRailPanelBuilders(handlers) {
 
     compare: {
       title: 'Bandingkan',
-      renderBody(container) {
+      renderBody(container, state) {
         const p = document.createElement('p');
         p.className = 'muted';
         p.style.margin = '0';
-        p.textContent =
-          'Perbandingan berdampingan antar alternatif desain akan hadir di tahap berikutnya. Sementara ini kamu dapat mengunduh beberapa file .ottv.json untuk menyimpan variasi material atau orientasi.';
+        p.textContent = state.analysisData
+          ? 'Bandingkan desain sekarang dengan satu atau beberapa alternatif material, peneduh, atau arah utara secara berdampingan.'
+          : 'Hitung OTTV terlebih dahulu agar kamu dapat membandingkan alternatif desain berdampingan di viewer terbelah.';
         container.appendChild(p);
+
+        if (state.analysisData) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'cta';
+          btn.style.height = '42px';
+          btn.innerHTML = `${icon('compare', 16)}<span>Buka mode Bandingkan</span>`;
+          btn.addEventListener('click', () => handlers.onOpenCompare?.());
+          container.appendChild(btn);
+        }
       },
     },
 

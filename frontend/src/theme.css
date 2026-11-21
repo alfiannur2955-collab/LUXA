@@ -1299,6 +1299,153 @@ kbd {
 }
 
 /* ============================================================================
+ * Fase 4c: Compare Split Viewer (`steps/compare.js`)
+ * ============================================================================ */
+
+.compare-heads-row {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 16px;
+  z-index: 12;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  pointer-events: none;
+}
+
+.compare-pane-head {
+  pointer-events: auto;
+  border-radius: 16px;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.compare-pane-sub {
+  margin: 0;
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.compare-pane-val {
+  margin: 0;
+  font-size: 26px;
+  line-height: 30px;
+  font-weight: 700;
+}
+
+.compare-divider-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 2px solid var(--surface);
+  z-index: 11;
+  pointer-events: none;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.25);
+}
+
+.compare-divider-handle {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
+  z-index: 13;
+  display: grid;
+  place-items: center;
+  cursor: ew-resize;
+  touch-action: none;
+  padding: 0;
+  color: var(--ink);
+}
+
+.compare-diff-strip {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 16px;
+  z-index: 12;
+  border-radius: 16px;
+  padding: 10px 18px;
+  max-width: calc(100% - 32px);
+  overflow-x: auto;
+}
+
+.compare-diff-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.compare-diff-cell {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  white-space: nowrap;
+}
+
+.compare-delta-xl {
+  margin: 6px 0 0;
+  font-size: 38px;
+  line-height: 44px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.compare-diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 12.5px;
+}
+
+.compare-diff-table td {
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--line);
+}
+
+.compare-alt-btn {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  text-align: left;
+  background: var(--glass-thin);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.compare-alt-btn.is-active {
+  background: var(--surface);
+  border-color: var(--sun);
+}
+
+.compare-alt-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compare-add-form {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 12px;
+}
+
+/* ============================================================================
  * Fase 4b-1: Bottom Pills (.vbar), Popovers, Axis Gizmo, Pie Menu, Modals
  * ============================================================================ */
 

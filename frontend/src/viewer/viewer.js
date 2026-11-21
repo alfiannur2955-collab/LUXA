@@ -104,6 +104,9 @@ class LuxaViewer {
     this.sunDomeController = null;
     this.controls = null;
     this.modelRoot = null;
+    this.compareAltRoot = null;
+    this.compareSplitRatio = null; // null = normal; 0.1..0.9 = scissor split compare
+    this.lastCompareAltKey = null;
     this.selectionGroup = null;
     this.groundGroup = null;
     this.sunDomeGroup = null;
@@ -159,10 +162,13 @@ class LuxaViewer {
 
     this.groundGroup = new THREE.Group();
     this.modelRoot = new THREE.Group();
+    this.compareAltRoot = new THREE.Group();
+    this.compareAltRoot.visible = false;
     this.selectionGroup = new THREE.Group();
     this.sunDomeGroup = new THREE.Group();
     this.scene.add(this.groundGroup);
     this.scene.add(this.modelRoot);
+    this.scene.add(this.compareAltRoot);
     this.scene.add(this.selectionGroup);
     this.scene.add(this.sunDomeGroup);
 
@@ -183,7 +189,32 @@ class LuxaViewer {
         this.rig.tick(now);
         this.controls.update();
         const cam = this.rig.getActiveCamera();
-        this.renderer.render(this.scene, cam);
+        if (this.compareSplitRatio !== null && this.compareAltRoot) {
+          const w = Math.max(1, this.lastWidth);
+          const h = Math.max(1, this.lastHeight);
+          const splitX = Math.max(1, Math.min(w - 1, Math.round(w * this.compareSplitRatio)));
+          this.renderer.setScissorTest(true);
+          this.renderer.autoClear = true;
+          this.renderer.setViewport(0, 0, w, h);
+          this.renderer.setScissor(0, 0, splitX, h);
+          this.modelRoot.visible = true;
+          this.compareAltRoot.visible = false;
+          this.renderer.render(this.scene, cam);
+
+          this.renderer.setScissor(splitX, 0, w - splitX, h);
+          this.modelRoot.visible = false;
+          this.compareAltRoot.visible = true;
+          this.renderer.render(this.scene, cam);
+
+          this.renderer.setScissorTest(false);
+          this.modelRoot.visible = true;
+          this.compareAltRoot.visible = false;
+        } else {
+          this.renderer.setScissorTest(false);
+          if (this.modelRoot) this.modelRoot.visible = true;
+          if (this.compareAltRoot) this.compareAltRoot.visible = false;
+          this.renderer.render(this.scene, cam);
+        }
         this.gizmo.update(cam);
         this.labelsOverlay.update(cam, this.lastWidth, this.lastHeight);
         if (this.sunDomeController && typeof this.sunDomeController.updateLabels === 'function') {
@@ -421,11 +452,73 @@ class LuxaViewer {
     return set;
   }
 
+  setCompareSplitRatio(ratio) {
+    if (ratio === null || ratio === undefined) {
+      this.compareSplitRatio = null;
+      return;
+    }
+    this.compareSplitRatio = Math.max(0.08, Math.min(0.92, Number(ratio) || 0.5));
+  }
+
+  clearCompareMode() {
+    this.compareSplitRatio = null;
+    this.lastCompareAltKey = null;
+    if (this.compareAltRoot) {
+      this._clearGroup(this.compareAltRoot);
+      this.compareAltRoot.visible = false;
+    }
+  }
+
+  /**
+   * Synchronizes the split-viewer Compare screen: left = active analysis, right = alternative analysis.
+   */
+  syncCompareState(state, altAnalysis, splitRatio = 0.5) {
+    this._initThree();
+    const tokens = readThemeTokens();
+    const baseState = {
+      ...state,
+      step: 'results',
+      viewerMode: 'heatmap',
+      facadeFilter: 'all',
+      sunDomeVisible: false,
+      selectedPanelIds: [],
+      selectedOrientation: null,
+    };
+    this.syncState(baseState);
+    if (!altAnalysis?.panels?.length) {
+      this.clearCompareMode();
+      return;
+    }
+    this.setCompareSplitRatio(splitRatio);
+    const altKey = `${altAnalysis.analysis_id || 'alt'}|${state.theme}|${state.heatmapGranularity || 'orientation'}|${Boolean(state.heatmapSmooth)}`;
+    if (altKey === this.lastCompareAltKey) return;
+    this.lastCompareAltKey = altKey;
+
+    this._clearGroup(this.compareAltRoot);
+    const prevRoot = this.modelRoot;
+    this.modelRoot = this.compareAltRoot;
+    try {
+      this._renderAnalysisPanels(
+        {
+          ...baseState,
+          analysisData: altAnalysis,
+        },
+        'heatmap',
+        tokens,
+      );
+    } finally {
+      this.modelRoot = prevRoot;
+    }
+  }
+
   /**
    * Synchronizes 3D scene, selection highlight, projected HTML labels, and sun dome.
    */
   syncState(state) {
     this._initThree();
+    if (state.step !== 'compare') {
+      this.compareSplitRatio = null;
+    }
     const tokens = readThemeTokens();
     const hasAnalysis = Boolean(state.analysisData?.panels?.length);
     const mode = state.viewerMode || (hasAnalysis ? 'heatmap' : 'classification');
