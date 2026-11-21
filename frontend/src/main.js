@@ -45,6 +45,14 @@ import { installShortcuts } from './ui/shortcuts.js';
 import { renderShortcutsModal } from './ui/shortcutsModal.js';
 import { showToast } from './ui/toast.js';
 import {
+  createDefaultWorkspace,
+  loadWorkspace,
+  moveRailItemInWorkspace,
+  renderDockCustomizerModal,
+  saveWorkspace,
+  toggleRailItemHidden,
+} from './ui/workspace.js';
+import {
   DIRECTION_NAMES,
   formatCameraDirectionLabel,
   PROJECTION_LABELS,
@@ -732,6 +740,23 @@ function toggleTheme() {
   setState({ theme: next });
 }
 
+function applyWorkspaceChange(nextWs) {
+  saveWorkspace(nextWs);
+  setState({
+    workspace: nextWs,
+    advancedMode: nextWs.preset === 'lanjut',
+    activeRailCard: nextWs.preset === 'presentasi' ? null : getState().activeRailCard,
+  });
+}
+
+function handleSetWorkspacePreset(preset) {
+  const cur = getState().workspace || createDefaultWorkspace();
+  const next = { ...cur, preset };
+  applyWorkspaceChange(next);
+  const labels = { belajar: 'Belajar', lanjut: 'Lanjut', presentasi: 'Presentasi' };
+  showToast(`Workspace: ${labels[preset] || preset}`, 'ok', 2000);
+}
+
 const panelBuilders = createRailPanelBuilders({
   onGoToUpload: () => setState({ step: 'upload', activeRailCard: null, openPopover: null }),
   onNavigateStep: (step) => setState({ step, activeRailCard: null, openPopover: null }),
@@ -778,6 +803,8 @@ const panelBuilders = createRailPanelBuilders({
   onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
   onFitCamera: handleFitCamera,
   onToggleTheme: toggleTheme,
+  onSetWorkspacePreset: handleSetWorkspacePreset,
+  onOpenDockCustomizer: () => setState({ dockCustomizerOpen: true, activeRailCard: null }),
   onOpenCompare: () => {
     if (!getState().analysisData) {
       showToast('Hitung OTTV terlebih dahulu sebelum membuka Bandingkan.', 'warn');
@@ -798,6 +825,7 @@ const panelBuilders = createRailPanelBuilders({
 function renderApp(state) {
   if (!rootEl) return;
   applyThemeToDom(state.theme);
+  rootEl.classList.toggle('is-presentation', state.workspace?.preset === 'presentasi');
   updateDocumentTitle(state.step);
 
   const frag = document.createDocumentFragment();
@@ -809,7 +837,10 @@ function renderApp(state) {
       onOpenCommandPalette: () =>
         setState({ commandPaletteOpen: true, shortcutsModalOpen: false, openPopover: null }),
       onToggleTheme: toggleTheme,
-      onToggleAdvanced: () => setState({ advancedMode: !state.advancedMode }),
+      onToggleAdvanced: () => {
+        const nextPreset = state.workspace?.preset === 'lanjut' ? 'belajar' : 'lanjut';
+        handleSetWorkspacePreset(nextPreset);
+      },
     }),
   );
 
@@ -993,6 +1024,7 @@ function renderApp(state) {
         onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
         onChangeNorth: handleChangeNorthAngle,
         onToggleFormulaPill: (open) => setState({ formulaPillExpanded: Boolean(open) }),
+        onExitPresentation: () => handleSetWorkspacePreset('belajar'),
         onChangeHeatmapGranularity: (gran) => setState({ heatmapGranularity: gran }),
         onToggleHeatmapSmooth: (enabled) => setState({ heatmapSmooth: Boolean(enabled) }),
         onPickPanel: (panel, additive) => {
@@ -1078,6 +1110,18 @@ function renderApp(state) {
   });
   if (shortcutsEl) frag.appendChild(shortcutsEl);
 
+  const dockEl = renderDockCustomizerModal(state, {
+    onClose: () => setState({ dockCustomizerOpen: false }),
+    onMove: (id, delta) => applyWorkspaceChange(moveRailItemInWorkspace(getState().workspace, id, delta)),
+    onToggleHide: (id) => applyWorkspaceChange(toggleRailItemHidden(getState().workspace, id)),
+    onSetModeBarPosition: (pos) => applyWorkspaceChange({ ...getState().workspace, modeBarPosition: pos }),
+    onReset: () => {
+      applyWorkspaceChange(createDefaultWorkspace());
+      showToast('Urutan dan isi dock dikembalikan ke bawaan.', 'ok', 2200);
+    },
+  });
+  if (dockEl) frag.appendChild(dockEl);
+
   rootEl.innerHTML = '';
   rootEl.appendChild(frag);
 }
@@ -1102,7 +1146,16 @@ installShortcuts({
       })),
     onCloseShortcuts: () => setState({ shortcutsModalOpen: false }),
     onClosePopover: () => setState({ openPopover: null }),
-    onCloseRailCard: () => setState({ activeRailCard: null }),
+    onCloseRailCard: () => {
+      const s = getState();
+      if (s.dockCustomizerOpen) {
+        setState({ dockCustomizerOpen: false });
+      } else if (s.activeRailCard) {
+        setState({ activeRailCard: null });
+      } else if (s.workspace?.preset === 'presentasi') {
+        handleSetWorkspacePreset('belajar');
+      }
+    },
     onSetProjection: (p) => {
       handleSetProjection(p);
       showToast(`Proyeksi: ${PROJECTION_LABELS[p] || p}`, 'ok', 1800);
@@ -1121,6 +1174,7 @@ installShortcuts({
 
 async function bootstrap() {
   const savedTheme = loadSavedTheme();
+  const savedWs = loadWorkspace();
   applyThemeToDom(savedTheme);
   viewer.attachSunDomeController(new SunDomeController());
   viewer.setOnCameraDirectionSettled((liveDir) => {
@@ -1130,7 +1184,11 @@ async function bootstrap() {
     }
   });
   subscribe(renderApp);
-  setState({ theme: savedTheme });
+  setState({
+    theme: savedTheme,
+    workspace: savedWs,
+    advancedMode: savedWs.preset === 'lanjut',
+  });
 
   try {
     const [mats, locs] = await Promise.all([engine.listMaterials(), engine.listLocations()]);

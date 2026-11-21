@@ -541,7 +541,63 @@ export function createRailPanelBuilders(handlers) {
         filterFs.appendChild(sfNote);
         container.appendChild(filterFs);
 
-        // Section 4: Mode warna & Tema
+        // Section 4: Workspace v1 (`docs/FASE4_UI_SPEC.md` §5 + mockup 6-panel-tampilan.html)
+        const wsSec = document.createElement('div');
+        wsSec.className = 'psec';
+        const wsHead = document.createElement('h3');
+        wsHead.innerHTML = `${icon('sliders', 14)}<span>Workspace</span>`;
+        wsSec.appendChild(wsHead);
+
+        const wsPreset = state.workspace?.preset || 'belajar';
+        const wsSeg = document.createElement('div');
+        wsSeg.className = 'seg';
+        wsSeg.setAttribute('role', 'radiogroup');
+        wsSeg.setAttribute('aria-label', 'Preset workspace');
+
+        for (const [id, lbl] of [
+          ['belajar', 'Belajar'],
+          ['lanjut', 'Lanjut'],
+          ['presentasi', 'Presentasi'],
+        ]) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.setAttribute('role', 'radio');
+          const on = wsPreset === id;
+          b.setAttribute('aria-checked', on ? 'true' : 'false');
+          if (on) b.classList.add('on');
+          b.textContent = lbl;
+          b.addEventListener('click', () => handlers.onSetWorkspacePreset?.(id));
+          wsSeg.appendChild(b);
+        }
+        wsSec.appendChild(wsSeg);
+
+        const wsDesc = document.createElement('p');
+        wsDesc.className = 'lbl';
+        wsDesc.style.margin = '0';
+        wsDesc.style.fontWeight = '500';
+        wsDesc.textContent =
+          wsPreset === 'presentasi'
+            ? 'Rel dan kolom samping disembunyikan untuk viewer penuh.'
+            : wsPreset === 'lanjut'
+            ? 'Menampilkan tabel per bidang dan override material per orientasi.'
+            : 'Tooltip istilah SNI dengan rujukan pasal aktif.';
+        wsSec.appendChild(wsDesc);
+
+        const custBtn = document.createElement('button');
+        custBtn.type = 'button';
+        custBtn.className = 'lbl';
+        custBtn.style.border = '0';
+        custBtn.style.background = 'none';
+        custBtn.style.padding = '0';
+        custBtn.style.textAlign = 'left';
+        custBtn.style.textDecoration = 'underline';
+        custBtn.textContent = 'Atur urutan dan isi dock';
+        custBtn.addEventListener('click', () => handlers.onOpenDockCustomizer?.());
+        wsSec.appendChild(custBtn);
+
+        container.appendChild(wsSec);
+
+        // Section 5: Tema
         const modeSec = document.createElement('div');
         modeSec.className = 'psec';
         const modeHead = document.createElement('h3');

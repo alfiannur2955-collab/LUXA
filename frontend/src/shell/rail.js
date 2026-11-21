@@ -3,15 +3,7 @@
  */
 
 import { icon } from '../ui/icons.js';
-
-const RAIL_ITEMS = [
-  { id: 'model', label: 'Model', icon: 'cube' },
-  { id: 'material', label: 'Material', icon: 'layers' },
-  { id: 'location', label: 'Lokasi', icon: 'pin' },
-  { id: 'display', label: 'Tampilan', icon: 'eye' },
-  { id: 'compare', label: 'Bandingkan', icon: 'compare' },
-  { id: 'report', label: 'Laporan', icon: 'doc' },
-];
+import { DEFAULT_RAIL_ORDER, RAIL_ITEM_META } from '../ui/workspace.js';
 
 export function renderRail(state, { onToggleCard }) {
   const nav = document.createElement('nav');
@@ -21,7 +13,13 @@ export function renderRail(state, { onToggleCard }) {
   const inner = document.createElement('div');
   inner.className = 'rail-in glass-thin';
 
-  for (const item of RAIL_ITEMS) {
+  const order = state.workspace?.railOrder || DEFAULT_RAIL_ORDER;
+  const hidden = new Set(state.workspace?.hiddenRailItems || []);
+
+  for (const id of order) {
+    const item = RAIL_ITEM_META[id];
+    if (!item) continue;
+    if (hidden.has(id) && !item.lockVisible) continue;
     const btn = document.createElement('button');
     btn.type = 'button';
     const isActive =

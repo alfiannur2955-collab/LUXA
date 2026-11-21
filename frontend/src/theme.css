@@ -1446,6 +1446,91 @@ kbd {
 }
 
 /* ============================================================================
+ * Fase 4c: Workspace v1 (Presentasi, Dock Customizer, Mode Bar Bottom, Panel Table)
+ * ============================================================================ */
+
+.app.is-presentation {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app.is-presentation .top {
+  grid-column: 1;
+}
+
+.app.is-presentation .rail,
+.app.is-presentation .results-col {
+  display: none;
+}
+
+.app.is-presentation .main {
+  grid-column: 1;
+  padding: 0 16px 16px;
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.pres-exit-chip {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 16px;
+  z-index: 15;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.modes.modes-bottom {
+  top: auto;
+  bottom: 132px;
+}
+
+.dock-modal {
+  width: min(440px, calc(100vw - 32px));
+  padding: 18px 20px;
+  border-radius: var(--radius-2xl);
+}
+
+.dock-cust-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.dock-cust-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+
+.dock-cust-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.dock-cust-check input {
+  accent-color: var(--sun);
+}
+
+.panel-table-wrap {
+  max-height: 220px;
+  overflow: auto;
+  margin-top: 8px;
+}
+
+/* ============================================================================
  * Fase 4b-1: Bottom Pills (.vbar), Popovers, Axis Gizmo, Pie Menu, Modals
  * ============================================================================ */
 

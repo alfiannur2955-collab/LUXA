@@ -172,6 +172,16 @@ export function renderResultsScreen(state, handlers) {
     viewerSec.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
   }
 
+  // Presentation mode exit pill (`Esc` also exits)
+  if (state.workspace?.preset === 'presentasi') {
+    const exitPres = document.createElement('button');
+    exitPres.type = 'button';
+    exitPres.className = 'glass pres-exit-chip';
+    exitPres.innerHTML = `${icon('close', 14)}<span>Keluar Presentasi</span><kbd>Esc</kbd>`;
+    exitPres.addEventListener('click', () => handlers.onExitPresentation?.());
+    viewerSec.appendChild(exitPres);
+  }
+
   // Right column (300px)
   const side = document.createElement('div');
   side.className = 'results-col';
@@ -621,6 +631,99 @@ export function renderResultsScreen(state, handlers) {
 
   rttvCard.append(rtTitle, compGrid, rttvLine);
 
+  // 3b. Lanjut workspace: Tabel per bidang (searchable, click row -> select panel in 3D)
+  let advPanelCard = null;
+  if (state.workspace?.preset === 'lanjut' || state.advancedMode) {
+    const activePanels = (analysis.panels || []).filter((p) => p && p.active);
+    advPanelCard = document.createElement('section');
+    advPanelCard.className = 'box';
+    advPanelCard.setAttribute('aria-labelledby', 'adv-panels-title');
+
+    const det = document.createElement('details');
+    const sum = document.createElement('summary');
+    sum.id = 'adv-panels-title';
+    sum.className = 'lbl';
+    sum.style.color = 'var(--ink)';
+    sum.style.fontSize = '13.5px';
+    sum.textContent = `Data per bidang (${activePanels.length} panel aktif)`;
+    det.appendChild(sum);
+
+    const filterInput = document.createElement('input');
+    filterInput.type = 'search';
+    filterInput.className = 'field-input';
+    filterInput.style.height = '32px';
+    filterInput.style.fontSize = '12px';
+    filterInput.style.marginTop = '8px';
+    filterInput.placeholder = 'Filter arah (B, T...) atau nama grup...';
+    filterInput.setAttribute('aria-label', 'Filter tabel panel');
+
+    const wrap = document.createElement('div');
+    wrap.className = 'panel-table-wrap';
+
+    const sortedPanels = [...activePanels].sort(
+      (a, b) => Number(b.ottv_panel_wm2 || 0) - Number(a.ottv_panel_wm2 || 0),
+    );
+
+    const renderRows = (q = '') => {
+      wrap.innerHTML = '';
+      const ql = q.trim().toLowerCase();
+      const matched = ql
+        ? sortedPanels.filter(
+            (p) =>
+              String(p.orientation_code || '').toLowerCase().includes(ql) ||
+              String(p.group_name || '').toLowerCase().includes(ql) ||
+              String(p.element_type || '').toLowerCase().includes(ql),
+          )
+        : sortedPanels;
+      const top = matched.slice(0, 40);
+      const tbl = document.createElement('table');
+      tbl.className = 'data-table num';
+      tbl.style.fontSize = '11.5px';
+      tbl.innerHTML =
+        '<thead><tr><th>Arah</th><th>Grup</th><th style="text-align:right;">Luas</th><th style="text-align:right;">W/m²</th></tr></thead>';
+      const tb = document.createElement('tbody');
+      for (const p of top) {
+        const tr = document.createElement('tr');
+        if ((state.selectedPanelIds || []).includes(p.id)) tr.classList.add('is-selected');
+        const tdA = document.createElement('td');
+        tdA.textContent = p.orientation_code || '-';
+        const tdG = document.createElement('td');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'group-pick-btn';
+        btn.style.fontSize = '11.5px';
+        btn.textContent = p.group_name || p.id;
+        btn.title = `Pilih panel ${p.id}`;
+        btn.addEventListener('click', (ev) => handlers.onPickPanel(p, Boolean(ev.shiftKey)));
+        tdG.appendChild(btn);
+        const tdArea = document.createElement('td');
+        tdArea.style.textAlign = 'right';
+        tdArea.textContent = fmtId(p.area_m2 || 0, 1);
+        const tdVal = document.createElement('td');
+        tdVal.style.textAlign = 'right';
+        tdVal.style.fontWeight = '700';
+        tdVal.textContent = fmtId(p.ottv_panel_wm2 || 0, 2);
+        tr.append(tdA, tdG, tdArea, tdVal);
+        tb.appendChild(tr);
+      }
+      tbl.appendChild(tb);
+      wrap.appendChild(tbl);
+      if (matched.length > 40) {
+        const more = document.createElement('p');
+        more.className = 'lbl';
+        more.style.margin = '6px 0 0';
+        more.style.fontWeight = '500';
+        more.textContent = `Menampilkan 40 tertinggi dari ${matched.length} panel.`;
+        wrap.appendChild(more);
+      }
+    };
+
+    filterInput.addEventListener('input', () => renderRows(filterInput.value));
+    renderRows();
+    det.append(filterInput, wrap);
+    advPanelCard.appendChild(det);
+  }
+
   // 4. Downloads at bottom (single Excel button, never say "prodi")
   const dlWrap = document.createElement('div');
   dlWrap.style.display = 'grid';
@@ -642,7 +745,11 @@ export function renderResultsScreen(state, handlers) {
 
   dlWrap.append(xlsxBtn, jsonBtn);
 
-  side.append(heroCard, selCard, orientCard, rttvCard, dlWrap);
+  if (advPanelCard) {
+    side.append(heroCard, selCard, orientCard, rttvCard, advPanelCard, dlWrap);
+  } else {
+    side.append(heroCard, selCard, orientCard, rttvCard, dlWrap);
+  }
   main.append(viewerSec, side);
 
   window.requestAnimationFrame(() => {

@@ -158,12 +158,19 @@ const initialState = {
   exposureLoading: false,
   formulaPillExpanded: false,
 
-  // Fase 4c: Compare mode & design history
+  // Fase 4c: Compare mode, design history & Workspace v1
   alternatives: [], // [{ id, code, name, config, analysisData, createdAt }]
   activeAlternativeId: null,
   compareSplitRatio: 0.5, // 0.10 .. 0.90
   compareBusy: false,
   designHistory: [], // [{ id, label, config, analysisData, savedAt }]
+  workspace: {
+    preset: 'belajar', // 'belajar' | 'lanjut' | 'presentasi'
+    railOrder: ['model', 'material', 'location', 'display', 'compare', 'report'],
+    hiddenRailItems: [],
+    modeBarPosition: 'top', // 'top' | 'bottom'
+  },
+  dockCustomizerOpen: false,
 
   // Catalog caches
   materials: {
