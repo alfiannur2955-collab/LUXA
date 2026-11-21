@@ -238,6 +238,465 @@ def detect_file_signature(filepath: str) -> Dict[str, Any]:
 # 3. READ-ONLY FAST 3D INSPECTION PAYLOAD BUILDER (ZERO RAYCAST, ZERO DISK I/O)
 # ============================================================================
 
+_OPAQUE_MATERIAL_KEYWORDS = (
+    "paint",
+    "cat_",
+    "cat ",
+    "cat-",
+    "concrete",
+    "beton",
+    "brick",
+    "bata",
+    "plaster",
+    "plester",
+    "metal",
+    "alum",
+    "steel",
+    "baja",
+    "wood",
+    "kayu",
+    "stone",
+    "batu",
+    "ceramic",
+    "keramik",
+    "granite",
+    "granit",
+    "marble",
+    "marmer",
+    "spandrel",
+    "opaque",
+    "opak",
+    "gypsum",
+    "gipsum",
+    "masonry",
+    "precast",
+    "cladding",
+    "acp",
+    "stucco",
+)
+
+_GLASS_NAME_KEYWORDS = (
+    "glass",
+    "glaz",
+    "kaca",
+    "vision",
+    "window",
+    "jendela",
+    "igu",
+    "low-e",
+    "lowe",
+    "transparan",
+    "transparent",
+)
+
+_ORIENTATION_LABELS_ID = {
+    "U": "Utara",
+    "TL": "Timur Laut",
+    "T": "Timur",
+    "TG": "Tenggara",
+    "S": "Selatan",
+    "BD": "Barat Daya",
+    "B": "Barat",
+    "BL": "Barat Laut",
+}
+
+
+def _has_opaque_material_cue(group: Dict[str, Any]) -> bool:
+    """Returns True if a group classified as glazing carries opaque material/name cues."""
+    transparency = group.get("transparency")
+    if transparency is not None:
+        try:
+            if float(transparency) <= 0.12:
+                return True
+        except (TypeError, ValueError):
+            pass
+
+    mat_str = str(group.get("source_material") or "").strip().lower()
+    name_str = str(group.get("group_name") or "").strip().lower()
+    layer_str = str(group.get("source_layer") or "").strip().lower()
+
+    # Check source_material first: an explicit opaque material (e.g. "Paint - Cadmium Orange")
+    # on a glazing group is always suspicious unless it also says glass/kaca.
+    if mat_str and not any(gk in mat_str for gk in _GLASS_NAME_KEYWORDS):
+        if any(ok in mat_str for ok in _OPAQUE_MATERIAL_KEYWORDS):
+            return True
+
+    combined = f"{name_str} {layer_str}".strip()
+    if combined and not any(gk in combined for gk in _GLASS_NAME_KEYWORDS):
+        if any(ok in combined for ok in _OPAQUE_MATERIAL_KEYWORDS):
+            return True
+
+    return False
+
+
+def _compute_preview_orientation_areas(
+    raw_groups: List[RawGroupMesh],
+    cat_overrides: Dict[str, str],
+    disabled_set: set,
+    z0_cut: float,
+    north_angle_deg: float = 0.0,
+) -> Dict[str, Dict[str, float]]:
+    """
+    Fast read-only per-orientation glazing vs opaque area summary (zero raycasting).
+    Used by `build_sanity_flags` to detect extreme side WWR (> 95%) during inspection.
+    """
+    codes = ("U", "TL", "T", "TG", "S", "BD", "B", "BL")
+    bins: Dict[str, Dict[str, float]] = {
+        c: {"glazing_m2": 0.0, "opaque_m2": 0.0, "total_m2": 0.0} for c in codes
+    }
+    for rg in raw_groups:
+        if rg.group_name in disabled_set:
+            continue
+        cat = cat_overrides.get(rg.group_name, rg.default_category)
+        if cat not in ("glazing", "wall", "spandrel", "composite_cw"):
+            continue
+        vs = rg.vertices
+        fs = rg.faces
+        if len(fs) == 0:
+            continue
+        p0 = vs[fs[:, 0]]
+        p1 = vs[fs[:, 1]]
+        p2 = vs[fs[:, 2]]
+        p3 = vs[fs[:, 3]]
+        c1 = np.cross(p1 - p0, p2 - p0)
+        c2 = np.cross(p2 - p0, p3 - p0)
+        n_vec = c1 + c2
+        n_len = np.linalg.norm(n_vec, axis=1)
+        valid = n_len > 1e-6
+        if not np.any(valid):
+            continue
+        areas = 0.5 * n_len[valid]
+        normals = n_vec[valid] / n_len[valid, None]
+        centroids = 0.25 * (p0[valid] + p1[valid] + p2[valid] + p3[valid])
+
+        # Vertical / near-vertical envelope faces above z0
+        mask = (np.abs(normals[:, 2]) < 0.50) & (centroids[:, 2] >= z0_cut - 0.05)
+        if not np.any(mask):
+            continue
+        n_m = normals[mask]
+        a_m = areas[mask]
+        # Azimuth clockwise from +Y (0 = North, 90 = East) minus north_angle_deg
+        az = (np.degrees(np.arctan2(n_m[:, 0], n_m[:, 1])) - float(north_angle_deg)) % 360.0
+        idx = ((az + 22.5) // 45.0).astype(int) % 8
+        for i_bin in range(8):
+            sel = idx == i_bin
+            if not np.any(sel):
+                continue
+            a_sum = float(np.sum(a_m[sel]))
+            b = bins[codes[i_bin]]
+            if cat == "glazing":
+                b["glazing_m2"] += a_sum
+            elif cat == "composite_cw":
+                b["glazing_m2"] += a_sum * 0.65
+                b["opaque_m2"] += a_sum * 0.35
+            else:
+                b["opaque_m2"] += a_sum
+            b["total_m2"] += a_sum
+
+    for b in bins.values():
+        b["glazing_m2"] = round(b["glazing_m2"], 2)
+        b["opaque_m2"] = round(b["opaque_m2"], 2)
+        b["total_m2"] = round(b["total_m2"], 2)
+        b["wwr"] = round(b["glazing_m2"] / b["total_m2"], 4) if b["total_m2"] > 1e-3 else 0.0
+    return bins
+
+
+def build_sanity_flags(
+    groups: List[Dict[str, Any]],
+    audit: Union[Dict[str, Any], Any],
+    analysis_preview: Optional[Dict[str, Any]] = None,
+    user_answers: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Fase 4a (`docs/FASE4_UI_SPEC.md` §7.1): Evaluates sanity checks on inspected
+    groups, Stage 1 audit, lightweight preview metrics, and user answers.
+    Returns structured flags for the Inspect screen ("Daftar kejanggalan") and
+    Konfirmasi gating.
+    """
+    answers = dict(user_answers or {})
+    preview = dict(analysis_preview or {})
+
+    def _audit_get(key: str, default: Any = None) -> Any:
+        if isinstance(audit, dict):
+            return audit.get(key, default)
+        return getattr(audit, key, default)
+
+    flags: List[Dict[str, Any]] = []
+
+    bbox = preview.get("bounding_box") or {}
+    span = bbox.get("span") or _audit_get("normalized_span_m") or [0.0, 0.0, 0.0]
+    dx = float(span[0]) if len(span) > 0 else 0.0
+    dy = float(span[1]) if len(span) > 1 else 0.0
+    dz = float(span[2]) if len(span) > 2 else 0.0
+    max_dim = max(dx, dy, dz)
+
+    # 1. Dimension out of reasonable building range (< 2 m or > 400 m)
+    if max_dim > 0.0 and (max_dim < 2.0 or dz < 2.0 or max_dim > 400.0):
+        flags.append({
+            "id": "dimension_out_of_range",
+            "code": "DIMENSION_OUT_OF_RANGE",
+            "severity": "error" if (max_dim < 1.0 or max_dim > 600.0) else "warn",
+            "title": "Ukuran bangunan di luar rentang wajar",
+            "detail": (
+                f"Dimensi terbaca {dx:.1f} × {dy:.1f} × {dz:.1f} m "
+                "(wajar antara 2 m sampai 400 m). Periksa satuan file di langkah Konfirmasi."
+            ),
+            "requires_confirmation": False,
+            "accept_makes_provisional": True,
+            "actions": ["buka_konfirmasi", "mengerti"],
+        })
+
+    # 2. Unit needs confirmation (unit_source == 'bbox_guess')
+    unit_needs_conf = bool(_audit_get("unit_needs_confirmation", False)) or (
+        str(_audit_get("unit_source", "")) == "bbox_guess"
+    )
+    if unit_needs_conf and not answers.get("unit_confirmed"):
+        flags.append({
+            "id": "unit_needs_confirmation",
+            "code": "UNIT_NEEDS_CONFIRMATION",
+            "severity": "warn",
+            "title": "Satuan file tidak tertulis di header",
+            "detail": (
+                f"Satuan diperkirakan {_audit_get('applied_unit', 'm')} dari ukuran kotak pembatas. "
+                "Konfirmasi satuan model di langkah Konfirmasi."
+            ),
+            "requires_confirmation": True,
+            "accept_makes_provisional": True,
+            "actions": ["buka_konfirmasi"],
+        })
+
+    # 3. Ground level z0 < -0.5 m
+    z_offset = float(_audit_get("z_ground_offset_m", 0.0) or 0.0)
+    if z_offset < -0.5 and not answers.get("ground_confirmed"):
+        flags.append({
+            "id": "z0_below_zero",
+            "code": "Z0_BELOW_ZERO",
+            "severity": "warn",
+            "title": f"Model mulai di bawah nol (z = {z_offset:.2f} m)",
+            "detail": (
+                "Tentukan apakah z = 0 di file adalah muka tanah atau alas model adalah muka tanah "
+                "di langkah Konfirmasi."
+            ),
+            "requires_confirmation": True,
+            "accept_makes_provisional": True,
+            "actions": ["buka_konfirmasi"],
+        })
+
+    # 4. Missing render mesh (e.g. Rhino Brep saved without Shaded mesh)
+    missing_mesh = _audit_get("missing_mesh") or []
+    if missing_mesh:
+        total_missing = 0
+        layer_names: List[str] = []
+        for item in missing_mesh:
+            if isinstance(item, dict):
+                total_missing += int(item.get("count", 1) or 1)
+                lname = str(item.get("layer") or item.get("group") or item.get("name") or "").strip()
+                if lname and lname not in layer_names:
+                    layer_names.append(lname)
+            else:
+                total_missing += 1
+        layer_hint = f" (grup: {', '.join(layer_names[:3])})" if layer_names else ""
+        flags.append({
+            "id": "missing_mesh",
+            "code": "MISSING_MESH",
+            "severity": "warn",
+            "title": f"{total_missing:,} bidang tanpa render mesh".replace(",", "."),
+            "detail": (
+                f"Objek tanpa render mesh tidak ikut dihitung{layer_hint}. "
+                "Di Rhino, ganti tampilan ke Shaded lalu simpan ulang file (jangan SaveSmall)."
+            ),
+            "requires_confirmation": False,
+            "accept_makes_provisional": True,
+            "actions": ["lihat_model", "hitung_tanpa_rangka"],
+            "meta": {"count": total_missing, "layers": layer_names},
+        })
+
+    # 5. Unknown groups
+    unknown_groups = [
+        g for g in groups
+        if g.get("enabled", True) and g.get("category") == "unknown"
+    ]
+    if unknown_groups:
+        u_names = [str(g.get("group_name") or "") for g in unknown_groups]
+        flags.append({
+            "id": "unknown_groups",
+            "code": "UNKNOWN_GROUPS",
+            "severity": "warn",
+            "title": f"{len(unknown_groups)} grup belum dikenali klasifikasinya",
+            "detail": (
+                f"Grup {', '.join(u_names[:3])} belum punya klasifikasi pasti. "
+                "Pilih Kaca, Dinding, Peneduh, Atap, atau Abaikan pada tabel grup."
+            ),
+            "requires_confirmation": False,
+            "accept_makes_provisional": True,
+            "group_names": u_names,
+            "actions": ["lihat_model", "mengerti"],
+        })
+
+    # 6. Active glazing check (NO_GLAZING)
+    active_glazing_groups = [
+        g for g in groups
+        if g.get("enabled", True)
+        and g.get("category") in ("glazing", "composite_cw")
+        and (float(g.get("outer_area_m2", 0.0) or 0.0) > 0.0 or int(g.get("face_count", 0) or 0) > 0)
+    ]
+    has_assumed_wwr = answers.get("default_wall_wwr") is not None
+    if not active_glazing_groups and not has_assumed_wwr and answers.get("no_glazing_choice") != "zero_wwr":
+        flags.append({
+            "id": "no_glazing",
+            "code": "NO_GLAZING",
+            "severity": "warn",
+            "title": "Tidak ada grup kaca yang terdeteksi",
+            "detail": (
+                "Model tidak memiliki permukaan kaca aktif (WWR 0%). "
+                "Konfirmasi apakah bangunan memang tanpa kaca atau isi WWR asumsi."
+            ),
+            "requires_confirmation": True,
+            "accept_makes_provisional": True,
+            "actions": ["buka_konfirmasi", "mengerti"],
+        })
+
+    # 7. Glazing group carrying an opaque material / name cue
+    for g in groups:
+        if not g.get("enabled", True):
+            continue
+        if g.get("category") != "glazing":
+            continue
+        if _has_opaque_material_cue(g):
+            gname = str(g.get("group_name") or "grup")
+            mat_label = str(g.get("source_material") or gname)
+            flags.append({
+                "id": f"glazing_opaque_{g.get('group_id', gname)}",
+                "code": "GLAZING_OPAQUE_MATERIAL",
+                "severity": "warn",
+                "group_id": g.get("group_id"),
+                "group_name": gname,
+                "title": f"Grup kaca \"{gname}\" memakai material tidak tembus pandang",
+                "detail": (
+                    f"Material atau nama grup ({mat_label}) terlihat seperti bahan masif. "
+                    "Ubah klasifikasinya ke Dinding atau periksa di model."
+                ),
+                "requires_confirmation": False,
+                "accept_makes_provisional": True,
+                "actions": ["lihat_model", "ubah_dinding", "mengerti"],
+            })
+
+    # 8. Envelope area vs (bbox perimeter x height) ratio < 0.5 or > 1.4
+    total_outer_env = sum(
+        float(g.get("outer_area_m2", 0.0) or 0.0)
+        for g in groups
+        if g.get("enabled", True) and g.get("category") in ("glazing", "spandrel", "wall", "composite_cw")
+    )
+    bbox_perim = 2.0 * (dx + dy)
+    ref_shell_area = bbox_perim * dz
+    if ref_shell_area > 1.0 and total_outer_env > 0.0:
+        area_ratio = total_outer_env / ref_shell_area
+        if area_ratio < 0.5 or area_ratio > 1.4:
+            flags.append({
+                "id": "facade_area_ratio_anomaly",
+                "code": "FACADE_AREA_RATIO",
+                "severity": "warn",
+                "title": "Luas fasad tidak wajar",
+                "detail": (
+                    f"Luas selubung luar {total_outer_env:.1f} m² adalah {area_ratio:.2f} kali "
+                    f"keliling kotak pembatas × tinggi ({ref_shell_area:.1f} m²; wajar 0,50 sampai 1,40). "
+                    "Periksa apakah ada sisi dalam ikut terhitung, lapisan ganda, atau model belum lengkap."
+                ),
+                "requires_confirmation": False,
+                "accept_makes_provisional": True,
+                "actions": ["lihat_model", "mengerti"],
+                "meta": {"ratio": round(area_ratio, 3), "outer_area_m2": round(total_outer_env, 2)},
+            })
+
+    # 9. Orientation side WWR > 95%
+    orient_areas = preview.get("orientation_areas") or {}
+    high_wwr_sides: List[Tuple[str, float]] = []
+    for code, metrics in orient_areas.items():
+        tot_a = float(metrics.get("total_m2", 0.0) or 0.0)
+        wwr_v = float(metrics.get("wwr", 0.0) or 0.0)
+        if tot_a > 1.0 and wwr_v > 0.95:
+            high_wwr_sides.append((code, wwr_v))
+    if high_wwr_sides:
+        side_desc = ", ".join(
+            f"{_ORIENTATION_LABELS_ID.get(c, c)} ({w * 100:.0f}%)" for c, w in high_wwr_sides
+        )
+        flags.append({
+            "id": "side_wwr_extreme",
+            "code": "HIGH_SIDE_WWR",
+            "severity": "warn",
+            "title": "WWR sisi fasad di atas 95%",
+            "detail": (
+                f"Rasio kaca pada sisi {side_desc} melebihi 95%. "
+                "Periksa apakah panel spandrel atau dinding masif ikut tergolong Kaca."
+            ),
+            "requires_confirmation": False,
+            "accept_makes_provisional": True,
+            "actions": ["lihat_model", "mengerti"],
+            "meta": {"sides": [{"code": c, "wwr": w} for c, w in high_wwr_sides]},
+        })
+
+    # 10. Filtered items with large area (> 5 m2 or > 5% of outer area)
+    filtered_items = preview.get("filtered_items")
+    if filtered_items is None:
+        filtered_items = _audit_get("filtered_items") or []
+    filtered_area = sum(
+        float(it.get("area_m2", 0.0) or 0.0)
+        for it in filtered_items
+        if isinstance(it, dict)
+    )
+    if filtered_area > 5.0 and (total_outer_env <= 0.0 or filtered_area > 0.05 * total_outer_env):
+        flags.append({
+            "id": "filtered_items_large",
+            "code": "FILTERED_ITEMS_LARGE",
+            "severity": "info",
+            "title": f"{filtered_area:.1f} m² bidang disaring otomatis",
+            "detail": (
+                "Sebagian bidang dikeluarkan otomatis karena termasuk sisi dalam, sisi tebal panel, "
+                "atau di bawah muka tanah."
+            ),
+            "requires_confirmation": False,
+            "accept_makes_provisional": False,
+            "actions": ["mengerti"],
+            "meta": {"filtered_area_m2": round(filtered_area, 2), "item_count": len(filtered_items)},
+        })
+
+    # 11. Floor count mismatch vs user answer (> 20%)
+    est_floors = int(preview.get("estimated_floors", 0) or 0)
+    exp_floors = answers.get("expected_floors")
+    if exp_floors is not None and est_floors > 0:
+        try:
+            exp_f = int(exp_floors)
+            if exp_f > 0 and abs(est_floors - exp_f) / float(exp_f) > 0.20:
+                flags.append({
+                    "id": "floor_count_mismatch",
+                    "code": "FLOOR_COUNT_MISMATCH",
+                    "severity": "warn",
+                    "title": f"Perkiraan {est_floors} lantai berbeda dari masukanmu ({exp_f} lantai)",
+                    "detail": "Periksa satuan file atau elevasi muka tanah di langkah Konfirmasi.",
+                    "requires_confirmation": False,
+                    "accept_makes_provisional": True,
+                    "actions": ["buka_konfirmasi", "mengerti"],
+                })
+        except (TypeError, ValueError):
+            pass
+
+    # 12. No roof info flag
+    has_roof = any(g.get("enabled", True) and g.get("category") == "roof" for g in groups)
+    if not has_roof:
+        flags.append({
+            "id": "no_roof",
+            "code": "NO_ROOF",
+            "severity": "info",
+            "title": "Tidak ada atap di model",
+            "detail": "RTTV tidak dihitung. Wajar untuk model fasad saja.",
+            "requires_confirmation": False,
+            "accept_makes_provisional": False,
+            "actions": ["mengerti"],
+        })
+
+    return flags
+
+
 def _estimate_group_confidence(rg: RawGroupMesh) -> Tuple[str, str]:
     """
     M7: Evaluates whether a group's auto-assigned role is high-confidence or 'review'
@@ -444,6 +903,42 @@ def build_staging_inspection_payload(
         },
     ]
 
+    orientation_preview = _compute_preview_orientation_areas(
+        raw_groups=raw_groups,
+        cat_overrides=cat_overrides,
+        disabled_set=disabled_set,
+        z0_cut=z0_cut,
+        north_angle_deg=float(getattr(getattr(cfg, "settings", None), "north_angle_deg", 0.0) or 0.0),
+    )
+
+    user_answers: Dict[str, Any] = dict(getattr(cfg, "user_answers", None) or {})
+    if m_cfg.expected_floors is not None and "expected_floors" not in user_answers:
+        user_answers["expected_floors"] = m_cfg.expected_floors
+    if m_cfg.model_scope is not None and "model_scope" not in user_answers:
+        user_answers["model_scope"] = m_cfg.model_scope
+    if getattr(getattr(cfg, "settings", None), "default_wall_wwr", None) is not None:
+        user_answers["default_wall_wwr"] = cfg.settings.default_wall_wwr
+
+    bbox_dict = {
+        "min": [round(float(x), 2) for x in b_min],
+        "max": [round(float(x), 2) for x in b_max],
+        "center": [round(float(x), 2) for x in b_center],
+        "span": [round(float(x), 2) for x in b_span],
+        "max_span": round(max_dim, 2),
+    }
+
+    sanity_flags = build_sanity_flags(
+        groups=staging_groups,
+        audit=audit,
+        analysis_preview={
+            "bounding_box": bbox_dict,
+            "estimated_floors": len(preview_floors),
+            "orientation_areas": orientation_preview,
+            "filtered_items": all_filtered_items,
+        },
+        user_answers=user_answers,
+    )
+
     return {
         "status": "inspected",
         "model_id": model_id,
@@ -473,17 +968,13 @@ def build_staging_inspection_payload(
         },
         "filtered_items": all_filtered_items,
         "missing_mesh": audit.missing_mesh,
-        "bounding_box": {
-            "min": [round(float(x), 2) for x in b_min],
-            "max": [round(float(x), 2) for x in b_max],
-            "center": [round(float(x), 2) for x in b_center],
-            "span": [round(float(x), 2) for x in b_span],
-            "max_span": round(max_dim, 2),
-        },
+        "bounding_box": bbox_dict,
         "estimated_floors": len(preview_floors),
         "floor_detection_method": floor_method,
         "groups": staging_groups,
         "preview_meshes": preview_meshes,
+        "orientation_preview": orientation_preview,
+        "sanity_flags": sanity_flags,
         "face_category_overrides": face_ov,
         "face_z_band_overrides": list(r_cfg.face_z_band_overrides or []),
         "gate_checklist": checklist,

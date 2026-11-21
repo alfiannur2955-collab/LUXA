@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LUXA · Bandingkan</title>
+<link rel="icon" href="../brand/favicon.svg" type="image/svg+xml">
+
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=Newsreader:ital,opsz@1,6..72&amp;family=Montserrat:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.app{--paper:#f8f7f4;--surface:#ffffff;--sunken:#eae7e0;--ink:#1b1a17;--muted:#5e5a52;--line:#ddd9d0;--line-strong:#8a8478;--sun:#a35400;--on-sun:#ffffff;--glass:rgba(255,255,255,0.62);--glass-edge:rgba(255,255,255,0.85);--glass-card:rgba(255,255,255,0.58);--glass-thin:rgba(255,255,255,0.42);--glow-warm:rgba(244,155,26,0.30);--glow-cool:rgba(19,142,134,0.14);--ok:#0f766e;--warn:#9a5800;--fail:#b3261e;--glz:#4f86b5;--wall:#b9b2a6;--shade:#138e86;--unk:#d9a400;--h0:#f6e7c8;--h1:#eeb066;--h2:#cf5a1f;--h3:#7d1d10;--float:0 12px 32px rgba(27,26,23,0.14)}
+.app.dark{--paper:#141412;--surface:#1e1d1a;--sunken:#2a2925;--ink:#f2efe8;--muted:#ada79b;--line:#34322d;--line-strong:#8f897d;--sun:#f5a94a;--on-sun:#141412;--glass:rgba(30,29,26,0.62);--glass-edge:rgba(255,255,255,0.10);--glass-card:rgba(36,35,31,0.58);--glass-thin:rgba(36,35,31,0.42);--glow-warm:rgba(245,169,74,0.16);--glow-cool:rgba(94,196,186,0.10);--ok:#5ec4ba;--warn:#e8a33d;--fail:#f2867e;--glz:#7fb0db;--wall:#6f6a60;--shade:#5ec4ba;--unk:#e8c14a;--h0:#3a3122;--h1:#a8642c;--h2:#e07a3a;--h3:#ffb38a;--float:0 12px 32px rgba(0,0,0,0.45)}
+.app{font-family:"Plus Jakarta Sans",system-ui,sans-serif;color:var(--ink);background-color:var(--paper);background-image:radial-gradient(1100px 720px at 92% -12%,var(--glow-warm),rgba(255,255,255,0) 62%),radial-gradient(900px 640px at -8% 108%,var(--glow-cool),rgba(255,255,255,0) 60%);min-height:900px;box-sizing:border-box;display:grid;grid-template-columns:88px 1fr;grid-template-rows:64px 1fr;font-size:14px;line-height:21px}
+.app *{box-sizing:border-box}
+.num{font-variant-numeric:tabular-nums}
+button,a,label,summary,select{cursor:pointer}
+button:disabled{cursor:not-allowed}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
+.top{grid-column:1 / 3;display:flex;align-items:center;gap:24px;padding:0 24px 0 28px}
+.word{font-weight:700;font-size:18px;letter-spacing:-0.01em;margin:0}
+.steps{display:flex;gap:4px;list-style:none;margin:0 auto;padding:4px;border-radius:14px}
+.steps li{padding:6px 14px;border-radius:10px;font-size:13px;font-weight:600;color:var(--muted);display:flex;gap:8px;align-items:center}
+.steps li .n{width:20px;height:20px;border-radius:10px;border:1px solid var(--line-strong);display:inline-grid;place-items:center;font-size:11px}
+.steps li.on{background:var(--ink);color:var(--paper)}
+.steps li.on .n{border-color:var(--paper)}
+.steps li.done{color:var(--ink)}
+.steps li.done .n{background:var(--ok);border-color:var(--ok);color:#fff}
+.tbtn{height:40px;min-width:40px;padding:0 12px;border-radius:12px;border:1px solid var(--glass-edge);background:var(--glass-thin);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.tbtn svg{width:18px;height:18px}
+.rail{grid-row:2;display:flex;flex-direction:column;gap:4px;padding:8px 12px 20px;align-items:stretch}
+.rail-in{display:flex;flex-direction:column;gap:2px;padding:6px;border-radius:20px;flex:1}
+.rail button{border:0;background:transparent;border-radius:14px;padding:10px 4px 8px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:14px;color:var(--muted);min-height:56px}
+.rail button svg{width:22px;height:22px}
+.rail button:hover{background:var(--sunken);color:var(--ink)}
+.rail button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(27,26,23,0.08)}
+.rail .sp{flex:1}
+.main{grid-row:2;padding:0 16px 16px 4px;display:grid;gap:8px;min-width:0}
+.box{border-radius:22px;padding:16px 18px;min-width:0;background:var(--glass-card);border:1px solid var(--glass-edge);-webkit-backdrop-filter:blur(20px) saturate(1.5);backdrop-filter:blur(20px) saturate(1.5)}
+.solid{background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none;border-color:var(--line)}
+.box h2{margin:0;font-size:16px;line-height:22px;font-weight:600}
+.muted{color:var(--muted)}
+.lbl{font-size:12px;line-height:16px;font-weight:600;color:var(--muted)}
+.viewer{position:relative;background:linear-gradient(180deg,var(--surface) 0%,var(--sunken) 100%);border-radius:22px;overflow:hidden;min-height:760px;border:1px solid var(--line)}
+.viewer svg.scene{position:absolute;inset:0;width:100%;height:100%}
+.gcard{background:var(--glass-card);border:1px solid var(--glass-edge);-webkit-backdrop-filter:blur(20px) saturate(1.5);backdrop-filter:blur(20px) saturate(1.5);box-shadow:0 1px 2px rgba(27,26,23,0.06)}
+.gthin{background:var(--glass-thin);border:1px solid var(--glass-edge);-webkit-backdrop-filter:blur(14px) saturate(1.3);backdrop-filter:blur(14px) saturate(1.3)}
+.glass{background:var(--glass);border:1px solid var(--glass-edge);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);box-shadow:var(--float);border-radius:22px}
+.modes{position:absolute;left:16px;top:16px;display:flex;align-items:center;gap:2px;padding:4px;border-radius:16px;height:52px}
+.modes .grp{display:none}
+.modes hr{border:0;border-left:1px solid var(--line);height:24px;margin:0 4px}
+.modes button{border:0;background:transparent;border-radius:12px;height:42px;padding:0 12px;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap}
+.modes button svg{width:17px;height:17px}
+.modes button:hover{background:var(--glass-thin)}
+.modes button.on{background:var(--ink);color:var(--paper)}
+.compass{position:absolute;right:16px;top:16px;width:52px;height:52px;border-radius:26px;display:grid;place-items:center}.compass svg{width:44px;height:44px}
+.legend{position:absolute;left:16px;bottom:16px;display:flex;gap:14px;padding:10px 14px;border-radius:14px;background:var(--glass);border:1px solid var(--glass-edge);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);box-shadow:var(--float);font-size:12px;font-weight:600}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.cta{height:52px;border:0;border-radius:14px;background:var(--sun);color:var(--on-sun);font-weight:700;font-size:15px;padding:0 22px;display:inline-flex;align-items:center;justify-content:center;gap:10px}
+.cta:disabled{background:var(--sunken);color:var(--muted)}
+.ghost{height:44px;border:1px solid var(--line-strong);border-radius:12px;background:transparent;font-weight:600;font-size:13px;padding:0 14px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;background:var(--sunken)}
+.st-warn{color:var(--warn)} .st-ok{color:var(--ok)} .st-fail{color:var(--fail)}
+.formula{font-family:Newsreader,Georgia,serif;font-style:italic;font-size:16px;line-height:24px}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:8px 10px;background:var(--sunken)}
+th:first-child{border-radius:8px 0 0 8px} th:last-child{border-radius:0 8px 8px 0}
+td{padding:10px;border-bottom:1px solid var(--line)}
+kbd{font-family:inherit;font-size:11px;font-weight:600;padding:1px 6px;border-radius:6px;border:1px solid var(--line-strong);background:var(--surface);color:var(--muted);line-height:16px}
+.seg{display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--glass-thin);border:1px solid var(--glass-edge)}
+.seg button{flex:1;border:0;background:transparent;border-radius:9px;min-height:36px;padding:4px 8px;font-size:12px;font-weight:600}
+.seg button.on{background:var(--ink);color:var(--paper)}
+.vbar{position:absolute;left:16px;right:16px;bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:8px;pointer-events:none}
+.vbar>*{pointer-events:auto}
+.pill{display:flex;align-items:center;gap:4px;height:48px;padding:0 6px;border-radius:16px}
+.pill .div{width:1px;height:24px;background:var(--line);margin:0 4px}
+.pill .b{border:0;background:transparent;border-radius:11px;height:36px;padding:0 10px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;color:var(--ink);white-space:nowrap}
+.pill .b:hover{background:var(--glass-thin)}
+.pill .b.on{background:var(--ink);color:var(--paper)}
+.pill .b.dark{background:var(--ink);color:var(--paper)}
+.pill .seg2{display:flex;gap:2px}
+.psec{display:grid;gap:8px;padding:12px 0;border-top:1px solid var(--line)}
+.psec h3{margin:0;font-size:12px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:6px}
+.prow{display:grid;grid-template-columns:84px 1fr auto;gap:10px;align-items:center;font-size:12.5px}
+@media (max-width:860px){.app{grid-template-columns:1fr;grid-template-rows:auto auto 1fr}.rail{grid-row:2;flex-direction:row;overflow-x:auto;padding:4px 12px}.rail button{min-width:64px}.rail .sp{display:none}.rail-in{flex-direction:row}.modes{top:auto;bottom:72px;max-width:calc(100% - 32px);overflow-x:auto}.vbar{flex-direction:column;align-items:stretch}.pill{overflow-x:auto}.main{grid-row:3;padding:0 12px 12px}.steps{display:none}.viewer{min-height:420px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (prefers-reduced-transparency:reduce){.glass,.gcard,.gthin,.box,.tbtn,.legend{background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none}}
+</style>
+
+</head>
+<body>
+
+<div class="app" style="width: 100%;">
+<header class="top"><a href="#" aria-label="LUXA, beranda" style="display:flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none"><svg viewBox="502 461 524 524" width="30" height="30" aria-hidden="true"><defs><clipPath id="lxo"><polygon points="1211.1,264.5 362.5,1113.1 -61.7,688.8 786.8,-159.7"/></clipPath><clipPath id="lxt"><polygon points="1229.5,282.9 380.9,1131.5 805.2,1555.7 1653.7,707.2"/></clipPath></defs>
+<path d="M516 461H1012V501H596V897H1012V976H516Z" fill="var(--ink)"/>
+<circle cx="796" cy="698" r="171" fill="#F49B1A" clip-path="url(#lxo)"/>
+<circle cx="796" cy="698" r="171" fill="#138E86" clip-path="url(#lxt)"/></svg><span style="display:grid;line-height:1.1"><span class="word" style="font-family:Montserrat,'Plus Jakarta Sans',sans-serif;font-weight:700;letter-spacing:.06em">LUXA</span><span style="font-family:Montserrat,'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:400;color:var(--muted)">by Alf Studio</span></span></a><nav aria-label="Langkah"><ol class="steps gthin"><li class="done"><span class="n"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="12" height="12"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>Unggah</li><li class="done"><span class="n"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="12" height="12"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>Konfirmasi</li><li class="done"><span class="n"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="12" height="12"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>Inspeksi</li><li class="on" aria-current="step"><span class="n">4</span>Hasil</li></ol></nav><button class="tbtn" type="button" aria-label="Cari perintah"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg><span class="muted" style="font-weight:500">Cari perintah</span><kbd>Ctrl K</kbd></button><button class="tbtn" type="button" aria-label="Tema gelap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 14.5A7.5 7.5 0 019.5 5a7.5 7.5 0 109.5 9.5z"/></svg></button><button class="tbtn" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7h9M18 7h1M5 17h3M12 17h7"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Mode lanjut</button></header><nav class="rail" aria-label="Fitur"><div class="rail-in gthin"><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>Model</button><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4M4 16l8 4 8-4"/></svg>Material</button><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.5-6-11a6 6 0 0112 0c0 5.5-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg>Lokasi</button><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>Tampilan</button><button type="button" class="on" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M12 4.5v15"/></svg>Bandingkan</button><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h6M10 16h6"/></svg>Laporan</button><span class="sp"></span><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M9.8 9.5a2.3 2.3 0 114 1.6c-.9.6-1.8 1.1-1.8 2.2M12 16.6v.1"/></svg>Bantuan</button></div></nav><main class="main" style="grid-template-columns: minmax(0,1fr) 300px;"><section class="viewer" style="display: grid; grid-template-columns: 1fr 1fr;" aria-label="Viewer bandingkan dua desain">
+  <div style="position: relative; min-width: 0;"><svg class="scene" viewBox="0 0 660 640" preserveAspectRatio="xMidYMid meet" role="img" style="position:absolute;inset:0;width:100%;height:100%" aria-label="Ilustrasi model Facade only to Alfian, menara 12,6 × 14,6 × 53,8 m"><style>.fl{fill:var(--h1)}.fr{fill:var(--h3)}.wl{fill:none}.mul{stroke:var(--surface);stroke-opacity:.55;stroke-width:1}.thin{stroke-opacity:.3}.tp{fill:var(--surface);stroke:var(--line-strong);stroke-width:1}.gnd{stroke:var(--muted);stroke-width:1.5;stroke-dasharray:6 5;fill:none}.sh{fill:var(--ink);opacity:.07}</style><polygon points="249.1,546.7 318.9,587.0 363.3,663.8 399.8,540.3" class="sh"/><polygon points="318.9,587.0 249.1,546.7 249.1,202.4 318.9,242.7" class="fl"/><line x1="318.9" y1="587.0" x2="249.1" y2="546.7" class="mul"/><line x1="318.9" y1="564.0" x2="249.1" y2="523.7" class="mul"/><line x1="318.9" y1="541.0" x2="249.1" y2="500.6" class="mul"/><line x1="318.9" y1="517.9" x2="249.1" y2="477.6" class="mul"/><line x1="318.9" y1="494.9" x2="249.1" y2="454.6" class="mul"/><line x1="318.9" y1="471.8" x2="249.1" y2="431.5" class="mul"/><line x1="318.9" y1="448.8" x2="249.1" y2="408.5" class="mul"/><line x1="318.9" y1="425.8" x2="249.1" y2="385.4" class="mul"/><line x1="318.9" y1="402.7" x2="249.1" y2="362.4" class="mul"/><line x1="318.9" y1="379.7" x2="249.1" y2="339.4" class="mul"/><line x1="318.9" y1="356.6" x2="249.1" y2="316.3" class="mul"/><line x1="318.9" y1="333.6" x2="249.1" y2="293.3" class="mul"/><line x1="318.9" y1="310.6" x2="249.1" y2="270.2" class="mul"/><line x1="318.9" y1="287.5" x2="249.1" y2="247.2" class="mul"/><line x1="318.9" y1="264.5" x2="249.1" y2="224.2" class="mul"/><line x1="310.2" y1="582.0" x2="310.2" y2="237.7" class="mul thin"/><line x1="301.5" y1="577.0" x2="301.5" y2="232.6" class="mul thin"/><line x1="292.7" y1="571.9" x2="292.7" y2="227.6" class="mul thin"/><line x1="284.0" y1="566.9" x2="284.0" y2="222.6" class="mul thin"/><line x1="275.3" y1="561.8" x2="275.3" y2="217.5" class="mul thin"/><line x1="266.5" y1="556.8" x2="266.5" y2="212.5" class="mul thin"/><line x1="257.8" y1="551.8" x2="257.8" y2="207.4" class="mul thin"/><polygon points="318.9,587.0 399.8,540.3 399.8,196.0 318.9,242.7" class="fr"/><line x1="318.9" y1="587.0" x2="399.8" y2="540.3" class="mul"/><line x1="318.9" y1="564.0" x2="399.8" y2="517.3" class="mul"/><line x1="318.9" y1="541.0" x2="399.8" y2="494.2" class="mul"/><line x1="318.9" y1="517.9" x2="399.8" y2="471.2" class="mul"/><line x1="318.9" y1="494.9" x2="399.8" y2="448.2" class="mul"/><line x1="318.9" y1="471.8" x2="399.8" y2="425.1" class="mul"/><line x1="318.9" y1="448.8" x2="399.8" y2="402.1" class="mul"/><line x1="318.9" y1="425.8" x2="399.8" y2="379.0" class="mul"/><line x1="318.9" y1="402.7" x2="399.8" y2="356.0" class="mul"/><line x1="318.9" y1="379.7" x2="399.8" y2="333.0" class="mul"/><line x1="318.9" y1="356.6" x2="399.8" y2="309.9" class="mul"/><line x1="318.9" y1="333.6" x2="399.8" y2="286.9" class="mul"/><line x1="318.9" y1="310.6" x2="399.8" y2="263.8" class="mul"/><line x1="318.9" y1="287.5" x2="399.8" y2="240.8" class="mul"/><line x1="318.9" y1="264.5" x2="399.8" y2="217.8" class="mul"/><line x1="327.9" y1="581.8" x2="327.9" y2="237.5" class="mul thin"/><line x1="336.9" y1="576.7" x2="336.9" y2="232.3" class="mul thin"/><line x1="345.9" y1="571.5" x2="345.9" y2="227.1" class="mul thin"/><line x1="354.9" y1="566.3" x2="354.9" y2="222.0" class="mul thin"/><line x1="363.9" y1="561.1" x2="363.9" y2="216.8" class="mul thin"/><line x1="372.9" y1="555.9" x2="372.9" y2="211.6" class="mul thin"/><line x1="381.9" y1="550.7" x2="381.9" y2="206.4" class="mul thin"/><line x1="390.8" y1="545.5" x2="390.8" y2="201.2" class="mul thin"/><polygon points="318.9,242.7 249.1,202.4 330.0,155.7 399.8,196.0" class="tp"/><polygon points="318.9,596.1 193.7,523.8 330.0,445.1 455.3,517.4" class="gnd"/></svg>
+  <div class="glass" style="position: absolute; left: 16px; top: 16px; right: 16px; border-radius: 16px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+    <div style="min-width: 0;"><p class="lbl" style="margin: 0;">Sekarang</p><p style="margin: 0; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Kaca IGU Triple-Silver, SC 0,23</p></div>
+    <div style="text-align: right;"><p class="num" style="margin: 0; font-size: 26px; line-height: 30px; font-weight: 700;">38,79</p><span class="chip st-fail" style="font-size: 11px; padding: 2px 8px;">Tidak memenuhi</span></div>
+  </div></div><div style="position: relative; min-width: 0;"><svg class="scene" viewBox="0 0 660 640" preserveAspectRatio="xMidYMid meet" role="img" style="position:absolute;inset:0;width:100%;height:100%" aria-label="Ilustrasi model Facade only to Alfian, menara 12,6 × 14,6 × 53,8 m"><style>.fl{fill:var(--h0)}.fr{fill:var(--h2)}.wl{fill:none}.mul{stroke:var(--surface);stroke-opacity:.55;stroke-width:1}.thin{stroke-opacity:.3}.tp{fill:var(--surface);stroke:var(--line-strong);stroke-width:1}.gnd{stroke:var(--muted);stroke-width:1.5;stroke-dasharray:6 5;fill:none}.sh{fill:var(--ink);opacity:.07}</style><polygon points="249.1,546.7 318.9,587.0 363.3,663.8 399.8,540.3" class="sh"/><polygon points="318.9,587.0 249.1,546.7 249.1,202.4 318.9,242.7" class="fl"/><line x1="318.9" y1="587.0" x2="249.1" y2="546.7" class="mul"/><line x1="318.9" y1="564.0" x2="249.1" y2="523.7" class="mul"/><line x1="318.9" y1="541.0" x2="249.1" y2="500.6" class="mul"/><line x1="318.9" y1="517.9" x2="249.1" y2="477.6" class="mul"/><line x1="318.9" y1="494.9" x2="249.1" y2="454.6" class="mul"/><line x1="318.9" y1="471.8" x2="249.1" y2="431.5" class="mul"/><line x1="318.9" y1="448.8" x2="249.1" y2="408.5" class="mul"/><line x1="318.9" y1="425.8" x2="249.1" y2="385.4" class="mul"/><line x1="318.9" y1="402.7" x2="249.1" y2="362.4" class="mul"/><line x1="318.9" y1="379.7" x2="249.1" y2="339.4" class="mul"/><line x1="318.9" y1="356.6" x2="249.1" y2="316.3" class="mul"/><line x1="318.9" y1="333.6" x2="249.1" y2="293.3" class="mul"/><line x1="318.9" y1="310.6" x2="249.1" y2="270.2" class="mul"/><line x1="318.9" y1="287.5" x2="249.1" y2="247.2" class="mul"/><line x1="318.9" y1="264.5" x2="249.1" y2="224.2" class="mul"/><line x1="310.2" y1="582.0" x2="310.2" y2="237.7" class="mul thin"/><line x1="301.5" y1="577.0" x2="301.5" y2="232.6" class="mul thin"/><line x1="292.7" y1="571.9" x2="292.7" y2="227.6" class="mul thin"/><line x1="284.0" y1="566.9" x2="284.0" y2="222.6" class="mul thin"/><line x1="275.3" y1="561.8" x2="275.3" y2="217.5" class="mul thin"/><line x1="266.5" y1="556.8" x2="266.5" y2="212.5" class="mul thin"/><line x1="257.8" y1="551.8" x2="257.8" y2="207.4" class="mul thin"/><polygon points="318.9,587.0 399.8,540.3 399.8,196.0 318.9,242.7" class="fr"/><line x1="318.9" y1="587.0" x2="399.8" y2="540.3" class="mul"/><line x1="318.9" y1="564.0" x2="399.8" y2="517.3" class="mul"/><line x1="318.9" y1="541.0" x2="399.8" y2="494.2" class="mul"/><line x1="318.9" y1="517.9" x2="399.8" y2="471.2" class="mul"/><line x1="318.9" y1="494.9" x2="399.8" y2="448.2" class="mul"/><line x1="318.9" y1="471.8" x2="399.8" y2="425.1" class="mul"/><line x1="318.9" y1="448.8" x2="399.8" y2="402.1" class="mul"/><line x1="318.9" y1="425.8" x2="399.8" y2="379.0" class="mul"/><line x1="318.9" y1="402.7" x2="399.8" y2="356.0" class="mul"/><line x1="318.9" y1="379.7" x2="399.8" y2="333.0" class="mul"/><line x1="318.9" y1="356.6" x2="399.8" y2="309.9" class="mul"/><line x1="318.9" y1="333.6" x2="399.8" y2="286.9" class="mul"/><line x1="318.9" y1="310.6" x2="399.8" y2="263.8" class="mul"/><line x1="318.9" y1="287.5" x2="399.8" y2="240.8" class="mul"/><line x1="318.9" y1="264.5" x2="399.8" y2="217.8" class="mul"/><line x1="327.9" y1="581.8" x2="327.9" y2="237.5" class="mul thin"/><line x1="336.9" y1="576.7" x2="336.9" y2="232.3" class="mul thin"/><line x1="345.9" y1="571.5" x2="345.9" y2="227.1" class="mul thin"/><line x1="354.9" y1="566.3" x2="354.9" y2="222.0" class="mul thin"/><line x1="363.9" y1="561.1" x2="363.9" y2="216.8" class="mul thin"/><line x1="372.9" y1="555.9" x2="372.9" y2="211.6" class="mul thin"/><line x1="381.9" y1="550.7" x2="381.9" y2="206.4" class="mul thin"/><line x1="390.8" y1="545.5" x2="390.8" y2="201.2" class="mul thin"/><polygon points="318.9,242.7 249.1,202.4 330.0,155.7 399.8,196.0" class="tp"/><polygon points="318.9,596.1 193.7,523.8 330.0,445.1 455.3,517.4" class="gnd"/></svg>
+  <div class="glass" style="position: absolute; left: 16px; top: 16px; right: 16px; border-radius: 16px; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+    <div style="min-width: 0;"><p class="lbl" style="margin: 0;">Alternatif A</p><p style="margin: 0; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Kaca Elektrokromik mode gelap, SC 0,15</p></div>
+    <div style="text-align: right;"><p class="num" style="margin: 0; font-size: 26px; line-height: 30px; font-weight: 700;">27,71</p><span class="chip st-ok" style="font-size: 11px; padding: 2px 8px;">Memenuhi</span></div>
+  </div></div>
+  <div aria-hidden="true" style="position: absolute; left: 50%; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--surface);"></div>
+  <button type="button" aria-label="Geser pembatas" style="position: absolute; left: calc(50% - 20px); top: calc(50% - 20px); width: 40px; height: 40px; border-radius: 20px; border: 1px solid var(--glass-edge); background: var(--glass); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); display: grid; place-items: center; cursor: ew-resize;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="18" height="18"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M12 4.5v15"/></svg></button>
+  <div class="glass" style="position: absolute; left: 50%; transform: translateX(-50%); bottom: 16px; border-radius: 16px; padding: 10px 18px;">
+    <p class="lbl" style="margin: 0 0 4px; text-align: center;">Selisih per arah (W/m²)</p>
+    <ol style="list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 96px); gap: 8px;"><li style="display: grid; gap: 2px; justify-items: center;"><span class="lbl" style="color: var(--ink);">U</span><span class="num" style="font-size: 12px;">36,09 → <b>25,96</b></span><span class="num st-ok" style="font-size: 12px; font-weight: 700;">-10,13</span></li><li style="display: grid; gap: 2px; justify-items: center;"><span class="lbl" style="color: var(--ink);">T</span><span class="num" style="font-size: 12px;">41,57 → <b>29,52</b></span><span class="num st-ok" style="font-size: 12px; font-weight: 700;">-12,05</span></li><li style="display: grid; gap: 2px; justify-items: center;"><span class="lbl" style="color: var(--ink);">S</span><span class="num" style="font-size: 12px;">27,78 → <b>20,56</b></span><span class="num st-ok" style="font-size: 12px; font-weight: 700;">-7,22</span></li><li style="display: grid; gap: 2px; justify-items: center;"><span class="lbl" style="color: var(--ink);">B</span><span class="num" style="font-size: 12px;">49,68 → <b>34,79</b></span><span class="num st-ok" style="font-size: 12px; font-weight: 700;">-14,89</span></li></ol>
+  </div>
+</section><div style="display: flex; flex-direction: column; gap: 8px; min-width: 0;">
+  <section class="box" aria-labelledby="cmp-title">
+    <h2 id="cmp-title" style="font-size: 14px;">Bandingkan</h2>
+    <p class="num" style="margin: 6px 0 0; font-size: 40px; line-height: 44px; font-weight: 700; letter-spacing: -0.02em;" >−11,08<span style="font-size: 15px; font-weight: 600; color: var(--muted); letter-spacing: 0;"> W/m²</span></p>
+    <p class="muted" style="margin: 2px 0 0; font-size: 13px;">OTTV turun 28,6%, dari 38,79 ke 27,71. Lolos batas 35.</p>
+  </section>
+  <section class="box" aria-labelledby="chg-title">
+    <h2 id="chg-title" style="font-size: 14px;">Yang diubah di Alternatif A</h2>
+    <table style="margin-top: 8px; font-size: 12.5px;"><tbody class="num">
+      <tr><td class="muted">Kaca</td><td style="text-align: right; font-weight: 600;">Elektrokromik (mode gelap)</td></tr>
+      <tr><td class="muted">SC</td><td style="text-align: right;">0,23 → 0,15</td></tr>
+      <tr><td class="muted">U<sub>f</sub></td><td style="text-align: right;">1,10 → 1,25</td></tr>
+    </tbody></table>
+    <p class="lbl" style="margin: 8px 0 0; font-weight: 500; line-height: 17px;">Nilai katalog kaca elektrokromik adalah kondisi paling gelap. Saat terang, SC-nya lebih tinggi.</p>
+  </section>
+  <section class="box" aria-labelledby="alt-title">
+    <h2 id="alt-title" style="font-size: 14px;">Alternatif</h2>
+    <div style="display: grid; gap: 6px; margin-top: 8px;">
+      <button type="button" class="ghost" style="text-align: left; background: var(--surface); border-color: var(--sun); display: flex; justify-content: space-between;"><span>A · Kaca elektrokromik</span><span class="num">27,71</span></button>
+      <button type="button" class="ghost" style="text-align: left; background: var(--glass-thin); display: flex; justify-content: space-between;"><span>B · Kaca IGU Low-E standar</span><span class="num">54,01</span></button>
+      <button type="button" class="ghost" style="background: var(--glass-thin); display: inline-flex; gap: 6px; align-items: center; justify-content: center;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="14" height="14"><path d="M12 5v14M5 12h14"/></svg>Tambah alternatif</button>
+    </div>
+  </section>
+  <div style="display: grid; gap: 8px; margin-top: auto;">
+    <button class="cta" type="button">Pakai Alternatif A</button>
+    <p class="lbl" style="margin: 0; text-align: center; font-weight: 500;">Desain sekarang tetap tersimpan sebagai riwayat.</p>
+  </div>
+</div></main>
+</div>
+
+</body>
+</html>

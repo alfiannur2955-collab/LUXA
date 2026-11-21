@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LUXA · Konfirmasi model</title>
+<link rel="icon" href="../brand/favicon.svg" type="image/svg+xml">
+
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&amp;family=Newsreader:ital,opsz@1,6..72&amp;family=Montserrat:wght@400;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.app{--paper:#f8f7f4;--surface:#ffffff;--sunken:#eae7e0;--ink:#1b1a17;--muted:#5e5a52;--line:#ddd9d0;--line-strong:#8a8478;--sun:#a35400;--on-sun:#ffffff;--glass:rgba(255,255,255,0.62);--glass-edge:rgba(255,255,255,0.85);--glass-card:rgba(255,255,255,0.58);--glass-thin:rgba(255,255,255,0.42);--glow-warm:rgba(244,155,26,0.30);--glow-cool:rgba(19,142,134,0.14);--ok:#0f766e;--warn:#9a5800;--fail:#b3261e;--glz:#4f86b5;--wall:#b9b2a6;--shade:#138e86;--unk:#d9a400;--h0:#f6e7c8;--h1:#eeb066;--h2:#cf5a1f;--h3:#7d1d10;--float:0 12px 32px rgba(27,26,23,0.14)}
+.app.dark{--paper:#141412;--surface:#1e1d1a;--sunken:#2a2925;--ink:#f2efe8;--muted:#ada79b;--line:#34322d;--line-strong:#8f897d;--sun:#f5a94a;--on-sun:#141412;--glass:rgba(30,29,26,0.62);--glass-edge:rgba(255,255,255,0.10);--glass-card:rgba(36,35,31,0.58);--glass-thin:rgba(36,35,31,0.42);--glow-warm:rgba(245,169,74,0.16);--glow-cool:rgba(94,196,186,0.10);--ok:#5ec4ba;--warn:#e8a33d;--fail:#f2867e;--glz:#7fb0db;--wall:#6f6a60;--shade:#5ec4ba;--unk:#e8c14a;--h0:#3a3122;--h1:#a8642c;--h2:#e07a3a;--h3:#ffb38a;--float:0 12px 32px rgba(0,0,0,0.45)}
+.app{font-family:"Plus Jakarta Sans",system-ui,sans-serif;color:var(--ink);background-color:var(--paper);background-image:radial-gradient(1100px 720px at 92% -12%,var(--glow-warm),rgba(255,255,255,0) 62%),radial-gradient(900px 640px at -8% 108%,var(--glow-cool),rgba(255,255,255,0) 60%);min-height:900px;box-sizing:border-box;display:grid;grid-template-columns:88px 1fr;grid-template-rows:64px 1fr;font-size:14px;line-height:21px}
+.app *{box-sizing:border-box}
+.num{font-variant-numeric:tabular-nums}
+button,a,label,summary,select{cursor:pointer}
+button:disabled{cursor:not-allowed}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
+.top{grid-column:1 / 3;display:flex;align-items:center;gap:24px;padding:0 24px 0 28px}
+.word{font-weight:700;font-size:18px;letter-spacing:-0.01em;margin:0}
+.steps{display:flex;gap:4px;list-style:none;margin:0 auto;padding:4px;border-radius:14px}
+.steps li{padding:6px 14px;border-radius:10px;font-size:13px;font-weight:600;color:var(--muted);display:flex;gap:8px;align-items:center}
+.steps li .n{width:20px;height:20px;border-radius:10px;border:1px solid var(--line-strong);display:inline-grid;place-items:center;font-size:11px}
+.steps li.on{background:var(--ink);color:var(--paper)}
+.steps li.on .n{border-color:var(--paper)}
+.steps li.done{color:var(--ink)}
+.steps li.done .n{background:var(--ok);border-color:var(--ok);color:#fff}
+.tbtn{height:40px;min-width:40px;padding:0 12px;border-radius:12px;border:1px solid var(--glass-edge);background:var(--glass-thin);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600}
+.tbtn svg{width:18px;height:18px}
+.rail{grid-row:2;display:flex;flex-direction:column;gap:4px;padding:8px 12px 20px;align-items:stretch}
+.rail-in{display:flex;flex-direction:column;gap:2px;padding:6px;border-radius:20px;flex:1}
+.rail button{border:0;background:transparent;border-radius:14px;padding:10px 4px 8px;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;font-weight:600;line-height:14px;color:var(--muted);min-height:56px}
+.rail button svg{width:22px;height:22px}
+.rail button:hover{background:var(--sunken);color:var(--ink)}
+.rail button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 2px rgba(27,26,23,0.08)}
+.rail .sp{flex:1}
+.main{grid-row:2;padding:0 16px 16px 4px;display:grid;gap:8px;min-width:0}
+.box{border-radius:22px;padding:16px 18px;min-width:0;background:var(--glass-card);border:1px solid var(--glass-edge);-webkit-backdrop-filter:blur(20px) saturate(1.5);backdrop-filter:blur(20px) saturate(1.5)}
+.solid{background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none;border-color:var(--line)}
+.box h2{margin:0;font-size:16px;line-height:22px;font-weight:600}
+.muted{color:var(--muted)}
+.lbl{font-size:12px;line-height:16px;font-weight:600;color:var(--muted)}
+.viewer{position:relative;background:linear-gradient(180deg,var(--surface) 0%,var(--sunken) 100%);border-radius:22px;overflow:hidden;min-height:760px;border:1px solid var(--line)}
+.viewer svg.scene{position:absolute;inset:0;width:100%;height:100%}
+.gcard{background:var(--glass-card);border:1px solid var(--glass-edge);-webkit-backdrop-filter:blur(20px) saturate(1.5);backdrop-filter:blur(20px) saturate(1.5);box-shadow:0 1px 2px rgba(27,26,23,0.06)}
+.gthin{background:var(--glass-thin);border:1px solid var(--glass-edge);-webkit-backdrop-filter:blur(14px) saturate(1.3);backdrop-filter:blur(14px) saturate(1.3)}
+.glass{background:var(--glass);border:1px solid var(--glass-edge);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);box-shadow:var(--float);border-radius:22px}
+.modes{position:absolute;left:16px;top:16px;display:flex;align-items:center;gap:2px;padding:4px;border-radius:16px;height:52px}
+.modes .grp{display:none}
+.modes hr{border:0;border-left:1px solid var(--line);height:24px;margin:0 4px}
+.modes button{border:0;background:transparent;border-radius:12px;height:42px;padding:0 12px;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap}
+.modes button svg{width:17px;height:17px}
+.modes button:hover{background:var(--glass-thin)}
+.modes button.on{background:var(--ink);color:var(--paper)}
+.compass{position:absolute;right:16px;top:16px;width:52px;height:52px;border-radius:26px;display:grid;place-items:center}.compass svg{width:44px;height:44px}
+.legend{position:absolute;left:16px;bottom:16px;display:flex;gap:14px;padding:10px 14px;border-radius:14px;background:var(--glass);border:1px solid var(--glass-edge);-webkit-backdrop-filter:blur(18px) saturate(1.4);backdrop-filter:blur(18px) saturate(1.4);box-shadow:var(--float);font-size:12px;font-weight:600}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.cta{height:52px;border:0;border-radius:14px;background:var(--sun);color:var(--on-sun);font-weight:700;font-size:15px;padding:0 22px;display:inline-flex;align-items:center;justify-content:center;gap:10px}
+.cta:disabled{background:var(--sunken);color:var(--muted)}
+.ghost{height:44px;border:1px solid var(--line-strong);border-radius:12px;background:transparent;font-weight:600;font-size:13px;padding:0 14px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;background:var(--sunken)}
+.st-warn{color:var(--warn)} .st-ok{color:var(--ok)} .st-fail{color:var(--fail)}
+.formula{font-family:Newsreader,Georgia,serif;font-style:italic;font-size:16px;line-height:24px}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:8px 10px;background:var(--sunken)}
+th:first-child{border-radius:8px 0 0 8px} th:last-child{border-radius:0 8px 8px 0}
+td{padding:10px;border-bottom:1px solid var(--line)}
+kbd{font-family:inherit;font-size:11px;font-weight:600;padding:1px 6px;border-radius:6px;border:1px solid var(--line-strong);background:var(--surface);color:var(--muted);line-height:16px}
+.seg{display:flex;gap:2px;padding:3px;border-radius:12px;background:var(--glass-thin);border:1px solid var(--glass-edge)}
+.seg button{flex:1;border:0;background:transparent;border-radius:9px;min-height:36px;padding:4px 8px;font-size:12px;font-weight:600}
+.seg button.on{background:var(--ink);color:var(--paper)}
+.vbar{position:absolute;left:16px;right:16px;bottom:16px;display:flex;justify-content:space-between;align-items:flex-end;gap:8px;pointer-events:none}
+.vbar>*{pointer-events:auto}
+.pill{display:flex;align-items:center;gap:4px;height:48px;padding:0 6px;border-radius:16px}
+.pill .div{width:1px;height:24px;background:var(--line);margin:0 4px}
+.pill .b{border:0;background:transparent;border-radius:11px;height:36px;padding:0 10px;font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;color:var(--ink);white-space:nowrap}
+.pill .b:hover{background:var(--glass-thin)}
+.pill .b.on{background:var(--ink);color:var(--paper)}
+.pill .b.dark{background:var(--ink);color:var(--paper)}
+.pill .seg2{display:flex;gap:2px}
+.psec{display:grid;gap:8px;padding:12px 0;border-top:1px solid var(--line)}
+.psec h3{margin:0;font-size:12px;font-weight:600;color:var(--muted);display:flex;align-items:center;gap:6px}
+.prow{display:grid;grid-template-columns:84px 1fr auto;gap:10px;align-items:center;font-size:12.5px}
+@media (max-width:860px){.app{grid-template-columns:1fr;grid-template-rows:auto auto 1fr}.rail{grid-row:2;flex-direction:row;overflow-x:auto;padding:4px 12px}.rail button{min-width:64px}.rail .sp{display:none}.rail-in{flex-direction:row}.modes{top:auto;bottom:72px;max-width:calc(100% - 32px);overflow-x:auto}.vbar{flex-direction:column;align-items:stretch}.pill{overflow-x:auto}.main{grid-row:3;padding:0 12px 12px}.steps{display:none}.viewer{min-height:420px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (prefers-reduced-transparency:reduce){.glass,.gcard,.gthin,.box,.tbtn,.legend{background:var(--surface);-webkit-backdrop-filter:none;backdrop-filter:none}}
+</style>
+
+</head>
+<body>
+
+<div class="app" style="width: 100%;">
+<header class="top"><a href="#" aria-label="LUXA, beranda" style="display:flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none"><svg viewBox="502 461 524 524" width="30" height="30" aria-hidden="true"><defs><clipPath id="lxo"><polygon points="1211.1,264.5 362.5,1113.1 -61.7,688.8 786.8,-159.7"/></clipPath><clipPath id="lxt"><polygon points="1229.5,282.9 380.9,1131.5 805.2,1555.7 1653.7,707.2"/></clipPath></defs>
+<path d="M516 461H1012V501H596V897H1012V976H516Z" fill="var(--ink)"/>
+<circle cx="796" cy="698" r="171" fill="#F49B1A" clip-path="url(#lxo)"/>
+<circle cx="796" cy="698" r="171" fill="#138E86" clip-path="url(#lxt)"/></svg><span style="display:grid;line-height:1.1"><span class="word" style="font-family:Montserrat,'Plus Jakarta Sans',sans-serif;font-weight:700;letter-spacing:.06em">LUXA</span><span style="font-family:Montserrat,'Plus Jakarta Sans',sans-serif;font-size:11px;font-weight:400;color:var(--muted)">by Alf Studio</span></span></a><nav aria-label="Langkah"><ol class="steps gthin"><li class="done"><span class="n"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="12" height="12"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>Unggah</li><li class="on" aria-current="step"><span class="n">2</span>Konfirmasi</li><li class=""><span class="n">3</span>Inspeksi</li><li class=""><span class="n">4</span>Hasil</li></ol></nav><button class="tbtn" type="button" aria-label="Cari perintah"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5"/></svg><span class="muted" style="font-weight:500">Cari perintah</span><kbd>Ctrl K</kbd></button><button class="tbtn" type="button" aria-label="Tema gelap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 14.5A7.5 7.5 0 019.5 5a7.5 7.5 0 109.5 9.5z"/></svg></button><button class="tbtn" type="button" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 7h9M18 7h1M5 17h3M12 17h7"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>Mode lanjut</button></header><nav class="rail" aria-label="Fitur"><div class="rail-in gthin"><button type="button" class="on" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg>Model</button><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l8 4-8 4-8-4z"/><path d="M4 12l8 4 8-4M4 16l8 4 8-4"/></svg>Material</button><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.5-6-11a6 6 0 0112 0c0 5.5-6 11-6 11z"/><circle cx="12" cy="10" r="2.2"/></svg>Lokasi</button><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>Tampilan</button><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M12 4.5v15"/></svg>Bandingkan</button><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4M10 12h6M10 16h6"/></svg>Laporan</button><span class="sp"></span><button type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M9.8 9.5a2.3 2.3 0 114 1.6c-.9.6-1.8 1.1-1.8 2.2M12 16.6v.1"/></svg>Bantuan</button></div></nav><main class="main" style="grid-template-columns: minmax(0,1fr);"><section class="viewer" aria-label="Viewer 3D">
+  <svg class="scene" viewBox="0 0 900 620" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Ilustrasi model Facade only to Alfian, menara 12,6 × 14,6 × 53,8 m"><style>.fl{fill:var(--glz)}.fr{fill:var(--glz);filter:brightness(0.86)}.wl{fill:var(--wall)}.mul{stroke:var(--surface);stroke-opacity:.55;stroke-width:1}.thin{stroke-opacity:.3}.tp{fill:var(--surface);stroke:var(--line-strong);stroke-width:1}.gnd{stroke:var(--muted);stroke-width:1.5;stroke-dasharray:6 5;fill:none}.sh{fill:var(--ink);opacity:.07}</style><polygon points="356.4,524.0 437.2,570.6 488.5,659.4 530.7,516.6" class="sh"/><polygon points="437.2,570.6 356.4,524.0 356.4,125.9 437.2,172.5" class="fl"/><polygon points="437.2,570.6 356.4,524.0 356.4,520.5 437.2,567.2" class="wl"/><polygon points="437.2,544.0 356.4,497.4 356.4,493.9 437.2,540.5" class="wl"/><polygon points="437.2,517.4 356.4,470.7 356.4,467.3 437.2,513.9" class="wl"/><polygon points="437.2,490.7 356.4,444.1 356.4,440.6 437.2,487.2" class="wl"/><polygon points="437.2,464.1 356.4,417.5 356.4,414.0 437.2,460.6" class="wl"/><polygon points="437.2,437.4 356.4,390.8 356.4,387.3 437.2,434.0" class="wl"/><polygon points="437.2,410.8 356.4,364.2 356.4,360.7 437.2,407.3" class="wl"/><polygon points="437.2,384.2 356.4,337.5 356.4,334.1 437.2,380.7" class="wl"/><polygon points="437.2,357.5 356.4,310.9 356.4,307.4 437.2,354.0" class="wl"/><polygon points="437.2,330.9 356.4,284.3 356.4,280.8 437.2,327.4" class="wl"/><polygon points="437.2,304.2 356.4,257.6 356.4,254.1 437.2,300.8" class="wl"/><polygon points="437.2,277.6 356.4,231.0 356.4,227.5 437.2,274.1" class="wl"/><polygon points="437.2,251.0 356.4,204.3 356.4,200.9 437.2,247.5" class="wl"/><polygon points="437.2,224.3 356.4,177.7 356.4,174.2 437.2,220.8" class="wl"/><polygon points="437.2,197.7 356.4,151.1 356.4,147.6 437.2,194.2" class="wl"/><line x1="437.2" y1="570.6" x2="356.4" y2="524.0" class="mul"/><line x1="437.2" y1="544.0" x2="356.4" y2="497.4" class="mul"/><line x1="437.2" y1="517.4" x2="356.4" y2="470.7" class="mul"/><line x1="437.2" y1="490.7" x2="356.4" y2="444.1" class="mul"/><line x1="437.2" y1="464.1" x2="356.4" y2="417.5" class="mul"/><line x1="437.2" y1="437.4" x2="356.4" y2="390.8" class="mul"/><line x1="437.2" y1="410.8" x2="356.4" y2="364.2" class="mul"/><line x1="437.2" y1="384.2" x2="356.4" y2="337.5" class="mul"/><line x1="437.2" y1="357.5" x2="356.4" y2="310.9" class="mul"/><line x1="437.2" y1="330.9" x2="356.4" y2="284.3" class="mul"/><line x1="437.2" y1="304.2" x2="356.4" y2="257.6" class="mul"/><line x1="437.2" y1="277.6" x2="356.4" y2="231.0" class="mul"/><line x1="437.2" y1="251.0" x2="356.4" y2="204.3" class="mul"/><line x1="437.2" y1="224.3" x2="356.4" y2="177.7" class="mul"/><line x1="437.2" y1="197.7" x2="356.4" y2="151.1" class="mul"/><line x1="427.1" y1="564.8" x2="427.1" y2="166.7" class="mul thin"/><line x1="417.0" y1="559.0" x2="417.0" y2="160.9" class="mul thin"/><line x1="406.9" y1="553.2" x2="406.9" y2="155.0" class="mul thin"/><line x1="396.8" y1="547.3" x2="396.8" y2="149.2" class="mul thin"/><line x1="386.7" y1="541.5" x2="386.7" y2="143.4" class="mul thin"/><line x1="376.6" y1="535.7" x2="376.6" y2="137.6" class="mul thin"/><line x1="366.5" y1="529.8" x2="366.5" y2="131.7" class="mul thin"/><polygon points="437.2,570.6 530.7,516.6 530.7,118.5 437.2,172.5" class="fr"/><polygon points="437.2,570.6 530.7,516.6 530.7,513.1 437.2,567.2" class="wl"/><polygon points="437.2,544.0 530.7,490.0 530.7,486.5 437.2,540.5" class="wl"/><polygon points="437.2,517.4 530.7,463.3 530.7,459.9 437.2,513.9" class="wl"/><polygon points="437.2,490.7 530.7,436.7 530.7,433.2 437.2,487.2" class="wl"/><polygon points="437.2,464.1 530.7,410.1 530.7,406.6 437.2,460.6" class="wl"/><polygon points="437.2,437.4 530.7,383.4 530.7,379.9 437.2,434.0" class="wl"/><polygon points="437.2,410.8 530.7,356.8 530.7,353.3 437.2,407.3" class="wl"/><polygon points="437.2,384.2 530.7,330.1 530.7,326.7 437.2,380.7" class="wl"/><polygon points="437.2,357.5 530.7,303.5 530.7,300.0 437.2,354.0" class="wl"/><polygon points="437.2,330.9 530.7,276.9 530.7,273.4 437.2,327.4" class="wl"/><polygon points="437.2,304.2 530.7,250.2 530.7,246.7 437.2,300.8" class="wl"/><polygon points="437.2,277.6 530.7,223.6 530.7,220.1 437.2,274.1" class="wl"/><polygon points="437.2,251.0 530.7,196.9 530.7,193.5 437.2,247.5" class="wl"/><polygon points="437.2,224.3 530.7,170.3 530.7,166.8 437.2,220.8" class="wl"/><polygon points="437.2,197.7 530.7,143.7 530.7,140.2 437.2,194.2" class="wl"/><line x1="437.2" y1="570.6" x2="530.7" y2="516.6" class="mul"/><line x1="437.2" y1="544.0" x2="530.7" y2="490.0" class="mul"/><line x1="437.2" y1="517.4" x2="530.7" y2="463.3" class="mul"/><line x1="437.2" y1="490.7" x2="530.7" y2="436.7" class="mul"/><line x1="437.2" y1="464.1" x2="530.7" y2="410.1" class="mul"/><line x1="437.2" y1="437.4" x2="530.7" y2="383.4" class="mul"/><line x1="437.2" y1="410.8" x2="530.7" y2="356.8" class="mul"/><line x1="437.2" y1="384.2" x2="530.7" y2="330.1" class="mul"/><line x1="437.2" y1="357.5" x2="530.7" y2="303.5" class="mul"/><line x1="437.2" y1="330.9" x2="530.7" y2="276.9" class="mul"/><line x1="437.2" y1="304.2" x2="530.7" y2="250.2" class="mul"/><line x1="437.2" y1="277.6" x2="530.7" y2="223.6" class="mul"/><line x1="437.2" y1="251.0" x2="530.7" y2="196.9" class="mul"/><line x1="437.2" y1="224.3" x2="530.7" y2="170.3" class="mul"/><line x1="437.2" y1="197.7" x2="530.7" y2="143.7" class="mul"/><line x1="447.6" y1="564.6" x2="447.6" y2="166.5" class="mul thin"/><line x1="458.0" y1="558.6" x2="458.0" y2="160.5" class="mul thin"/><line x1="468.4" y1="552.6" x2="468.4" y2="154.5" class="mul thin"/><line x1="478.8" y1="546.6" x2="478.8" y2="148.5" class="mul thin"/><line x1="489.2" y1="540.6" x2="489.2" y2="142.5" class="mul thin"/><line x1="499.6" y1="534.6" x2="499.6" y2="136.5" class="mul thin"/><line x1="510.0" y1="528.6" x2="510.0" y2="130.5" class="mul thin"/><line x1="520.4" y1="522.6" x2="520.4" y2="124.5" class="mul thin"/><polygon points="437.2,172.5 356.4,125.9 450.0,71.9 530.7,118.5" class="tp"/><polygon points="437.2,581.1 292.3,497.5 450.0,406.5 594.8,490.1" class="gnd"/></svg>
+  <div class="glass compass" style="right: auto; left: 16px;" aria-label="Kompas arah utara, 0 derajat" role="img">
+    <svg width="72" height="72" viewBox="0 0 72 72" aria-hidden="true"><g stroke="var(--ink)" stroke-linecap="round"><line x1="36" y1="6" x2="36" y2="14" stroke-width="2.5"/><line x1="57" y1="15" x2="52" y2="20" stroke-width="1.5"/><line x1="66" y1="36" x2="58" y2="36" stroke-width="2.5"/><line x1="57" y1="57" x2="52" y2="52" stroke-width="1.5"/><line x1="36" y1="66" x2="36" y2="58" stroke-width="2.5"/><line x1="15" y1="57" x2="20" y2="52" stroke-width="1.5"/><line x1="6" y1="36" x2="14" y2="36" stroke-width="2.5"/><line x1="15" y1="15" x2="20" y2="20" stroke-width="1.5"/></g><path d="M36 20l6 18h-12z" fill="var(--sun)"/><text x="36" y="50" font-size="11" font-weight="700" text-anchor="middle" fill="var(--ink)">U</text></svg>
+  </div>
+  <div class="legend"><span><i style="background: var(--glz);"></i>Kaca</span><span><i style="background: var(--wall);"></i>Dinding</span><span><i style="background: none; border: 1.5px dashed var(--muted);"></i>Muka tanah z = 0</span></div>
+  <section class="glass" style="position: absolute; right: 16px; top: 16px; bottom: 16px; width: 420px; padding: 22px 24px; display: flex; flex-direction: column; overflow: auto;" aria-labelledby="kk-title">
+  <div style="display: flex; justify-content: space-between; align-items: start; gap: 12px;">
+    <div><p class="lbl" style="margin: 0;">Facade only to Alfian.3dm · Rhino 8</p><h1 id="kk-title" style="margin: 2px 0 0; font-size: 22px; line-height: 28px; font-weight: 650;">Benar begini model kamu?</h1></div>
+    <button class="tbtn" type="button" aria-label="Tutup kartu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <p class="muted" style="margin: 8px 0 4px; font-size: 13px;">Semua di bawah dibaca dari file. Cek satu per satu, ubah kalau salah.</p>
+  <div style="display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--line);">
+      <span style="color: var(--ok); padding-top: 2px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="20" height="20"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+      <div><div class="lbl">Satuan</div><div style="font-weight: 600;" class="num">Meter</div><div class="lbl" style="font-weight: 500;">Sumber: header file Rhino</div></div>
+      <button class="ghost" type="button" style="height: 36px; font-size: 12px;">Ubah</button>
+    </div>
+  <div style="display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--line);">
+      <span style="color: var(--ok); padding-top: 2px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="20" height="20"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+      <div><div class="lbl">Sumbu atas</div><div style="font-weight: 600;" class="num">Z</div><div class="lbl" style="font-weight: 500;">Sumber: konvensi Rhino</div></div>
+      <button class="ghost" type="button" style="height: 36px; font-size: 12px;">Ubah</button>
+    </div>
+  <div style="display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--line);">
+      <span style="color: var(--ok); padding-top: 2px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="20" height="20"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+      <div><div class="lbl">Ukuran bangunan</div><div style="font-weight: 600;" class="num">12,6 × 14,6 × 53,8 m</div><div class="lbl" style="font-weight: 500;">Sekitar 15 lantai dengan tinggi 3,6 m</div></div>
+      <button class="ghost" type="button" style="height: 36px; font-size: 12px;">Ubah</button>
+    </div>
+  <div style="display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--line);">
+      <span style="color: var(--warn); padding-top: 2px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="20" height="20"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.1"/></svg></span>
+      <div><div class="lbl">Muka tanah</div><div style="font-weight: 600;" class="num">Perlu dipilih</div><div class="lbl" style="font-weight: 500;">Model mulai di z = −3,58 m, di bawah nol.</div><fieldset style="border: 0; padding: 0; margin: 10px 0 0; display: grid; gap: 6px;">
+  <legend class="lbl" style="padding: 0; margin-bottom: 6px;">Di mana muka tanahnya?</legend>
+  <label style="display: flex; gap: 8px; align-items: center; font-size: 13px;"><input type="radio" name="gnd" checked> z = 0 di file adalah muka tanah</label>
+  <label style="display: flex; gap: 8px; align-items: center; font-size: 13px;"><input type="radio" name="gnd"> Alas model (z = −3,58 m) adalah muka tanah</label>
+</fieldset></div>
+      <button class="ghost" type="button" style="height: 36px; font-size: 12px;">Ubah</button>
+    </div>
+  <div style="display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--line);">
+      <span style="color: var(--ok); padding-top: 2px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="20" height="20"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+      <div><div class="lbl">Lokasi</div><div style="font-weight: 600;" class="num">Jakarta</div><div class="lbl" style="font-weight: 500;">Tabel SF: template laporan</div></div>
+      <button class="ghost" type="button" style="height: 36px; font-size: 12px;">Ubah</button>
+    </div>
+  <div style="display: grid; grid-template-columns: 28px 1fr auto; gap: 10px; align-items: start; padding: 12px 0; border-bottom: 1px solid var(--line);">
+      <span style="color: var(--ok); padding-top: 2px;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" width="20" height="20"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>
+      <div><div class="lbl">Arah utara</div><div style="font-weight: 600;" class="num">0° (sumbu +Y)</div><div class="lbl" style="font-weight: 500;">Putar kompas di viewer untuk mengubah</div></div>
+      <button class="ghost" type="button" style="height: 36px; font-size: 12px;">Ubah</button>
+    </div>
+  <div style="flex: 1;"></div>
+  <div style="display: grid; gap: 8px; padding-top: 16px;">
+    <button class="cta" type="button" disabled>Pilih muka tanah dulu</button>
+    <p class="lbl" style="margin: 0; text-align: center; font-weight: 500;">Tombol aktif setelah semua baris berwarna hijau.</p>
+  </div>
+</section>
+</section></main>
+</div>
+
+</body>
+</html>

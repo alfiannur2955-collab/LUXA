@@ -69,6 +69,8 @@ from universal_pipeline import load_universal_model_stages_1_and_2
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+SYNTHETIC_DIR = os.path.join(REPO_ROOT, "fixtures", "synthetic")
 SAMPLES_DIR = os.path.join(BASE_DIR, "samples")
 BENCHMARK_SAMPLES_DIR = os.path.join(SAMPLES_DIR, "benchmark_library")
 UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
@@ -86,6 +88,15 @@ ANALYSIS_STORE: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 
 
 PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
+    "contoh_kotak_m": {
+        "id": "contoh_kotak_m",
+        "title": "Kotak 4 lantai (20 × 30 m, jendela pita, WWR 40%)",
+        "filename": "01_kotak_m.3dm",
+        "synthetic_rel": os.path.join("01_kotak_m", "model.3dm"),
+        "format": "3DM",
+        "is_uploaded": False,
+        "description": "Contoh bawaan kotak 4 lantai 20 × 30 m dengan jendela pita (WWR 40%).",
+    },
     "archicad_bim_ifc": {
         "id": "archicad_bim_ifc",
         "title": "ArchiCAD BIM Curtain Wall + Podium (6 Lantai Variatif)",
@@ -279,6 +290,13 @@ def _store_analysis_record(analysis_id: str, record: Dict[str, Any]) -> None:
         ANALYSIS_STORE.popitem(last=False)
 
 
+def _resolve_preset_file_path(pdef: Dict[str, Any]) -> str:
+    if pdef.get("synthetic_rel"):
+        return os.path.join(SYNTHETIC_DIR, pdef["synthetic_rel"])
+    subdir = pdef.get("subdir")
+    return os.path.join(SAMPLES_DIR, subdir, pdef["filename"]) if subdir else os.path.join(SAMPLES_DIR, pdef["filename"])
+
+
 def ensure_sample_files() -> Dict[str, str]:
     paths: Dict[str, str] = {}
 
@@ -311,8 +329,7 @@ def ensure_sample_files() -> Dict[str, str]:
     for pid, pdef in PRESET_DEFINITIONS.items():
         if pid in paths:
             continue
-        subdir = pdef.get("subdir")
-        cand = os.path.join(SAMPLES_DIR, subdir, pdef["filename"]) if subdir else os.path.join(SAMPLES_DIR, pdef["filename"])
+        cand = _resolve_preset_file_path(pdef)
         if os.path.isfile(cand):
             paths[pid] = cand
 
@@ -324,8 +341,7 @@ def _resolve_model_path_readonly(model_id: str) -> Tuple[str, str]:
     # 1. Check reference samples first (strictly read-only check on existing files)
     if model_id in PRESET_DEFINITIONS:
         pdef = PRESET_DEFINITIONS[model_id]
-        subdir = pdef.get("subdir")
-        cand = os.path.join(SAMPLES_DIR, subdir, pdef["filename"]) if subdir else os.path.join(SAMPLES_DIR, pdef["filename"])
+        cand = _resolve_preset_file_path(pdef)
         if os.path.isfile(cand):
             return cand, pdef["filename"]
 
@@ -360,8 +376,7 @@ def get_dynamic_model_catalog(readonly: bool = False) -> Tuple[List[Dict[str, An
     if readonly:
         sample_paths: Dict[str, str] = {}
         for pid, pdef in PRESET_DEFINITIONS.items():
-            subdir = pdef.get("subdir")
-            cand = os.path.join(SAMPLES_DIR, subdir, pdef["filename"]) if subdir else os.path.join(SAMPLES_DIR, pdef["filename"])
+            cand = _resolve_preset_file_path(pdef)
             if os.path.isfile(cand):
                 sample_paths[pid] = cand
     else:
@@ -793,6 +808,23 @@ def analyze_model(
     payload["analysis_id"] = analysis_id
     payload["model_id"] = model_id
     payload["config"] = eff_cfg.model_dump(mode="json")
+
+    accepted_flags = [f for f in (eff_cfg.model.accepted_flags or []) if str(f).strip()]
+    if accepted_flags:
+        summary = dict(payload.get("summary") or {})
+        warnings_list = list(summary.get("warnings") or payload.get("warnings") or [])
+        flag_msg = (
+            "Kejanggalan diterima tanpa perbaikan sebelum hitung: "
+            + ", ".join(str(f) for f in accepted_flags)
+            + "."
+        )
+        if flag_msg not in warnings_list:
+            warnings_list.append(flag_msg)
+        summary["warnings"] = warnings_list
+        summary["is_provisional"] = True
+        payload["summary"] = summary
+        payload["warnings"] = warnings_list
+        payload["status_label"] = "HASIL SEMENTARA — perlu konfirmasi"
 
     _store_analysis_record(analysis_id, payload)
     return payload
