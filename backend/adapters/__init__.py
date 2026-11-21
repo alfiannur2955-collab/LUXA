@@ -86,7 +86,7 @@ SOFTWARE_PROFILES: Dict[str, Dict[str, Any]] = {
         "id": "sketchup_mesh",
         "name": "SketchUp / Blender / 3ds Max",
         "subtitle": "Polygon Mesh & 3D Warehouse / Sketchfab",
-        "badge": "Y-Up + PBR/MTL Glass + Normal Fix",
+        "badge": "Y-Up + PBR/MTL Glass",
         "supported_formats": [".glb", ".gltf", ".obj", ".zip", ".ifc", ".stl"],
         "recommended_format": ".glb",
         "default_up_axis": "Y",
@@ -94,7 +94,7 @@ SOFTWARE_PROFILES: Dict[str, Dict[str, Any]] = {
         "adapter_class": "SketchUpMeshAdapter",
         "export_tips": [
             "Format terbaik: .glb (semua transformasi komponen & transparansi kaca PBR ikut terbawa) atau .zip berisi (.obj + .mtl).",
-            "Adapter otomatis memperbaiki sumbu Y-Up -> Z-Up dan membalik normal 'muka biru' SketchUp yang menghadap ke dalam.",
+            "Adapter otomatis mengonversi sumbu Y-Up -> Z-Up dan membaca transparansi material PBR/MTL. Pastikan sisi depan (front face / putih) di SketchUp sudah menghadap keluar sebelum ekspor.",
             "Jika seluruh bangunan menyatu di 1 grup, gunakan fitur Auto-Split atau Seleksi per Bidang / Lantai langsung di Preview 3D Inspeksi.",
         ],
     },
@@ -355,7 +355,7 @@ class SketchUpMeshAdapter(BaseSoftwareAdapter):
         audit: Stage1GeometryAudit,
         profile: ModelIntakeProfile,
     ) -> Tuple[List[RawGroupMesh], List[str]]:
-        notes = [f"Adapter SketchUp/Mesh aktif ({audit.geometry_kernel}): sumbu {audit.applied_up_axis}-Up + PBR/MTL transparansi + perbaikan normal."]
+        notes = [f"Adapter SketchUp/Mesh aktif ({audit.geometry_kernel}): sumbu {audit.applied_up_axis}-Up + PBR/MTL transparansi."]
         return raw_groups, notes
 
 
