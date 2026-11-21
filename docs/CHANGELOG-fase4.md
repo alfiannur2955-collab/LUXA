@@ -72,3 +72,35 @@ Dokumen ini mencatat perubahan arsitektur antarmuka dan pendukung backend pada F
 - **`frontend/src/panels/railPanels.js`**: Panel **Tampilan** bagian **Kamera** (4 proyeksi, kisi 3×3 8 arah + *Atas*, masukan sudut utara, tombol *Pas ke model*).
 - **`frontend/src/ui/shortcuts.js`, `commandPalette.js`, `shortcutsModal.js`**: Seluruh pintasan §6 (`1 2 3 4`, tahan `V`, `F`, `S`, `C`, `Spasi`, `Esc`, `Ctrl K`, `?`) yang otomatis nonaktif saat fokus di kolom input; palet perintah `Ctrl K` mencari aksi, tampak, view tersimpan, dan grup; kartu daftar pintasan `?`.
 
+---
+
+## Fase 4b-2 — Perbaikan Review 4b-1 (R1–R5), Deteksi Lantai Bertingkat, & Analisis Interaktif di Viewer (`fase-4b2-analisis`)
+
+### 1. Perbaikan Review Fase 4b-1 (R1–R5)
+- **R1 (`frontend/src/steps/results.js`, `tests/test_api.py`)**: Membaca `rttv.applicable` (bukan `rttv.has_roof`) sehingga RTTV atap (contoh kotak: `4,64 W/m²`, atap `600 m²`, batas `10 W/m²`) tampil dengan chip status kepatuhan. Ditambahkan tes kontrak API `test_ui_response_contract_rttv_and_panel_fields` di `tests/test_api.py`.
+- **R2 (`frontend/src/viewer/viewer.js`, `modes.js`, `theme.css`)**: Menambahkan garis tepi tipis (`THREE.EdgesGeometry`, warna `--line-strong`) di semua mode viewer, dan memperjelas kontras latar viewer tema gelap (`--paper` ke `--surface`) terhadap `heat-0`.
+- **R3 (`frontend/src/theme.css`)**: Memindahkan `.toast-stack` ke tengah bawah layar di atas pil bawah viewer (`bottom: 82px`) agar tidak menutupi tombol Unduh di kolom samping.
+- **R4 (`backend/universal_pipeline.py`, `config_schema.py`, `ottv_engine.py`, `adapters/__init__.py`, `frontend/src/steps/confirm.js`, `state.js`, `tests/test_floor_detection.py`)**: Mengganti mekanisme deteksi lantai dengan pendekatan bertingkat tanpa menebak `tinggi / 3,6`:
+  1. Sumber pasti: zona kustom pengguna (`zona_kustom`), `IfcBuildingStorey` (`ifc_storey`), nama layer/grup berpenanda lantai (`nama_layer`), lalu isian jumlah lantai/tinggi pengguna (`isian_pengguna`).
+  2. Geometri (`geometri_pita`): histogram tepi horizontal berbobot panjang tepi (resolusi 5 cm) + autokorelasi rentang `2,4–6,0 m`, diterima hanya bila ≥ 70% garis menonjol jatuh dalam ±15 cm kelipatan periode.
+  3. Tidak yakin (`tidak_terdeteksi`): 1 zona penuh tanpa tebakan dan tanpa menahan tombol lanjut; `floor_height_m` di `ProjectConfig` default `None`.
+  4. Sumber deteksi dan catatan bahwa jumlah lantai tidak mengubah OTTV total selalu tertulis di Kartu Konfirmasi.
+  - 17 tes baru di `tests/test_floor_detection.py` (01 kotak = 4 lantai @ 4,0 m, 05/06/07 = 4 lantai, 19 tanpa nama = 4 lantai / tidak terdeteksi, `Facade only to Alfian.3dm` = 15 lantai cocok pita kaca, IFC Duplex = `ifc_storey`). OTTV seluruh kasus sintetis tidak berubah.
+- **R5 (`frontend/src/viewer/cameras.js`, `viewer.js`, `steps/confirm.js`)**: Pembingkaian kamera memperhitungkan ruang kanan yang tertutup Kartu Konfirmasi (`setRightInsetPx`) serta memberi margin ≥ 10% di sekeliling model.
+
+### 2. Endpoint `GET /api/analyses/{id}/exposure`
+- Menambahkan `compute_solar_vectors_for_date` dan `compute_panel_exposure_for_date` di `backend/ottv_engine.py` (memakai ulang *raycast* dan *cache* berbasis hash konten) serta rute `GET /api/analyses/{analysis_id}/exposure?date=YYYY-MM-DD` di `backend/main.py` untuk 13 posisi matahari (`06.00–18.00`).
+- Menambahkan `tests/test_exposure.py` yang juga memverifikasi kriteria wajib pada `corpus/real/Facade only to Alfian.3dm`: panel kaca Barat `56,44 W/m²`, porsi panas seluruh kaca Barat ~`32%`, dan filter `23 Sep` `13.00` menyalakan fasad Barat serta tidak menyalakan fasad Selatan.
+
+### 3. Seleksi Panel, Label HTML Kaca, Kartu Bidang Terpilih, & 5 Mode Viewer
+- **`frontend/src/viewer/selection.js` & `labels.js`**: Klik panel (`panels[].id`) via pemetaan segitiga O(1), `Shift+klik` multi-seleksi, klik area kosong melepas. Label nilai berupa elemen HTML kaca tingkat 1 yang diproyeksikan dari `centroid` setiap frame (bukan *sprite*).
+- **`frontend/src/steps/results.js`**: Kartu **Bidang terpilih** (grup, `SF`/`SC`/`Uf` atau `α`/`Uw`/`TDek`, kontribusi panel, porsi panas terhadap total bangunan, serta ringkasan luas total & rata-rata tertimbang saat multi-seleksi).
+- **`frontend/src/viewer/modeBar.js`, `modes.js`, `viewer.js`**: Kelima mode viewer aktif (**Klasifikasi**, **Orientasi** 8 arah netral-ke-hangat, **Heatmap** dengan sakelar **Per arah / Per panel** di legenda, **Kejanggalan** sorot `--warn` + pin bernomor, dan **X-ray** transparan + garis putus-putus untuk bidang disaring).
+
+### 4. Kubah Matahari, Kompas Utara Interaktif, Filter Paparan, & Pil Rumus
+- **`frontend/src/viewer/sundome.js`**: Kubah matahari 3D dari `location_info.latitude_deg`, cincin arah `U/T/S/B` + 8 tick, tiga lintasan (`21 Jun`, `21 Mar / 23 Sep`, `21 Des`), bola matahari aktif + garis putus ke pusat, radius default `1,6 ×` setengah diagonal denah, skala `50–200%` + *Pas ke model*, dan info tinggi/azimut matahari.
+- **`frontend/src/viewer/compass.js`**: Kompas kaca 52 px interaktif (seret pointer atau panah keyboard, langkah `1°`, `Shift` = `15°`), langsung memutar orientasi & kubah matahari, serta menampilkan chip **Hitung ulang**.
+- **`frontend/src/viewer/exposure.js`, `panels/railPanels.js`, `viewer/vbar.js`**: Filter **Tampilkan fasad** (*Semua arah* / *Arah yang dipilih* / *Yang terkena matahari jam ini* mewarnai panel terpapar `heat-1` dan teduh `data-wall`, beserta catatan SF tahunan SNI), slider jam & tombol putar satu hari (`Spasi`, nonaktif pada `prefers-reduced-motion`).
+- **`frontend/src/viewer/formulaPill.js`**: Pil rumus kaca tingkat 1 di kiri kompas (`top: 16px, right: 76px, height: 52px`), dapat digeser via pointer maupun panah keyboard (posisi tersimpan di `localStorage`), dan dibuka untuk menampilkan persamaan SNI 6389:2020 beserta substitusi angka dari `manual_calc`.
+
+

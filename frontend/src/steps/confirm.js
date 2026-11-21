@@ -266,14 +266,34 @@ export function renderConfirmScreen(state, handlers) {
     }),
   );
 
-  // Row 3: Ukuran bangunan & perkiraan lantai
+  // Row 3: Ukuran bangunan & deteksi lantai bertingkat (R4)
   const span = bbox.span || [0, 0, 0];
-  const estFloors = ins.estimated_floors || 1;
-  const floorH = Number(state.config?.settings?.floor_height_m || 3.6);
+  const floorMethod = ins.floor_detection_method || 'tidak_terdeteksi';
+  const estFloors = ins.estimated_floors;
+  const isFloorUndetected = floorMethod === 'tidak_terdeteksi' || !estFloors;
+  const floorSourceLabel =
+    ins.floor_source_label ||
+    (isFloorUndetected
+      ? `Tinggi ${fmtId(span[2], 1)} m · jumlah lantai belum terdeteksi`
+      : `${estFloors} lantai`);
+
   const floorEditor = document.createElement('div');
   floorEditor.style.display = 'grid';
   floorEditor.style.gridTemplateColumns = '1fr 1fr';
   floorEditor.style.gap = '6px';
+
+  const expInput = document.createElement('input');
+  expInput.type = 'number';
+  expInput.min = '1';
+  expInput.max = '200';
+  expInput.className = 'field-input';
+  expInput.placeholder = estFloors ? `Jumlah lantai (${estFloors})` : 'Jumlah lantai (opsional)';
+  expInput.value = state.config.model.expected_floors ? String(state.config.model.expected_floors) : '';
+  expInput.setAttribute('aria-label', 'Jumlah lantai (opsional)');
+  expInput.addEventListener('change', () => {
+    const v = Number(expInput.value);
+    handlers.onChangeExpectedFloors(Number.isFinite(v) && v > 0 ? Math.round(v) : null);
+  });
 
   const fhInput = document.createElement('input');
   fhInput.type = 'number';
@@ -281,29 +301,54 @@ export function renderConfirmScreen(state, handlers) {
   fhInput.min = '2.2';
   fhInput.max = '10';
   fhInput.className = 'field-input';
-  fhInput.value = String(floorH);
-  fhInput.setAttribute('aria-label', 'Tinggi antar lantai (m)');
+  fhInput.placeholder = 'Tinggi lantai (m, opsional)';
+  fhInput.value =
+    state.config?.settings?.floor_height_m != null ? String(state.config.settings.floor_height_m) : '';
+  fhInput.setAttribute('aria-label', 'Tinggi antar lantai (m, opsional)');
   fhInput.addEventListener('change', () => {
-    const v = Number(fhInput.value);
+    const raw = fhInput.value.trim();
+    if (!raw) {
+      handlers.onChangeFloorHeight(null);
+      return;
+    }
+    const v = Number(raw);
     if (Number.isFinite(v) && v >= 2.2 && v <= 10) {
       handlers.onChangeFloorHeight(v);
     }
   });
 
-  const expInput = document.createElement('input');
-  expInput.type = 'number';
-  expInput.min = '1';
-  expInput.max = '200';
-  expInput.className = 'field-input';
-  expInput.placeholder = `Jumlah lantai (${estFloors})`;
-  expInput.value = state.config.model.expected_floors ? String(state.config.model.expected_floors) : '';
-  expInput.setAttribute('aria-label', 'Jumlah lantai sebenarnya');
-  expInput.addEventListener('change', () => {
-    const v = Number(expInput.value);
-    handlers.onChangeExpectedFloors(Number.isFinite(v) && v > 0 ? Math.round(v) : null);
-  });
+  floorEditor.append(expInput, fhInput);
 
-  floorEditor.append(fhInput, expInput);
+  // When floor count is undetected, show optional inline input without blocking Lanjut (R4 #3 & #4)
+  const floorExtra = document.createElement('div');
+  floorExtra.style.display = 'grid';
+  floorExtra.style.gap = '6px';
+  floorExtra.style.marginTop = '4px';
+
+  if (isFloorUndetected && !openEditors.has('size')) {
+    const inlineInput = document.createElement('input');
+    inlineInput.type = 'number';
+    inlineInput.min = '1';
+    inlineInput.max = '200';
+    inlineInput.className = 'field-input';
+    inlineInput.placeholder = 'Isi jumlah lantai (opsional)';
+    inlineInput.value = state.config.model.expected_floors ? String(state.config.model.expected_floors) : '';
+    inlineInput.setAttribute('aria-label', 'Jumlah lantai (opsional)');
+    inlineInput.addEventListener('change', () => {
+      const v = Number(inlineInput.value);
+      handlers.onChangeExpectedFloors(Number.isFinite(v) && v > 0 ? Math.round(v) : null);
+    });
+    floorExtra.appendChild(inlineInput);
+  }
+
+  const floorNote = document.createElement('p');
+  floorNote.className = 'muted';
+  floorNote.style.margin = '0';
+  floorNote.style.fontSize = '11.5px';
+  floorNote.style.lineHeight = '16px';
+  floorNote.textContent =
+    'Jumlah lantai hanya untuk rincian per lantai dan zona tanpa AC, tidak mengubah OTTV total.';
+  floorExtra.appendChild(floorNote);
 
   card.appendChild(
     makeConfirmRow({
@@ -311,9 +356,10 @@ export function renderConfirmScreen(state, handlers) {
       ok: true,
       label: 'Ukuran bangunan',
       value: `${fmtId(span[0], 1)} × ${fmtId(span[1], 1)} × ${fmtId(span[2], 1)} m`,
-      sub: `Sekitar ${estFloors} lantai dengan tinggi ${fmtId(floorH, 1)} m`,
+      sub: floorSourceLabel,
       onToggleEdit: rerender,
       editorEl: floorEditor,
+      alwaysShowExtraEl: floorExtra,
     }),
   );
 
@@ -597,10 +643,11 @@ export function renderConfirmScreen(state, handlers) {
   viewerSec.appendChild(card);
   main.appendChild(viewerSec);
 
-  // Mount & sync Three.js viewer after insertion
+  // Mount & sync Three.js viewer after insertion (R5: reserve right space for floating confirm card)
   window.requestAnimationFrame(() => {
     if (canvasHost.isConnected) {
-      viewer.mount(canvasHost);
+      viewer.mount(canvasHost, { showGizmo: false });
+      viewer.setRightInsetPx(window.innerWidth > 860 ? 446 : 0);
       viewer.syncState({ ...state, viewerMode: 'classification' });
     }
   });

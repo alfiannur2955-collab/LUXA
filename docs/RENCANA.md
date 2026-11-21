@@ -607,8 +607,18 @@ Branch `fase-4b1-kamera` (7 commit, terakhir `6e013fc`). Kali ini uji klik dilak
 | R1 (bug) | RTTV selalu tertulis "tidak dihitung, tidak ada atap". `steps/results.js` memeriksa `rttv.has_roof`, padahal engine mengirim `rttv.applicable`. Contoh kotak seharusnya RTTV 4,64 W/m² (atap 600 m²). | Pakai `rttv.applicable`, tampilkan RTTV + status batas 10 W/m². Tambahkan tes frontend atau tes API yang memastikan field yang dibaca UI ada di respons. |
 | R2 | Tema gelap: model di viewer hampir tak terlihat (heatmap `heat-0` gelap `#3a3122` di atas latar viewer gelap). Di tema terang, fasad yang warnanya sama juga terlihat datar. | Tambahkan garis tepi elemen (`EdgesGeometry`, warna `line-strong`, tipis) di semua mode, dan pastikan beda terang antara latar viewer dan `heat-0` minimal 1,5:1 di kedua tema. |
 | R3 | Toast ("Proyeksi: Aksonometri") muncul di kanan bawah dan menutupi tombol Unduh di kolom samping. | Pindahkan toast ke tengah bawah viewer, di atas pil bawah. |
-| R4 | Kartu Konfirmasi menulis "Sekitar 5 lantai dengan tinggi 3,6 m" untuk contoh yang namanya "Kotak 4 lantai" (tinggi lantai sebenarnya 4 m). | Ambil jumlah lantai dari deteksi pita lantai engine bila ada (`floor_detection_method`, `estimated_floors`), sebutkan tinggi lantai hasil deteksi, dan bila hanya tebakan tinggi/3,6 tulis "perkiraan" dengan tombol Ubah. |
+| R4 | Kartu Konfirmasi menulis "Sekitar 5 lantai dengan tinggi 3,6 m" untuk contoh yang namanya "Kotak 4 lantai" (tinggi lantai sebenarnya 4 m). | Lihat 'R4: mekanisme deteksi lantai baru' di bawah tabel. (Catatan lama: ambil jumlah lantai dari deteksi pita lantai engine bila ada (`floor_detection_method`, `estimated_floors`), sebutkan tinggi lantai hasil deteksi, dan bila hanya tebakan tinggi/3,6 tulis "perkiraan" dengan tombol Ubah. |
 | R5 | Kamera awal terlalu dekat: model terpotong di tepi dan tertutup Kartu Konfirmasi. | "Pas ke model" memperhitungkan panel yang menutupi viewer (kartu kaca, pil, kolom) dan memberi margin 10%. |
+
+**R4: mekanisme deteksi lantai baru (disetujui Alfian 22 Nov).** Penyebab angka "5 lantai": `build_dynamic_floor_levels` di `backend/universal_pipeline.py` jatuh ke cadangan `ceil(tinggi / 3,6)` karena contoh kotak hanya punya sedikit panel (kaca pita), dan langkah klaster-Z punya aturan yang mengganti hasil deteksi dengan lantai seragam 3,6 m bila tinggi kebetulan habis dibagi 3,6. Ganti dengan deteksi bertingkat yang tidak menebak:
+
+1. **Sumber pasti**: zona kustom pengguna, `IfcBuildingStorey`, lalu nama layer/block Rhino atau grup yang memuat penanda lantai (`lantai`, `lt`, `level`, `L1`, `floor`, `storey`), lalu isian "jumlah lantai" di Kartu Konfirmasi.
+2. **Geometri**: kumpulkan semua tepi horizontal bidang fasad (dan bidang lantai/pelat yang diabaikan) sebagai histogram ketinggian berbobot panjang tepi, resolusi 5 cm. Cari periode dominan dengan autokorelasi pada rentang 2,4 sampai 6,0 m. Terima hanya bila minimal 70% garis menonjol jatuh dalam ±15 cm dari kelipatan periode; lantai pertama dan terakhir boleh berbeda tinggi. Tidak ada syarat jumlah panel minimal. Hapus aturan "pas dibagi `floor_height_m`".
+3. **Tidak yakin**: jangan menebak. `floor_detection_method = "tidak_terdeteksi"`, satu zona saja untuk perhitungan, dan Kartu Konfirmasi menulis "Tinggi 16,0 m · jumlah lantai belum terdeteksi" dengan kotak isian opsional. Baris ini tidak menahan tombol lanjut.
+4. **Sumber selalu ditulis** di Kartu Konfirmasi: "4 lantai @ 4,0 m · dari pita kaca berulang", "6 lantai · dari IFC", "dari isianmu". Tambahkan catatan kecil: jumlah lantai hanya untuk rincian per lantai dan zona tanpa AC, tidak mengubah OTTV total.
+5. `floor_height_m` di ProjectConfig hanya dipakai bila pengguna mengisinya; tidak ada nilai bawaan 3,6 yang diam-diam dipakai.
+
+Tes baru di `tests/test_floor_detection.py`: kasus sintetis 01 (kotak) = 4 lantai @ 4,0 m; 05 (denah L) dan 06 (courtyard) = 4 lantai; 07 (silinder) = 4 lantai; 19 (tanpa nama) = 4 lantai atau "tidak\_terdeteksi" (keduanya boleh, tidak boleh 5); `Facade only to Alfian.3dm` cocok dengan jumlah pita kaca; IFC Duplex memakai storey IFC. OTTV total semua kasus sintetis tidak boleh berubah.
 
 ```text
 PROMPT FASE 4b-2 (analisis di viewer):
@@ -618,12 +628,37 @@ Uji dengan corpus/real/Facade only to Alfian.3dm: panel kaca Barat 56,44 W/m2 ko
 Catat di docs/CHANGELOG-fase4.md. Commit per fitur.
 ```
 
+### Review Fase 4b-2 (22 Nov 2026)
+
+Branch `fase-4b2-analisis` (8 commit, terakhir `e0ce201`). Uji klik dengan browser tanpa layar memakai contoh kotak dan `Facade only to Alfian.3dm`; tangkapan layar di `corpus/_review_4b2/`. Hasilnya **lolos**: boleh di-merge ke `main`. Tiga catatan kecil dikerjakan di awal 4c.
+
+**Target uji terpenuhi**
+
+- Klik panel kaca Barat (tampak Barat): label kaca di titik klik "Panel kaca · Barat 56,43 W/m² kontribusi" (target 56,44, beda pembulatan). Kartu Bidang terpilih: SF 219, SC 0,233, Uf 1,10, dan "seluruh kaca Barat menyumbang 32% panas".
+- Filter paparan 23 Sep pukul 13.00 lewat endpoint `exposure`: Barat 568 panel dan Utara 478 panel menyala, Selatan 0 (benar: di tanggal itu matahari sedikit di utara Jakarta). Pagi hari Timur dan Utara menyala.
+- R1: RTTV contoh kotak tampil "4,64 W/m² (atap 600 m²), Memenuhi (≤ 10 W/m²)".
+- R2: garis tepi elemen terlihat, model terbaca di tema gelap.
+- R4: Kartu Konfirmasi contoh kotak "4 lantai @ 4,0 m · dari pita kaca berulang"; model teman "15 lantai @ 3,6 m · dari pita kaca berulang", lengkap dengan catatan bahwa jumlah lantai tidak mengubah OTTV total.
+- R5: kamera awal memuat seluruh model.
+- Mode Klasifikasi, Orientasi, Heatmap (per arah / per panel), Kejanggalan, X-ray; kubah matahari dengan tiga lintasan dan info tinggi/azimut; pil rumus; panel Tampilan berisi Kamera, Matahari, Tampilkan fasad (dengan catatan SF).
+- pytest 152/154; dua yang gagal hanya karena huruf besar-kecil path (lihat S1). `vite build` berhasil.
+
+Catatan angka: model teman di UI memberi OTTV 38,80 (lewat API bawaan 38,79). Selisihnya wajar karena di uji klik muka tanah dipilih "z = 0 di file", sehingga bagian fasad di bawah tanah (z −3,58 sampai 0) tidak dihitung.
+
+**Perbaikan (kerjakan di awal 4c)**
+
+| # | Temuan | Perbaikan |
+| --- | --- | --- |
+| S1 | `tests/test_floor_detection.py` menulis `05_denah_l`, foldernya `05_denah_L`. Lolos di Windows, gagal di Linux (server publish, CI). | Betulkan path; tambahkan pengecekan di conftest bahwa semua path fixture yang dirujuk tes benar-benar ada dengan huruf persis. |
+| S2 | Kubah matahari default terlalu kecil untuk gedung tinggi (radius dari diagonal denah saja), dan label lintasan ("21 Mar / 23 Sep", "21 Des") menumpuk di atas badan gedung. | Radius default = maks(1,6 × setengah diagonal denah, 0,6 × tinggi). Label lintasan diletakkan di sisi luar busur dan disembunyikan bila tertutup gedung. |
+| S3 | Pil bawah menulis "Arah B" saat proyeksi Perspektif, padahal kamera melihat dari tenggara. Membingungkan karena di Tampak, "B" berarti fasad Barat. | Di Perspektif/2 titik/Akso tulis posisi kamera ("dari Tenggara"); "Tampak Barat" hanya untuk proyeksi Tampak. Samakan di palet Ctrl K dan nama view tersimpan. |
+
 ```text
 PROMPT FASE 4c (bandingkan, workspace, poles):
-Branch fase-4c-poles dari main setelah 4b-2 di-merge. Baca docs/FASE4_UI_SPEC.md bagian 3.6, 5, 8, 9 dan mockup 8.
+Commit dulu docs/RENCANA.md bila ada perubahan. Merge fase-4b2-analisis ke main, lalu branch fase-4c-poles dari main. Baca docs/RENCANA.md bagian 'Review Fase 4b-2' dan kerjakan S1 sampai S3 lebih dulu (commit 'fase-4c: perbaikan review 4b-2'). Setelah itu baca docs/FASE4_UI_SPEC.md bagian 3.6, 5, 8, 9 dan mockup 8.
 Kerjakan baris '4c' tabel bagian 10: mode Bandingkan (viewer terbelah, pembatas bisa digeser mouse dan keyboard, selisih per arah, daftar alternatif, Pakai alternatif dengan riwayat), workspace v1 (Belajar, Lanjut, Presentasi; urutkan ulang dan sembunyikan item dock), panel Material, Lokasi, Laporan, Bantuan, tooltip istilah dengan rujukan pasal, pemeriksaan aksesibilitas bagian 9, responsif 1440/1280/768 px.
-Uji: alternatif kaca elektrokromik (glz_kaca_elektrokromik) untuk model teman harus 27,71 W/m2.
-Siapkan docs/UJI_PENGGUNA_FASE4.md berisi skenario uji 3 mahasiswa dengan fasad_unitized_24lantai.3dm dan kolom catatan.
+Uji: alternatif kaca elektrokromik (glz_kaca_elektrokromik) untuk model teman dengan konfigurasi bawaan (tanpa mengubah muka tanah) harus 27,71 W/m2; sekarang-nya 38,79.
+Siapkan docs/UJI_PENGGUNA_FASE4.md berisi skenario uji 3 mahasiswa dengan contoh bawaan Fasad_Curtain_Wall_Baru.3dm (atau model studio pilihan Alfian) dan kolom catatan.
 Catat di docs/CHANGELOG-fase4.md. Commit per fitur.
 ```
 

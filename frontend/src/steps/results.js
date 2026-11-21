@@ -6,8 +6,17 @@
  */
 
 import { fmtId } from '../ui/escapeHtml.js';
-import { compassDialSvg, icon } from '../ui/icons.js';
-import { ottvToHeatCssVar } from '../viewer/modes.js';
+import { icon } from '../ui/icons.js';
+import { renderInteractiveCompass } from '../viewer/compass.js';
+import { renderFormulaPill } from '../viewer/formulaPill.js';
+import {
+  ORIENTATION_CODES,
+  orientationToCssColor,
+  ottvToHeatCssVar,
+  readThemeTokens,
+} from '../viewer/modes.js';
+import { renderViewerModeBar } from '../viewer/modeBar.js';
+import { summarizeSelectedPanels } from '../viewer/selection.js';
 import { renderViewerBottomBar } from '../viewer/vbar.js';
 import { viewer } from '../viewer/viewer.js';
 
@@ -39,53 +48,93 @@ export function renderResultsScreen(state, handlers) {
   canvasHost.className = 'viewer-canvas-host';
   viewerSec.appendChild(canvasHost);
 
-  // Mode bar (Klasifikasi | Heatmap)
-  const modeBar = document.createElement('div');
-  modeBar.className = 'glass modes';
-  modeBar.setAttribute('role', 'toolbar');
-  modeBar.setAttribute('aria-label', 'Mode tampilan');
+  // Mode bar (Klasifikasi, Orientasi, Heatmap | Kejanggalan, X-ray)
+  const activeMode = state.viewerMode || 'heatmap';
+  viewerSec.appendChild(renderViewerModeBar({ ...state, viewerMode: activeMode }, handlers.onChangeViewerMode));
 
-  const isHeat = state.viewerMode !== 'classification';
+  // Interactive North Compass (top-right, aligned at top: 16px, height: 52px) + Hitung ulang chip
+  viewerSec.appendChild(
+    renderInteractiveCompass(state, {
+      onChangeNorth: handlers.onChangeNorth,
+      onRecompute: handlers.onRecompute,
+    }),
+  );
 
-  const btnCls = document.createElement('button');
-  btnCls.type = 'button';
-  btnCls.className = isHeat ? '' : 'on';
-  btnCls.setAttribute('aria-pressed', isHeat ? 'false' : 'true');
-  btnCls.innerHTML = `${icon('grid', 16)}<span>Klasifikasi</span>`;
-  btnCls.addEventListener('click', () => handlers.onChangeViewerMode('classification'));
+  // Draggable & expandable Formula Pill (top-right, left of compass: top 16px, right 76px, height 52px)
+  const formulaPill = renderFormulaPill(state, {
+    onToggleExpand: handlers.onToggleFormulaPill,
+  });
+  if (formulaPill) viewerSec.appendChild(formulaPill);
 
-  const btnHeat = document.createElement('button');
-  btnHeat.type = 'button';
-  btnHeat.className = isHeat ? 'on' : '';
-  btnHeat.setAttribute('aria-pressed', isHeat ? 'true' : 'false');
-  btnHeat.innerHTML = `${icon('thermometer', 16)}<span>Heatmap</span>`;
-  btnHeat.addEventListener('click', () => handlers.onChangeViewerMode('heatmap'));
-
-  modeBar.append(btnCls, btnHeat);
-  viewerSec.appendChild(modeBar);
-
-  // Compass (top-right, aligned at top: 16px, height: 52px)
-  const northDeg = Number(state.config?.settings?.north_angle_deg || 0);
-  const compass = document.createElement('div');
-  compass.className = 'glass compass';
-  compass.setAttribute('role', 'img');
-  compass.setAttribute('aria-label', `Kompas arah utara, ${northDeg} derajat`);
-  compass.innerHTML = compassDialSvg(northDeg);
-  viewerSec.appendChild(compass);
-
-  // Legend (lifted cleanly above bottom pills)
+  // Legend (lifted cleanly above bottom pills; shifts right if Tampilan card is open)
   const legend = document.createElement('div');
-  legend.className = 'legend legend-lifted';
-  if (isHeat) {
+  legend.className = `legend legend-lifted${state.activeRailCard ? ' legend-shifted' : ''}`;
+
+  if (state.facadeFilter === 'sunlit_now') {
+    const hLabel = `${String(Math.round(Number(state.sunHour ?? 13))).padStart(2, '0')}.00`;
     legend.innerHTML = `
-      <span style="color:var(--ink);">OTTV per arah</span>
-      <span class="heat-bar-strip" aria-hidden="true">
-        <span style="background:var(--heat-0);"></span>
-        <span style="background:var(--heat-1);"></span>
-        <span style="background:var(--heat-2);"></span>
-        <span style="background:var(--heat-3);"></span>
-      </span>
-      <span class="num">25 · 32 · 35 W/m²</span>
+      <span class="legend-item"><i class="swatch" style="background:var(--heat-1);"></i>Terkena matahari, ${hLabel}</span>
+      <span class="legend-item"><i class="swatch" style="background:var(--data-wall);"></i>Tidak terkena</span>
+    `;
+  } else if (activeMode === 'heatmap') {
+    const gran = state.heatmapGranularity || 'orientation';
+    const lblSpan = document.createElement('span');
+    lblSpan.style.color = 'var(--ink)';
+    lblSpan.textContent = 'OTTV';
+
+    const toggleWrap = document.createElement('div');
+    toggleWrap.className = 'legend-toggle';
+    toggleWrap.setAttribute('role', 'group');
+    toggleWrap.setAttribute('aria-label', 'Skala heatmap');
+
+    for (const [id, lbl] of [
+      ['orientation', 'Per arah'],
+      ['panel', 'Per panel'],
+    ]) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = gran === id ? 'on' : '';
+      b.setAttribute('aria-pressed', gran === id ? 'true' : 'false');
+      b.textContent = lbl;
+      b.addEventListener('click', () => handlers.onChangeHeatmapGranularity(id));
+      toggleWrap.appendChild(b);
+    }
+
+    const strip = document.createElement('span');
+    strip.className = 'heat-bar-strip';
+    strip.setAttribute('aria-hidden', 'true');
+    strip.innerHTML = `
+      <span style="background:var(--heat-0);"></span>
+      <span style="background:var(--heat-1);"></span>
+      <span style="background:var(--heat-2);"></span>
+      <span style="background:var(--heat-3);"></span>
+    `;
+
+    const scaleNum = document.createElement('span');
+    scaleNum.className = 'num';
+    scaleNum.textContent = '25 · 32 · 35 W/m²';
+
+    legend.append(lblSpan, toggleWrap, strip, scaleNum);
+    if (state.sunDomeVisible) {
+      const sunHint = document.createElement('span');
+      sunHint.className = 'legend-item';
+      sunHint.innerHTML = '<i class="legend-sun-line" aria-hidden="true"></i>Lintasan matahari';
+      legend.appendChild(sunHint);
+    }
+  } else if (activeMode === 'orientation') {
+    const tokens = readThemeTokens();
+    legend.innerHTML = ORIENTATION_CODES.map(
+      (c) => `<span class="legend-item"><i class="swatch" style="background:${orientationToCssColor(c, tokens)};"></i>${c}</span>`,
+    ).join('');
+  } else if (activeMode === 'anomalies') {
+    legend.innerHTML = `
+      <span class="legend-item"><i class="swatch" style="background:var(--warn);"></i>Perlu diperiksa</span>
+      <span class="legend-item"><i class="swatch" style="background:var(--data-wall);opacity:0.35;"></i>Elemen lain</span>
+    `;
+  } else if (activeMode === 'xray') {
+    legend.innerHTML = `
+      <span class="legend-item"><i class="swatch" style="background:var(--data-glazing);opacity:0.4;"></i>Selubung transparan</span>
+      <span class="legend-item"><i class="swatch" style="border:1.5px dashed var(--warn);background:transparent;"></i>Disaring / nonaktif</span>
     `;
   } else {
     legend.innerHTML = `
@@ -196,6 +245,169 @@ export function renderResultsScreen(state, handlers) {
     recalcBtn.innerHTML = `${icon('play', 16)}<span>Hitung ulang OTTV</span>`;
     recalcBtn.addEventListener('click', () => handlers.onRecompute());
     heroCard.appendChild(recalcBtn);
+  }
+
+  // 1b. Bidang terpilih card (`docs/FASE4_UI_SPEC.md` §4.3 + mockup 4-hasil.html)
+  const selSummary = summarizeSelectedPanels(analysis, state.selectedPanelIds);
+  const selCard = document.createElement('section');
+  selCard.className = 'box';
+  selCard.setAttribute('aria-labelledby', 'sel-title');
+
+  const selHead = document.createElement('div');
+  selHead.style.display = 'flex';
+  selHead.style.justifyContent = 'space-between';
+  selHead.style.alignItems = 'baseline';
+  selHead.style.gap = '6px';
+
+  const selTitle = document.createElement('h2');
+  selTitle.id = 'sel-title';
+  selTitle.style.fontSize = '14px';
+  selTitle.textContent = 'Bidang terpilih';
+
+  if (selSummary) {
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'lbl';
+    clearBtn.style.border = '0';
+    clearBtn.style.background = 'none';
+    clearBtn.style.padding = '0';
+    clearBtn.style.fontWeight = '500';
+    clearBtn.style.textDecoration = 'underline';
+    clearBtn.textContent = 'Lepas pilihan';
+    clearBtn.addEventListener('click', () => handlers.onClearPanelSelection());
+    selHead.append(selTitle, clearBtn);
+  } else {
+    const hint = document.createElement('span');
+    hint.className = 'lbl';
+    hint.style.fontWeight = '500';
+    hint.textContent = 'Shift+klik pilih banyak';
+    selHead.append(selTitle, hint);
+  }
+  selCard.appendChild(selHead);
+
+  if (!selSummary) {
+    const emptyP = document.createElement('p');
+    emptyP.className = 'muted';
+    emptyP.style.margin = '6px 0 0';
+    emptyP.style.fontSize = '12.5px';
+    emptyP.style.lineHeight = '18px';
+    emptyP.textContent =
+      'Klik satu panel di viewer 3D untuk melihat parameter termal, kontribusi W/m², dan porsi panasnya.';
+    selCard.appendChild(emptyP);
+  } else if (selSummary.isMulti) {
+    const subP = document.createElement('p');
+    subP.className = 'muted';
+    subP.style.margin = '3px 0 8px';
+    subP.style.fontSize = '12.5px';
+    subP.textContent = `${selSummary.count} panel dipilih · luas total ${fmtId(selSummary.totalAreaM2, 2)} m²`;
+
+    const grid = document.createElement('div');
+    grid.className = 'num';
+    grid.style.display = 'grid';
+    grid.style.gridTemplateColumns = '1fr 1fr';
+    grid.style.gap = '6px';
+    grid.style.fontSize = '12px';
+
+    for (const [k, v] of [
+      ['Rata-rata tertimbang', `${fmtId(selSummary.weightedOttvWm2, 2)} W/m²`],
+      ['Porsi panas', `${fmtId(selSummary.selectedHeatSharePct, 1)}%`],
+    ]) {
+      const cell = document.createElement('div');
+      cell.className = 'glass-thin';
+      cell.style.borderRadius = '10px';
+      cell.style.padding = '6px 8px';
+      const l = document.createElement('div');
+      l.className = 'lbl';
+      l.textContent = k;
+      const b = document.createElement('b');
+      b.textContent = v;
+      cell.append(l, b);
+      grid.appendChild(cell);
+    }
+
+    const noteP = document.createElement('p');
+    noteP.className = 'lbl';
+    noteP.style.margin = '8px 0 0';
+    noteP.style.fontWeight = '500';
+    noteP.textContent = 'Status memenuhi atau tidak hanya dinilai dari OTTV total.';
+
+    selCard.append(subP, grid, noteP);
+  } else {
+    const p = selSummary.primary;
+    const subP = document.createElement('p');
+    subP.className = 'muted';
+    subP.style.margin = '2px 0 8px';
+    subP.style.fontSize = '12.5px';
+    subP.textContent = `${selSummary.primaryTypeLabel}, fasad ${selSummary.primaryDirName} · grup ${p.group_name || '-'}`;
+
+    const metricsGrid = document.createElement('div');
+    metricsGrid.className = 'num';
+    metricsGrid.style.display = 'grid';
+    metricsGrid.style.gridTemplateColumns = '1fr 1fr 1fr';
+    metricsGrid.style.gap = '6px';
+    metricsGrid.style.fontSize = '12px';
+
+    const metricSpecs = selSummary.primaryIsGlz
+      ? [
+          ['SF', fmtId(p.sf_wm2 ?? 0, 0)],
+          ['SC', fmtId(p.sc_effective ?? p.sc_glass ?? 0, 3)],
+          ['Uf', fmtId(p.u_fen_eff ?? 0, 2)],
+        ]
+      : [
+          ['α', fmtId(p.alpha_wall_eff ?? 0, 2)],
+          ['Uw', fmtId(p.u_wall_eff ?? 0, 2)],
+          ['TDek', fmtId(p.td_ek_eff ?? 0, 1)],
+        ];
+
+    for (const [labelTxt, valTxt] of metricSpecs) {
+      const cell = document.createElement('div');
+      cell.className = 'glass-thin';
+      cell.style.borderRadius = '10px';
+      cell.style.padding = '6px 8px';
+      const l = document.createElement('div');
+      l.className = 'lbl';
+      if (labelTxt === 'Uf') {
+        l.innerHTML = 'U<sub>f</sub>';
+      } else if (labelTxt === 'Uw') {
+        l.innerHTML = 'U<sub>w</sub>';
+      } else if (labelTxt === 'TDek') {
+        l.innerHTML = 'TD<sub>ek</sub>';
+      } else {
+        l.textContent = labelTxt;
+      }
+      const b = document.createElement('b');
+      b.textContent = valTxt;
+      cell.append(l, b);
+      metricsGrid.appendChild(cell);
+    }
+
+    const contribP = document.createElement('p');
+    contribP.style.margin = '9px 0 0';
+    contribP.style.fontSize = '12.5px';
+    contribP.style.lineHeight = '18px';
+    const bVal = document.createElement('b');
+    bVal.className = 'num';
+    bVal.textContent = `${fmtId(p.ottv_panel_wm2 ?? 0, 2)} W/m²`;
+    const cohortTypeWord = selSummary.primaryIsGlz ? 'kaca' : 'dinding';
+    const bPct = document.createElement('b');
+    bPct.className = 'num';
+    bPct.textContent = `${Math.round(selSummary.cohortHeatSharePct)}%`;
+    contribP.append(
+      bVal,
+      document.createTextNode(
+        ` kontribusi panel ini. Seluruh ${cohortTypeWord} ${selSummary.primaryDirName} (${fmtId(selSummary.cohortAreaM2, 2)} m²) menyumbang `,
+      ),
+      bPct,
+      document.createTextNode(' panas yang masuk ke bangunan.'),
+    );
+
+    const noteP = document.createElement('p');
+    noteP.className = 'lbl';
+    noteP.style.margin = '6px 0 0';
+    noteP.style.fontWeight = '500';
+    noteP.textContent = 'Status memenuhi atau tidak hanya dinilai dari OTTV total.';
+
+    selCard.append(subP, metricsGrid, contribP, noteP);
   }
 
   // 2. Per arah (8 horizontal bars + 35 limit dashed line)
@@ -354,14 +566,34 @@ export function renderResultsScreen(state, handlers) {
     compGrid.appendChild(cell);
   }
 
-  const rttvLine = document.createElement('p');
-  rttvLine.className = 'muted num';
+  const rttvLine = document.createElement('div');
   rttvLine.style.margin = '8px 0 0';
-  rttvLine.style.fontSize = '12.5px';
-  if (rttv && rttv.has_roof && rttv.rttv_wm2 !== null && rttv.rttv_wm2 !== undefined) {
-    rttvLine.textContent = `RTTV atap: ${fmtId(rttv.rttv_wm2, 2)} W/m² (luas atap ${fmtId(rttv.total_roof_area_m2 || 0, 1)} m²).`;
+  rttvLine.style.display = 'grid';
+  rttvLine.style.gap = '6px';
+  if (rttv && rttv.applicable) {
+    const rttvVal = Number(rttv.rttv_wm2 ?? 0);
+    const rttvLimit = Number(rttv.limit_wm2 ?? 10);
+    const rttvOk = rttv.compliant !== undefined && rttv.compliant !== null ? Boolean(rttv.compliant) : rttvVal <= rttvLimit;
+    const pTxt = document.createElement('p');
+    pTxt.className = 'muted num';
+    pTxt.style.margin = '0';
+    pTxt.style.fontSize = '12.5px';
+    pTxt.textContent = `RTTV atap: ${fmtId(rttvVal, 2)} W/m² (luas atap ${fmtId(rttv.total_roof_area_m2 || 0, 1)} m²).`;
+
+    const rChip = document.createElement('span');
+    rChip.className = `chip ${rttvOk ? 'st-ok' : 'st-fail'}`;
+    rChip.style.justifySelf = 'start';
+    rChip.innerHTML = rttvOk
+      ? `${icon('check', 13)}<span>Memenuhi (≤ ${fmtId(rttvLimit, 0)} W/m²)</span>`
+      : `${icon('close', 13)}<span>Tidak memenuhi, batas ${fmtId(rttvLimit, 0)}</span>`;
+    rttvLine.append(pTxt, rChip);
   } else {
-    rttvLine.textContent = 'RTTV tidak dihitung (tidak ada atap atau skylight aktif di model).';
+    const pTxt = document.createElement('p');
+    pTxt.className = 'muted num';
+    pTxt.style.margin = '0';
+    pTxt.style.fontSize = '12.5px';
+    pTxt.textContent = 'RTTV tidak dihitung (tidak ada atap atau skylight aktif di model).';
+    rttvLine.appendChild(pTxt);
   }
 
   rttvCard.append(rtTitle, compGrid, rttvLine);
@@ -387,20 +619,15 @@ export function renderResultsScreen(state, handlers) {
 
   dlWrap.append(xlsxBtn, jsonBtn);
 
-  side.append(heroCard, orientCard, rttvCard, dlWrap);
+  side.append(heroCard, selCard, orientCard, rttvCard, dlWrap);
   main.append(viewerSec, side);
 
   window.requestAnimationFrame(() => {
     if (canvasHost.isConnected) {
+      viewer.setRightInsetPx(0);
       viewer.mount(canvasHost, {
-        onPickGroup: (meta) => {
-          if (meta?.orientationCode) {
-            handlers.onSelectOrientation(
-              state.selectedOrientation === meta.orientationCode ? null : meta.orientationCode,
-            );
-          } else {
-            handlers.onSelectOrientation(null);
-          }
+        onPickPanel: (panel, ev) => {
+          handlers.onPickPanel(panel, Boolean(ev?.shiftKey));
         },
       });
       viewer.syncState(state);

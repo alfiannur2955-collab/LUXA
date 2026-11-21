@@ -47,7 +47,7 @@ export function createDefaultConfig() {
       wwr_override: null,
       default_wall_wwr: null,
       floor_mode: 'auto',
-      floor_height_m: 3.6,
+      floor_height_m: null,
       custom_floor_zones: [],
       section_floor_min: null,
       section_floor_max: null,
@@ -86,6 +86,11 @@ export function mergeConfig(partial) {
     settings: {
       ...base.settings,
       ...(partial.settings || {}),
+      // Legacy v2 configs before R4 persisted default 3.6 even in auto mode; treat as unset unless uniform
+      floor_height_m:
+        (partial.settings?.floor_mode || 'auto') === 'auto' && partial.settings?.floor_height_m === 3.6
+          ? null
+          : partial.settings?.floor_height_m ?? base.settings.floor_height_m,
       custom_materials: [...(partial.settings?.custom_materials || [])],
       orientation_material_overrides: { ...(partial.settings?.orientation_material_overrides || {}) },
       custom_floor_zones: [...(partial.settings?.custom_floor_zones || [])],
@@ -127,7 +132,8 @@ const initialState = {
 
   // UI flags & selections
   acknowledgedFlags: {}, // { [flagId]: { action, provisional } }
-  viewerMode: 'classification', // 'classification' | 'heatmap'
+  viewerMode: 'classification', // 'classification' | 'orientation' | 'heatmap' | 'anomalies' | 'xray'
+  heatmapGranularity: 'orientation', // 'orientation' | 'panel'
   cameraProjection: 'perspective', // 'perspective' | 'two_point' | 'axonometric' | 'elevation'
   cameraDirection: 'B', // 'U' | 'TL' | 'T' | 'TG' | 'S' | 'BD' | 'B' | 'BL' | 'Atas'
   activeViewId: null,
@@ -137,7 +143,19 @@ const initialState = {
   shortcutsModalOpen: false,
   selectedGroup: null,
   selectedOrientation: null,
+  selectedPanelIds: [],
   needsRecompute: false,
+
+  // Fase 4b-2: Sun dome, exposure filter & formula pill
+  sunDate: '2026-09-23', // '2026-06-21' | '2026-09-23' | '2026-12-21' | YYYY-MM-DD
+  sunHour: 13, // 6..18
+  sunPlaying: false,
+  sunDomeVisible: true,
+  sunDomeScale: 100, // 50..200 (%)
+  facadeFilter: 'all', // 'all' | 'selected_orientation' | 'sunlit_now'
+  exposureData: null,
+  exposureLoading: false,
+  formulaPillExpanded: false,
 
   // Catalog caches
   materials: {

@@ -5,6 +5,7 @@
 
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
+import { computeSolarPosition } from '../viewer/sundome.js';
 
 function makeField(labelText, controlEl, hintText = '') {
   const wrap = document.createElement('div');
@@ -334,32 +335,218 @@ export function createRailPanelBuilders(handlers) {
 
         container.appendChild(camSec);
 
-        // Section 2: Mode warna & Tema
+        // Section 2: Matahari (mirrors mockup 6-panel-tampilan.html & spec §4.4)
+        const sunSec = document.createElement('div');
+        sunSec.className = 'psec';
+        const sunHead = document.createElement('h3');
+        sunHead.innerHTML = `${icon('sun', 14)}<span>Matahari</span>`;
+        sunSec.appendChild(sunHead);
+
+        const curDate = state.sunDate || '2026-09-23';
+        const PRESET_DATES = [
+          ['2026-06-21', '21 Jun'],
+          ['2026-09-23', '23 Sep'],
+          ['2026-12-21', '21 Des'],
+        ];
+        const isPreset = PRESET_DATES.some(([d]) => d === curDate);
+
+        const dateSeg = document.createElement('div');
+        dateSeg.className = 'seg';
+        dateSeg.setAttribute('role', 'radiogroup');
+        dateSeg.setAttribute('aria-label', 'Tanggal matahari');
+
+        for (const [iso, lbl] of PRESET_DATES) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.setAttribute('role', 'radio');
+          const on = curDate === iso;
+          b.setAttribute('aria-checked', on ? 'true' : 'false');
+          if (on) b.classList.add('on');
+          b.textContent = lbl;
+          b.addEventListener('click', () => handlers.onChangeSunDate?.(iso));
+          dateSeg.appendChild(b);
+        }
+        const bOther = document.createElement('button');
+        bOther.type = 'button';
+        bOther.setAttribute('role', 'radio');
+        bOther.setAttribute('aria-checked', !isPreset ? 'true' : 'false');
+        if (!isPreset) bOther.classList.add('on');
+        bOther.textContent = 'Lainnya';
+        bOther.addEventListener('click', () => {
+          if (isPreset) handlers.onChangeSunDate?.('2026-03-21');
+        });
+        dateSeg.appendChild(bOther);
+        sunSec.appendChild(dateSeg);
+
+        if (!isPreset) {
+          const dateInp = document.createElement('input');
+          dateInp.type = 'date';
+          dateInp.className = 'field-input';
+          dateInp.value = curDate;
+          dateInp.setAttribute('aria-label', 'Pilih tanggal kustom');
+          dateInp.addEventListener('change', () => {
+            if (dateInp.value) handlers.onChangeSunDate?.(dateInp.value);
+          });
+          sunSec.appendChild(dateInp);
+        }
+
+        // Jam slider
+        const hourRow = document.createElement('div');
+        hourRow.className = 'prow';
+        const hourLbl = document.createElement('label');
+        hourLbl.className = 'lbl';
+        hourLbl.htmlFor = 'panel-sun-hour';
+        hourLbl.textContent = 'Jam';
+
+        const hourSlider = document.createElement('input');
+        hourSlider.id = 'panel-sun-hour';
+        hourSlider.type = 'range';
+        hourSlider.min = '6';
+        hourSlider.max = '18';
+        hourSlider.step = '1';
+        hourSlider.value = String(Math.round(Number(state.sunHour ?? 13)));
+        hourSlider.style.accentColor = 'var(--sun)';
+        hourSlider.style.width = '100%';
+        hourSlider.addEventListener('input', () => handlers.onChangeSunHour?.(Number(hourSlider.value)));
+
+        const hourVal = document.createElement('span');
+        hourVal.className = 'num';
+        hourVal.style.fontWeight = '700';
+        hourVal.style.width = '44px';
+        hourVal.style.textAlign = 'right';
+        hourVal.textContent = `${String(Math.round(Number(state.sunHour ?? 13))).padStart(2, '0')}.00`;
+        hourRow.append(hourLbl, hourSlider, hourVal);
+        sunSec.appendChild(hourRow);
+
+        // Altitude / azimuth micro readout
+        const latDeg = Number(state.analysisData?.location_info?.latitude_deg ?? -6.2088);
+        const northDeg = Number(state.config?.settings?.north_angle_deg ?? 0);
+        const sp = computeSolarPosition(latDeg, curDate, Number(state.sunHour ?? 13), northDeg);
+        const sunInfo = document.createElement('div');
+        sunInfo.className = 'lbl num';
+        sunInfo.style.fontWeight = '500';
+        sunInfo.textContent = sp.aboveHorizon
+          ? `Tinggi matahari ${Math.round(sp.altitudeDeg)}° · Azimut ${Math.round(sp.azimuthDeg)}°`
+          : 'Matahari di bawah ufuk pada jam ini.';
+        sunSec.appendChild(sunInfo);
+
+        // Skala kubah slider (50-200%)
+        const domeRow = document.createElement('div');
+        domeRow.className = 'prow';
+        const domeLbl = document.createElement('label');
+        domeLbl.className = 'lbl';
+        domeLbl.htmlFor = 'panel-dome-scale';
+        domeLbl.textContent = 'Skala kubah';
+
+        const domeSlider = document.createElement('input');
+        domeSlider.id = 'panel-dome-scale';
+        domeSlider.type = 'range';
+        domeSlider.min = '50';
+        domeSlider.max = '200';
+        domeSlider.step = '5';
+        domeSlider.value = String(Math.round(Number(state.sunDomeScale ?? 100)));
+        domeSlider.style.accentColor = 'var(--sun)';
+        domeSlider.style.width = '100%';
+        domeSlider.addEventListener('input', () => handlers.onChangeSunDomeScale?.(Number(domeSlider.value)));
+
+        const domeVal = document.createElement('span');
+        domeVal.className = 'num';
+        domeVal.style.fontWeight = '700';
+        domeVal.style.width = '44px';
+        domeVal.style.textAlign = 'right';
+        domeVal.textContent = `${Math.round(Number(state.sunDomeScale ?? 100))}%`;
+        domeRow.append(domeLbl, domeSlider, domeVal);
+        sunSec.appendChild(domeRow);
+
+        // Putar satu hari + Pas ke model
+        const sunActions = document.createElement('div');
+        sunActions.style.display = 'flex';
+        sunActions.style.gap = '6px';
+
+        const playDayBtn = document.createElement('button');
+        playDayBtn.type = 'button';
+        playDayBtn.className = 'ghost ghost-sm';
+        playDayBtn.style.flex = '1';
+        playDayBtn.style.background = 'var(--glass-thin)';
+        playDayBtn.innerHTML = `${icon(state.sunPlaying ? 'pause' : 'play', 12)}<span>${
+          state.sunPlaying ? 'Jeda' : 'Putar satu hari'
+        }</span>`;
+        playDayBtn.addEventListener('click', () => handlers.onToggleSunPlay?.());
+
+        const fitDomeBtn = document.createElement('button');
+        fitDomeBtn.type = 'button';
+        fitDomeBtn.className = 'ghost ghost-sm';
+        fitDomeBtn.style.flex = '1';
+        fitDomeBtn.style.background = 'var(--glass-thin)';
+        fitDomeBtn.textContent = 'Pas ke model';
+        fitDomeBtn.addEventListener('click', () => handlers.onResetSunDomeScale?.());
+
+        sunActions.append(playDayBtn, fitDomeBtn);
+        sunSec.appendChild(sunActions);
+        container.appendChild(sunSec);
+
+        // Section 3: Tampilkan fasad (mirrors mockup 6-panel-tampilan.html & spec §4.6)
+        const filterFs = document.createElement('fieldset');
+        filterFs.className = 'psec';
+        filterFs.style.border = '0';
+        filterFs.style.margin = '0';
+
+        const filterLeg = document.createElement('legend');
+        filterLeg.style.padding = '0';
+        filterLeg.style.width = '100%';
+        const filterH = document.createElement('h3');
+        filterH.innerHTML = `${icon('layers', 14)}<span>Tampilkan fasad</span>`;
+        filterLeg.appendChild(filterH);
+        filterFs.appendChild(filterLeg);
+
+        const radioWrap = document.createElement('div');
+        radioWrap.style.display = 'grid';
+        radioWrap.style.gap = '2px';
+        radioWrap.style.fontSize = '13px';
+
+        const filterOpts = [
+          ['all', 'Semua arah'],
+          ['selected_orientation', 'Arah yang dipilih'],
+          ['sunlit_now', 'Yang terkena matahari jam ini'],
+        ];
+        const curFilter = state.facadeFilter || 'all';
+        for (const [val, txt] of filterOpts) {
+          const lbl = document.createElement('label');
+          lbl.className = 'confirm-radio';
+          lbl.style.minHeight = '30px';
+          if (curFilter === val) lbl.style.fontWeight = '600';
+          const radio = document.createElement('input');
+          radio.type = 'radio';
+          radio.name = 'luxa_facade_filter';
+          radio.value = val;
+          radio.checked = curFilter === val;
+          radio.disabled = val === 'sunlit_now' && !state.analysisData;
+          radio.addEventListener('change', () => {
+            if (radio.checked) handlers.onChangeFacadeFilter?.(val);
+          });
+          const spanTxt = document.createElement('span');
+          spanTxt.textContent = txt;
+          lbl.append(radio, spanTxt);
+          radioWrap.appendChild(lbl);
+        }
+        filterFs.appendChild(radioWrap);
+
+        const sfNote = document.createElement('p');
+        sfNote.className = 'lbl';
+        sfNote.style.margin = '0';
+        sfNote.style.fontWeight = '500';
+        sfNote.style.lineHeight = '17px';
+        sfNote.textContent =
+          'Filter ini membantu melihat sisi mana yang sedang kena matahari. Angka OTTV tetap memakai faktor SF tahunan dari SNI, jadi tidak berubah saat jam digeser.';
+        filterFs.appendChild(sfNote);
+        container.appendChild(filterFs);
+
+        // Section 4: Mode warna & Tema
         const modeSec = document.createElement('div');
         modeSec.className = 'psec';
         const modeHead = document.createElement('h3');
-        modeHead.textContent = 'Mode warna & tema';
+        modeHead.textContent = 'Tema';
         modeSec.appendChild(modeHead);
-
-        const modeWrap = document.createElement('div');
-        modeWrap.className = 'seg';
-
-        const bCls = document.createElement('button');
-        bCls.type = 'button';
-        if (state.viewerMode === 'classification') bCls.classList.add('on');
-        bCls.textContent = 'Klasifikasi';
-        bCls.addEventListener('click', () => handlers.onChangeViewerMode('classification'));
-
-        const bHeat = document.createElement('button');
-        bHeat.type = 'button';
-        if (state.viewerMode === 'heatmap') bHeat.classList.add('on');
-        bHeat.disabled = !state.analysisData;
-        bHeat.title = state.analysisData ? '' : 'Tersedia setelah OTTV dihitung';
-        bHeat.textContent = 'Heatmap';
-        bHeat.addEventListener('click', () => handlers.onChangeViewerMode('heatmap'));
-
-        modeWrap.append(bCls, bHeat);
-        modeSec.appendChild(modeWrap);
 
         const themeBtn = document.createElement('button');
         themeBtn.type = 'button';

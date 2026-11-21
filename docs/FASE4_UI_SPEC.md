@@ -24,7 +24,7 @@ Kalau dokumen ini dan mockup berbeda, ikuti dokumen ini.
 | D4 | Rel kiri berisi ikon + label: Model, Material, Lokasi, Tampilan, Bandingkan, Laporan, dan Bantuan di bawah. Klik membuka kartu fiturnya; satu kartu terbuka dalam satu waktu; Escape menutup. |
 | D5 | Kaca tiga tingkat sesuai `DESIGN.md`: tingkat 1 untuk semua yang melayang di atas viewer, tingkat 2 untuk kartu samping, tingkat 3 untuk rel dan indikator langkah. Latar halaman putih hangat dengan `glow-warm` dan `glow-cool`. |
 | D6 | Mode viewer: **Klasifikasi**, Orientasi, Heatmap, Kejanggalan, X-ray. Istilah "Peran" tidak dipakai lagi di UI. |
-| D7 | Heatmap default **per arah** (setiap panel diwarnai OTTV arahnya). Sakelar di legenda untuk **per panel** (warna dari `ottv_panel_wm2`). |
+| D7 | Heatmap default **per arah** (setiap panel diwarnai OTTV arahnya). Sakelar di legenda untuk **per panel** (warna dari `ottv_panel_wm2`). Warna memakai **skala kontinu** (gradasi), bukan 4 tingkat. Sakelar **Halus** (default mati) mencampur warna di sudut antarpanel; saat menyala, legenda menulis "tampilan dihaluskan". Angka yang ditampilkan saat klik selalu nilai asli panel. |
 | D8 | Klik panel menampilkan label nilai tepat di titik yang diklik (seperti titik ukur Autodesk Forma). Detail di kartu "Bidang terpilih". Klik area kosong viewer untuk melepas pilihan. Nilai panel diberi label **kontribusi**; status Memenuhi/Tidak hanya untuk OTTV total. |
 | D9 | Proyeksi: Perspektif, Perspektif 2 titik, Aksonometri, Tampak (paralel). Tampak tersedia untuk 8 arah SNI dan Atas. |
 | D10 | Kubah matahari dengan skala 50 sampai 200% dan tombol "Pas ke model". |
@@ -116,7 +116,8 @@ Arah tampak dihitung dari `north_angle_deg` (azimut dari +Y searah jarum jam, ko
 
 - **Klasifikasi**: warna dari token `data-glazing`, `data-wall`, `data-shading`, `data-unknown` (unknown + arsiran diagonal lewat tekstur), rangka abu gelap, atap dan diabaikan transparan.
 - **Orientasi**: 8 arah dipetakan ke putaran warna netral-ke-hangat mengikuti kompas.
-- **Heatmap**: per arah (default) atau per panel. Skala tetap: < 25, 25 sampai 32, 32 sampai 35, > 35 W/m² memakai `heat-0` sampai `heat-3`. Legenda menampilkan sakelar per arah / per panel.
+- **Heatmap**: per arah (default) atau per panel, dengan **skala warna kontinu** 0 sampai 60 W/m². Titik warna: 0 = `heat-0`, 25 = `heat-1`, 35 = `heat-2`, 50 ke atas = `heat-3`; di antaranya diinterpolasi linear di ruang warna OKLab (supaya terang-gelapnya naik merata dan tetap terbaca oleh buta warna). Nilai di atas 60 memakai warna 60. Legenda: bilah gradasi 168 px dengan label 0, 25, "35 batas" (garis tegas warna `ink`), 60; sakelar Per arah / Per panel; sakelar **Halus**.
+- **Halus** (default mati): warna per vertex = rata-rata tertimbang luas dari panel yang berbagi vertex itu (hanya panel bersebelahan pada fasad/orientasi yang sama atau di sudut gedung), lalu dirender dengan interpolasi warna antar-vertex. Saat menyala, legenda menulis "tampilan dihaluskan". Label nilai, kartu Bidang terpilih, dan semua angka tetap memakai nilai asli panel. Pilihan Halus ikut tersimpan di view tersimpan.
 - **Kejanggalan**: elemen bermasalah menyala dengan warna `warn` dan nomor sesuai daftar; sisanya pudar.
 - **X-ray**: semua elemen transparan, bidang yang disaring (`filtered_items`) tampil putus-putus.
 
@@ -138,7 +139,7 @@ Arah tampak dihitung dari `north_angle_deg` (azimut dari +Y searah jarum jam, ko
 - **Baris mode** (kaca tingkat 1, kiri atas viewer, satu baris): Klasifikasi, Orientasi, Heatmap | Kejanggalan, X-ray. Mode aktif blok `ink`.
 - **Pil rumus** (kanan atas, di kiri kompas). Bisa digeser (pointer + keyboard), posisinya disimpan per workspace.
 - **Panel Tampilan** (mockup 6): bagian Kamera (proyeksi, kisi 8 arah + Atas, arah utara), Matahari (tanggal, jam, skala kubah, putar satu hari, pas ke model), Tampilkan fasad (tiga pilihan + catatan SF), Workspace (preset + "Atur urutan dan isi dock").
-- **Workspace v1**: preset menentukan item rel dan pil yang terlihat. Belajar = semua item dengan tooltip istilah aktif. Lanjut = tabel per bidang, override material per orientasi, dan pengaturan pintasan. Presentasi = sembunyikan rel dan kolom samping, viewer penuh, pil bawah tetap. Kustomisasi v1: urutkan ulang dan sembunyikan item dock, pindah baris mode ke bawah. Disimpan di `localStorage` (`luxa.workspace.v1`).
+- **Workspace v1**: preset menentukan item rel dan pil yang terlihat. Belajar = semua item dengan tooltip istilah aktif. Lanjut = tabel per bidang, override material per orientasi, dan pengaturan pintasan. Presentasi = sembunyikan rel dan kolom samping, viewer penuh, pil bawah tetap. Kustomisasi v1: urutkan ulang dan sembunyikan item dock, pindah baris mode ke bawah. Disimpan di `localStorage` (`ottvista.workspace.v1`).
 
 ## 6. Pintasan
 

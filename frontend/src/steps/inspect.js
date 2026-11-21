@@ -7,8 +7,10 @@
 
 import { collectAcceptedProvisionalFlags, evaluateConfirmGate } from '../state.js';
 import { fmtId } from '../ui/escapeHtml.js';
-import { compassDialSvg, icon } from '../ui/icons.js';
-import { CATEGORY_LABELS, categorySwatchStyle } from '../viewer/modes.js';
+import { icon } from '../ui/icons.js';
+import { renderInteractiveCompass } from '../viewer/compass.js';
+import { CATEGORY_LABELS, categorySwatchStyle, ORIENTATION_CODES, orientationToCssColor, readThemeTokens } from '../viewer/modes.js';
+import { renderViewerModeBar } from '../viewer/modeBar.js';
 import { renderViewerBottomBar } from '../viewer/vbar.js';
 import { viewer } from '../viewer/viewer.js';
 
@@ -57,58 +59,64 @@ export function renderInspectScreen(state, handlers) {
   canvasHost.className = 'viewer-canvas-host';
   viewerSec.appendChild(canvasHost);
 
-  // Mode bar (Klasifikasi active, Heatmap disabled until analyzed)
-  const modeBar = document.createElement('div');
-  modeBar.className = 'glass modes';
-  modeBar.setAttribute('role', 'toolbar');
-  modeBar.setAttribute('aria-label', 'Mode tampilan');
+  // Mode bar (Klasifikasi, Orientasi, Heatmap [disabled until analyzed] | Kejanggalan, X-ray)
+  const activeInspectMode =
+    state.viewerMode === 'heatmap' && !state.analysisData
+      ? 'classification'
+      : state.viewerMode || 'classification';
+  viewerSec.appendChild(
+    renderViewerModeBar({ ...state, viewerMode: activeInspectMode }, (modeId) => {
+      if (modeId === 'heatmap' && state.analysisData) {
+        handlers.onGoToResults();
+      } else {
+        handlers.onChangeViewerMode(modeId);
+      }
+    }),
+  );
 
-  const btnCls = document.createElement('button');
-  btnCls.type = 'button';
-  btnCls.className = 'on';
-  btnCls.setAttribute('aria-pressed', 'true');
-  btnCls.innerHTML = `${icon('grid', 16)}<span>Klasifikasi</span>`;
-
-  const btnHeat = document.createElement('button');
-  btnHeat.type = 'button';
-  btnHeat.disabled = !state.analysisData;
-  btnHeat.title = state.analysisData ? 'Lihat heatmap OTTV per arah' : 'Tersedia setelah OTTV dihitung';
-  btnHeat.setAttribute('aria-pressed', 'false');
-  btnHeat.innerHTML = `${icon('thermometer', 16)}<span>Heatmap</span>`;
-  if (state.analysisData) {
-    btnHeat.addEventListener('click', () => handlers.onGoToResults());
-  }
-
-  modeBar.append(btnCls, btnHeat);
-  viewerSec.appendChild(modeBar);
-
-  // Compass
-  const northDeg = Number(state.config?.settings?.north_angle_deg || 0);
-  const compass = document.createElement('div');
-  compass.className = 'glass compass';
-  compass.setAttribute('role', 'img');
-  compass.setAttribute('aria-label', `Kompas arah utara, ${northDeg} derajat`);
-  compass.innerHTML = compassDialSvg(northDeg);
-  viewerSec.appendChild(compass);
+  // Interactive North Compass (drag or keyboard arrows)
+  viewerSec.appendChild(
+    renderInteractiveCompass(state, {
+      onChangeNorth: handlers.onChangeNorth,
+      onRecompute: handlers.onCalculateOttv,
+    }),
+  );
 
   // Legend (lifted cleanly above bottom pills)
   const legend = document.createElement('div');
   legend.className = 'legend legend-lifted num';
-  const legendParts = [
-    `<span class="legend-item"><i class="swatch" style="background:var(--data-glazing);"></i>Kaca ${fmtId(glazingArea, 1)} m²</span>`,
-    `<span class="legend-item"><i class="swatch" style="background:var(--data-wall);"></i>Dinding ${fmtId(wallArea, 1)} m²</span>`,
-  ];
-  if (hasUnknown) {
-    legendParts.push(
-      '<span class="legend-item"><i class="swatch swatch-unknown"></i>Belum dikenali</span>',
-    );
+  if (activeInspectMode === 'orientation') {
+    const tokens = readThemeTokens();
+    legend.innerHTML = ORIENTATION_CODES.map(
+      (c) => `<span class="legend-item"><i class="swatch" style="background:${orientationToCssColor(c, tokens)};"></i>${c}</span>`,
+    ).join('');
+  } else if (activeInspectMode === 'anomalies') {
+    legend.innerHTML = `
+      <span class="legend-item"><i class="swatch" style="background:var(--warn);"></i>Perlu diperiksa</span>
+      <span class="legend-item"><i class="swatch" style="background:var(--data-wall);opacity:0.35;"></i>Elemen lain</span>
+    `;
+  } else if (activeInspectMode === 'xray') {
+    legend.innerHTML = `
+      <span class="legend-item"><i class="swatch" style="background:var(--data-glazing);opacity:0.4;"></i>Selubung transparan</span>
+      <span class="legend-item"><i class="swatch" style="border:1.5px dashed var(--warn);background:transparent;"></i>Disaring / nonaktif</span>
+    `;
+  } else {
+    const legendParts = [
+      `<span class="legend-item"><i class="swatch" style="background:var(--data-glazing);"></i>Kaca ${fmtId(glazingArea, 1)} m²</span>`,
+      `<span class="legend-item"><i class="swatch" style="background:var(--data-wall);"></i>Dinding ${fmtId(wallArea, 1)} m²</span>`,
+    ];
+    if (hasUnknown) {
+      legendParts.push(
+        '<span class="legend-item"><i class="swatch swatch-unknown"></i>Belum dikenali</span>',
+      );
+    }
+    if (flags.some((f) => f.severity === 'warn' || f.severity === 'error')) {
+      legendParts.push(
+        '<span class="legend-item"><i class="swatch" style="background:var(--warn);border-radius:6px;"></i>Kejanggalan</span>',
+      );
+    }
+    legend.innerHTML = legendParts.join('');
   }
-  if (flags.some((f) => f.severity === 'warn' || f.severity === 'error')) {
-    legendParts.push(
-      '<span class="legend-item"><i class="swatch" style="background:var(--warn);border-radius:6px;"></i>Kejanggalan</span>',
-    );
-  }
-  legend.innerHTML = legendParts.join('');
   viewerSec.appendChild(legend);
 
   if (handlers.vbarHandlers) {
@@ -452,12 +460,13 @@ export function renderInspectScreen(state, handlers) {
 
   window.requestAnimationFrame(() => {
     if (canvasHost.isConnected) {
+      viewer.setRightInsetPx(0);
       viewer.mount(canvasHost, {
         onPickGroup: (meta) => {
           handlers.onSelectGroup(meta?.groupName || null);
         },
       });
-      viewer.syncState({ ...state, viewerMode: 'classification' });
+      viewer.syncState({ ...state, viewerMode: activeInspectMode });
     }
   });
 

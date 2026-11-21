@@ -57,6 +57,7 @@ export async function inspect(modelId, config, { userAnswers = {}, signal } = {}
   const payload = {
     model: config?.model || {},
     roles: config?.roles || {},
+    settings: config?.settings || null,
     advanced: config?.advanced || {},
     user_answers: userAnswers || {},
   };
@@ -79,10 +80,13 @@ export async function analyze(modelId, config, { signal } = {}) {
   return _jsonOrThrow(res, 'Gagal menghitung OTTV model.');
 }
 
-export async function exposure(analysisId, date, hours = null, { signal } = {}) {
+export async function exposure(analysisId, date, hours = null, { northAngleDeg = null, signal } = {}) {
   const params = new URLSearchParams();
   if (date) params.set('date', date);
   if (Array.isArray(hours) && hours.length) params.set('hours', hours.join(','));
+  if (northAngleDeg !== null && northAngleDeg !== undefined && Number.isFinite(Number(northAngleDeg))) {
+    params.set('north_angle_deg', String(Number(northAngleDeg)));
+  }
   const res = await fetch(
     `/api/analyses/${encodeURIComponent(analysisId)}/exposure?${params.toString()}`,
     { signal },

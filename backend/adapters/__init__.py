@@ -28,6 +28,7 @@ from universal_pipeline import (
     RawGroupMesh,
     build_dynamic_floor_levels,
     classify_layer_or_material_with_confidence,
+    format_floor_source_label,
     load_universal_model_stages_1_and_2,
 )
 
@@ -758,16 +759,52 @@ def build_staging_inspection_payload(
     b_center = 0.5 * (b_min + b_max)
     b_span = b_max - b_min
 
-    # Dynamic preview floor count above ground cutoff Z0
+    # Dynamic preview floor count above ground cutoff Z0 (R4 Tiered Detection — never silently guesses 3.6m)
     z0_cut = float(m_cfg.z_ground_cutoff_m or 0.0)
-    z_eff_min = max(float(b_min[2]), z0_cut)
-    z_eff_max = max(z_eff_min + 2.5, float(b_max[2]))
+    z_eff_min = max(float(b_min[2]), z0_cut) if z0_cut > 0.05 else float(b_min[2])
+    z_eff_max = max(z_eff_min + 0.5, float(b_max[2]))
+    s_cfg = getattr(cfg, "settings", None)
+    eff_bim_storeys = (
+        [
+            st
+            for st in (audit.bim_storeys or [])
+            if float(st.get("z_max", st.get("elevation_m", 0.0) + 3.0)) > (z0_cut + 0.3)
+        ]
+        if z0_cut > 0.05
+        else audit.bim_storeys
+    )
     preview_floors, floor_method = build_dynamic_floor_levels(
         z_min_bldg=z_eff_min,
         z_max_bldg=z_eff_max,
-        floor_mode="auto",
-        floor_height_m=3.6,
-        bim_storeys=audit.bim_storeys,
+        floor_mode=getattr(s_cfg, "floor_mode", "auto") if s_cfg else "auto",
+        floor_height_m=getattr(s_cfg, "floor_height_m", None) if s_cfg else None,
+        bim_storeys=eff_bim_storeys,
+        custom_floor_zones=getattr(s_cfg, "custom_floor_zones", None) if s_cfg else None,
+        raw_groups=raw_groups,
+        expected_floors=m_cfg.expected_floors,
+        disabled_groups=list(disabled_set),
+        group_category_overrides=cat_overrides,
+    )
+    has_glazing_group = any(
+        (rg.group_name not in disabled_set)
+        and (cat_overrides.get(rg.group_name, rg.default_category) in ("glazing", "composite_cw"))
+        for rg in raw_groups
+    )
+    span_z_eff = max(0.5, z_eff_max - z_eff_min)
+    floor_source_label = format_floor_source_label(
+        floor_defs=preview_floors,
+        method=floor_method,
+        span_z_m=span_z_eff,
+        has_glazing=has_glazing_group,
+    )
+    detected_floor_count = None if floor_method == "tidak_terdeteksi" else len(preview_floors)
+    detected_floor_height = (
+        None
+        if floor_method == "tidak_terdeteksi"
+        else round(
+            sum(float(fl.get("height_m", 0.0)) for fl in preview_floors) / max(1, len(preview_floors)),
+            2,
+        )
     )
 
     staging_groups: List[Dict[str, Any]] = []
@@ -932,7 +969,7 @@ def build_staging_inspection_payload(
         audit=audit,
         analysis_preview={
             "bounding_box": bbox_dict,
-            "estimated_floors": len(preview_floors),
+            "estimated_floors": detected_floor_count,
             "orientation_areas": orientation_preview,
             "filtered_items": all_filtered_items,
         },
@@ -969,8 +1006,11 @@ def build_staging_inspection_payload(
         "filtered_items": all_filtered_items,
         "missing_mesh": audit.missing_mesh,
         "bounding_box": bbox_dict,
-        "estimated_floors": len(preview_floors),
+        "estimated_floors": detected_floor_count,
+        "estimated_floor_height_m": detected_floor_height,
         "floor_detection_method": floor_method,
+        "floor_source_label": floor_source_label,
+        "floor_levels": preview_floors,
         "groups": staging_groups,
         "preview_meshes": preview_meshes,
         "orientation_preview": orientation_preview,
