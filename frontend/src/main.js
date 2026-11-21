@@ -47,6 +47,7 @@ import { DIRECTION_NAMES, PROJECTION_LABELS } from './viewer/cameras.js';
 import { captureViewerPng } from './viewer/capture.js';
 import { pieMenu } from './viewer/pieMenu.js';
 import { viewer } from './viewer/viewer.js';
+import { togglePanelSelection } from './viewer/selection.js';
 import {
   createSavedViewRecord,
   deleteSavedViewInList,
@@ -752,6 +753,7 @@ function renderApp(state) {
     frag.appendChild(
       renderInspectScreen(state, {
         vbarHandlers,
+        onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
         onSelectGroup: (groupName) => setState({ selectedGroup: groupName }),
         onChangeGroupCategory: async (groupName, newCat) => {
           updateConfig((cfg) => {
@@ -788,6 +790,19 @@ function renderApp(state) {
       renderResultsScreen(state, {
         vbarHandlers,
         onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
+        onChangeHeatmapGranularity: (gran) => setState({ heatmapGranularity: gran }),
+        onPickPanel: (panel, additive) => {
+          if (!panel) {
+            setState({ selectedPanelIds: [], selectedOrientation: null });
+            return;
+          }
+          const nextIds = togglePanelSelection(getState().selectedPanelIds, panel.id, additive);
+          setState({
+            selectedPanelIds: nextIds,
+            selectedOrientation: nextIds.length === 1 ? panel.orientation_code || null : getState().selectedOrientation,
+          });
+        },
+        onClearPanelSelection: () => setState({ selectedPanelIds: [] }),
         onSelectOrientation: (code) => {
           setState({ selectedOrientation: code });
           if (code) {

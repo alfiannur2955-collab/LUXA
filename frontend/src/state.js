@@ -127,7 +127,8 @@ const initialState = {
 
   // UI flags & selections
   acknowledgedFlags: {}, // { [flagId]: { action, provisional } }
-  viewerMode: 'classification', // 'classification' | 'heatmap'
+  viewerMode: 'classification', // 'classification' | 'orientation' | 'heatmap' | 'anomalies' | 'xray'
+  heatmapGranularity: 'orientation', // 'orientation' | 'panel'
   cameraProjection: 'perspective', // 'perspective' | 'two_point' | 'axonometric' | 'elevation'
   cameraDirection: 'B', // 'U' | 'TL' | 'T' | 'TG' | 'S' | 'BD' | 'B' | 'BL' | 'Atas'
   activeViewId: null,
@@ -137,7 +138,19 @@ const initialState = {
   shortcutsModalOpen: false,
   selectedGroup: null,
   selectedOrientation: null,
+  selectedPanelIds: [],
   needsRecompute: false,
+
+  // Fase 4b-2: Sun dome, exposure filter & formula pill
+  sunDate: '2026-09-23', // '2026-06-21' | '2026-09-23' | '2026-12-21' | YYYY-MM-DD
+  sunHour: 13, // 6..18
+  sunPlaying: false,
+  sunDomeVisible: true,
+  sunDomeScale: 100, // 50..200 (%)
+  facadeFilter: 'all', // 'all' | 'selected_orientation' | 'sunlit_now'
+  exposureData: null,
+  exposureLoading: false,
+  formulaPillExpanded: false,
 
   // Catalog caches
   materials: {
