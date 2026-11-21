@@ -284,3 +284,23 @@ def test_k1_cache_isolation_01_04_01_same_process():
         assert m4["TL"] == 320.0 and m4["TGR"] == 480.0 and m4["U"] == 0.0
         assert m1b["U"] == 320.0 and m1b["T"] == 480.0 and m1b["TL"] == 0.0
         assert abs(float(r1["ottv_total_wm2"]) - float(r1_again["ottv_total_wm2"])) <= 0.01
+
+
+def test_k2_explicit_default_wall_wwr_emits_assumed_wwr():
+    """
+    K2 regression: bila model tidak punya kaca dan user mengisi default_wall_wwr secara eksplisit
+    di ProjectConfig, WWR asumsi dipakai dengan peringatan ASSUMED_WWR (is_provisional=True).
+    """
+    c23 = next(c for c in ALL_CASES if c["case"] == "23_tanpa_kaca")
+    res_no_glz = _run_case_format(c23, "3dm")
+    assert float(res_no_glz["summary"]["effective_wwr"]) == 0.0
+    assert res_no_glz["summary"]["is_provisional"] is True
+    assert "NO_GLAZING" in {w["code"] for w in res_no_glz["summary"]["warnings"]}
+
+    res_assumed = _run_case_format(c23, "3dm", extra_settings={"default_wall_wwr": 0.30})
+    assert abs(float(res_assumed["summary"]["effective_wwr"]) - 0.30) <= 0.005
+    assert res_assumed["summary"]["is_provisional"] is True
+    codes = {w["code"] for w in res_assumed["summary"]["warnings"]}
+    assert "ASSUMED_WWR" in codes
+    assert "NO_GLAZING" not in codes
+    assert float(res_assumed["ottv_total_wm2"]) > float(res_no_glz["ottv_total_wm2"]) + 5.0

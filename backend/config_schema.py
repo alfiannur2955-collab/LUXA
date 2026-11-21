@@ -136,6 +136,7 @@ class SettingsConfig(BaseModel):
     include_frame_conduction: bool = True
     frame_area_ratio: float = Field(default=0.08, ge=0.0, le=0.35)
     wwr_override: Optional[float] = Field(default=None, ge=0.05, le=0.95)
+    default_wall_wwr: Optional[float] = Field(default=None, ge=0.0, le=0.95)
 
     # Floor detection & sectioning
     floor_mode: Literal["auto", "uniform", "custom"] = "auto"
@@ -207,6 +208,7 @@ class ProjectConfig(BaseModel):
             include_frame_conduction=self.settings.include_frame_conduction,
             frame_area_ratio=self.settings.frame_area_ratio,
             wwr_override=self.settings.wwr_override,
+            default_wall_wwr=self.settings.default_wall_wwr,
             floor_mode=self.settings.floor_mode,
             floor_height_m=self.settings.floor_height_m,
             custom_floor_zones=copy.deepcopy(self.settings.custom_floor_zones),

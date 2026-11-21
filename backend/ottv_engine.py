@@ -132,7 +132,7 @@ class EnvelopeParameters:
     delta_t: float = 5.0
     sc_glass: float = 0.23
     wwr_override: Optional[float] = None
-    default_wall_wwr: float = 0.35
+    default_wall_wwr: Optional[float] = None
 
     # Curtain wall Frame (Mullion/Transom) thermal parameters
     include_frame_conduction: bool = True
@@ -2578,8 +2578,10 @@ def analyze_building_ottv(
             wwr_k = max(0.05, min(0.95, float(params.group_wwr_map.get(p["group_name"], 0.70))))
         elif has_explicit_glazing:
             wwr_k = 1.0 if cat == "glazing" else 0.0
-        else:
+        elif params.default_wall_wwr is not None:
             wwr_k = max(0.0, min(0.95, float(params.default_wall_wwr)))
+        else:
+            wwr_k = 0.0
 
         sc_mult = float(sc_Display_mult_arr[idx])
         sc_eff = sc_1_k * sc_mult
@@ -3280,6 +3282,35 @@ def analyze_building_ottv(
                 "normalized_span_m": [round(float(x), 2) for x in stage1_audit.normalized_span_m],
             },
         })
+    if not has_explicit_glazing:
+        if params.wwr_override is not None:
+            summary_warnings.append({
+                "code": "ASSUMED_WWR",
+                "message": (
+                    f"Model tidak memiliki grup kaca terdeteksi; perhitungan menggunakan WWR override "
+                    f"eksplisit {float(params.wwr_override)*100:.1f}% (bukan geometri kaca terukur)."
+                ),
+                "detail": {"assumed_wwr": round(float(params.wwr_override), 4), "source": "wwr_override"},
+            })
+        elif params.default_wall_wwr is not None:
+            summary_warnings.append({
+                "code": "ASSUMED_WWR",
+                "message": (
+                    f"Model tidak memiliki grup kaca terdeteksi; perhitungan menggunakan WWR asumsi "
+                    f"eksplisit {float(params.default_wall_wwr)*100:.1f}% dari pengguna (bukan geometri kaca terukur)."
+                ),
+                "detail": {"assumed_wwr": round(float(params.default_wall_wwr), 4), "source": "default_wall_wwr"},
+            })
+        else:
+            summary_warnings.append({
+                "code": "NO_GLAZING",
+                "message": (
+                    "Model tidak memiliki grup kaca/bukaan yang terdeteksi sehingga dihitung dengan WWR = 0% "
+                    "(dinding opak saja). Konfirmasikan peran grup di Periksa Model atau tetapkan WWR asumsi "
+                    "secara eksplisit bila model memang belum memisahkan kaca."
+                ),
+                "detail": {"detected_glazing_groups": 0, "effective_wwr": 0.0},
+            })
     is_provisional = len(summary_warnings) > 0
     if is_sni_mode and sf_source_info.get("warning"):
         summary_warnings.append({

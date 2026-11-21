@@ -838,6 +838,7 @@ def write_ifc4_ribbon_building(
     interior_walls: Optional[List[Tuple[Tuple[float, float], Tuple[float, float]]]] = None,
     skylight_poly: Optional[Sequence[Tuple[float, float]]] = None,
     explicit_is_external: bool = False,
+    include_glazing: bool = True,
 ) -> None:
     """Membuat model IFC4 valid dengan IfcWall + IfcOpeningElement + IfcWindow + IfcRoof (+ IfcShadingDevice)."""
     ifc = ifcopenshell.api.run("project.create_file", version="IFC4")
@@ -914,6 +915,9 @@ def write_ifc4_ribbon_building(
                 if explicit_is_external:
                     pset = ifcopenshell.api.run("pset.add_pset", ifc, product=wall, name="Pset_WallCommon")
                     ifcopenshell.api.run("pset.edit_pset", ifc, pset=pset, properties={"IsExternal": True})
+
+                if not include_glazing:
+                    continue
 
                 # Opening sedikit lebih tebal dari dinding agar boolean OpenCASCADE bersih sempurna
                 dx, dy = b_out[0] - a_out[0], b_out[1] - a_out[1]
@@ -2124,7 +2128,43 @@ def generate_all() -> None:
     )
     save_expected(cdir, "22_ifc_covering_dan_id", ["ifc"], exp, drv)
 
-    print(f"Berhasil membuat 22 kasus sintetis di {OUT_ROOT}")
+    # ------------------------------------------------------------------
+    # Kasus 23: 23_tanpa_kaca (regresi K2: kotak dinding opak saja tanpa kaca -> WWR=0, NO_GLAZING)
+    # ------------------------------------------------------------------
+    cdir = os.path.join(OUT_ROOT, "23_tanpa_kaca")
+    os.makedirs(cdir, exist_ok=True)
+    parts_no_glz = std_box_parts(include_glazing=False)
+    export_standard_formats(
+        cdir,
+        ["3dm", "obj", "glb", "ifc"],
+        parts_no_glz,
+        ifc_kwargs={"polygons": [STD_BOX_POLY], "roof_polys": [STD_BOX_POLY], "include_glazing": False},
+    )
+    areas_no_glz = {
+        "U": {"glazing": 0.0, "wall": 320.0},
+        "T": {"glazing": 0.0, "wall": 480.0},
+        "S": {"glazing": 0.0, "wall": 320.0},
+        "B": {"glazing": 0.0, "wall": 480.0},
+    }
+    exp, drv = compute_analytical_expected(
+        areas_no_glz,
+        opaque_roof_area=600.0,
+        is_provisional=True,
+        flags_expected=["NO_GLAZING"],
+        extra_notes="Regresi K2: model hanya memiliki dinding opak (tanpa grup kaca) -> WWR=0%, OTTV=3.72 W/m2, is_provisional=True, peringatan NO_GLAZING (tidak lagi memakai default_wall_wwr=0.35 diam-diam).",
+    )
+    save_expected(
+        cdir,
+        "23_tanpa_kaca",
+        ["3dm", "obj", "glb", "ifc"],
+        exp,
+        drv,
+        per_format_overrides={
+            "obj": {"is_provisional": True, "flags_expected": ["NO_GLAZING", "UNIT_NEEDS_CONFIRMATION"]},
+        },
+    )
+
+    print(f"Berhasil membuat 23 kasus sintetis di {OUT_ROOT}")
     cases = sorted(os.listdir(OUT_ROOT))
     print(f"Total folder: {len(cases)}")
     for c in cases:
