@@ -1108,350 +1108,8 @@ def _parse_ifc_with_ifcopenshell(
 
 
 # ============================================================================
-# NATIVE BIM .IFC (STEP) UNIVERSAL PARSER & SAMPLE GENERATOR
+# NATIVE BIM .IFC SAMPLE GENERATOR (Fallback STEP parser _parse_ifc_file dihapus)
 # ============================================================================
-
-def _parse_ifc_file(
-    filepath: str,
-) -> Tuple[Dict[Tuple[str, str], List[Tuple[np.ndarray, np.ndarray]]], str, List[Dict[str, Any]]]:
-    """
-    Universal pure-Python IFC2x3 / IFC4 STEP parser for architectural envelope simulation.
-    Extracts:
-    - Unit scale ('mm' or 'm') from IFCSIUNIT
-    - Native BIM storeys (`IFCBUILDINGSTOREY`) with name and elevation in meters
-    - Semantic BIM elements (`IFCCURTAINWALL`, `IFCPLATE`, `IFCMEMBER`, `IFCWALL`,
-      `IFCWALLSTANDARDCASE`, `IFCWINDOW`, `IFCSLAB`, `IFCROOF`, `IFCSHADINGDEVICE`)
-    - 3D Geometry from `IFCPOLYGONALFACESET`, `IFCTRIANGULATEDFACESET`, `IFCFACETEDBREP`,
-      and `IFCEXTRUDEDAREASOLID`.
-    """
-    with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-        text = f.read()
-
-    # 1. Detect length unit (MILLI + METRE vs METRE)
-    detected_unit = "m"
-    if re.search(r"IFCSIUNIT\s*\([^;]*\.LENGTHUNIT\.\s*,\s*\.MILLI\.\s*,\s*\.METRE\.", text, re.IGNORECASE):
-        detected_unit = "mm"
-    elif re.search(r"IFCSIUNIT\s*\([^;]*\.LENGTHUNIT\.\s*,\s*\.CENTI\.\s*,\s*\.METRE\.", text, re.IGNORECASE):
-        detected_unit = "cm"
-    unit_scale = UNIT_SCALE_TO_METERS.get(detected_unit, 1.0)
-
-    # Parse all #ID = ENTITYTYPE(args); statements
-    entity_map: Dict[int, Tuple[str, str]] = {}
-    for m in re.finditer(r"#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(([^;]*)\)\s*;", text):
-        eid = int(m.group(1))
-        etype = m.group(2).upper()
-        eargs = m.group(3).strip()
-        entity_map[eid] = (etype, eargs)
-
-    # Extract Cartesian Points (#id -> (x, y, z))
-    pts_2d3d: Dict[int, Tuple[float, ...]] = {}
-    dirs_2d3d: Dict[int, Tuple[float, ...]] = {}
-    for eid, (etype, eargs) in entity_map.items():
-        if etype == "IFCCARTESIANPOINT":
-            cm = re.search(r"\(([-+0-9.,Ee\s]+)\)", eargs)
-            if cm:
-                coords = [float(x) for x in cm.group(1).split(",") if x.strip()]
-                pts_2d3d[eid] = tuple(coords)
-        elif etype == "IFCDIRECTION":
-            cm = re.search(r"\(([-+0-9.,Ee\s]+)\)", eargs)
-            if cm:
-                coords = [float(x) for x in cm.group(1).split(",") if x.strip()]
-                dirs_2d3d[eid] = tuple(coords)
-        elif etype == "IFCCARTESIANPOINTLIST3D":
-            pts_list = []
-            for pm in re.finditer(r"\(([-+0-9.,Ee\s]+)\)", eargs):
-                c = [float(x) for x in pm.group(1).split(",") if x.strip()]
-                if len(c) >= 3:
-                    pts_list.append((c[0], c[1], c[2]))
-            pts_2d3d[eid] = tuple(pts_list)  # type: ignore
-
-    # Extract IFCBUILDINGSTOREY
-    storeys: List[Dict[str, Any]] = []
-    for eid, (etype, eargs) in entity_map.items():
-        if etype == "IFCBUILDINGSTOREY":
-            # IFCBUILDINGSTOREY('guid', #owner, 'Name', 'Desc', ..., Elevation)
-            strs = re.findall(r"'([^']*)'", eargs)
-            name = strs[1] if len(strs) >= 2 and strs[1] else (strs[0] if strs else f"Storey_{eid}")
-            nums = re.findall(r"(?<=[,\s])([-+]?\d+(?:\.\d+)?(?:[Ee][-+]?\d+)?)\s*$", eargs)
-            elev_raw = float(nums[-1]) if nums else 0.0
-            storeys.append({
-                "id": eid,
-                "name": name,
-                "elevation_m": round(elev_raw * unit_scale, 3),
-            })
-    storeys.sort(key=lambda s: s["elevation_m"])
-
-    # Helper: resolve IFCAXIS2PLACEMENT3D & IFCLOCALPLACEMENT into 4x4 matrix
-    def _resolve_axis2placement3d(aid: int) -> np.ndarray:
-        mat = np.eye(4, dtype=np.float64)
-        if aid not in entity_map:
-            return mat
-        etype, eargs = entity_map[aid]
-        if etype != "IFCAXIS2PLACEMENT3D":
-            return mat
-        refs = [int(x) for x in re.findall(r"#(\d+)", eargs)]
-        loc = pts_2d3d.get(refs[0], (0.0, 0.0, 0.0)) if len(refs) >= 1 else (0.0, 0.0, 0.0)
-        z_dir = np.array([0.0, 0.0, 1.0], dtype=np.float64)
-        x_dir = np.array([1.0, 0.0, 0.0], dtype=np.float64)
-        # Parse positional args (Location, Axis, RefDirection)
-        parts = [p.strip() for p in eargs.split(",")]
-        if len(parts) >= 2 and parts[1].startswith("#"):
-            d_z = dirs_2d3d.get(int(parts[1][1:]))
-            if d_z and len(d_z) >= 3:
-                z_dir = np.array(d_z[:3], dtype=np.float64)
-                z_dir /= max(1e-9, np.linalg.norm(z_dir))
-        if len(parts) >= 3 and parts[2].startswith("#"):
-            d_x = dirs_2d3d.get(int(parts[2][1:]))
-            if d_x and len(d_x) >= 3:
-                x_dir = np.array(d_x[:3], dtype=np.float64)
-                x_dir = x_dir - np.dot(x_dir, z_dir) * z_dir
-                n_x = np.linalg.norm(x_dir)
-                if n_x > 1e-6:
-                    x_dir /= n_x
-        y_dir = np.cross(z_dir, x_dir)
-        y_dir /= max(1e-9, np.linalg.norm(y_dir))
-        x_dir = np.cross(y_dir, z_dir)
-        mat[:3, 0] = x_dir
-        mat[:3, 1] = y_dir
-        mat[:3, 2] = z_dir
-        if len(loc) >= 3:
-            mat[:3, 3] = [loc[0], loc[1], loc[2]]
-        return mat
-
-    placement_cache: Dict[int, np.ndarray] = {}
-
-    def _resolve_local_placement(pid: int, depth: int = 0) -> np.ndarray:
-        if pid in placement_cache:
-            return placement_cache[pid]
-        if depth > 12 or pid not in entity_map:
-            return np.eye(4, dtype=np.float64)
-        etype, eargs = entity_map[pid]
-        if etype != "IFCLOCALPLACEMENT":
-            return _resolve_axis2placement3d(pid)
-        parts = [p.strip() for p in eargs.split(",")]
-        parent_mat = np.eye(4, dtype=np.float64)
-        rel_mat = np.eye(4, dtype=np.float64)
-        if len(parts) >= 1 and parts[0].startswith("#"):
-            parent_mat = _resolve_local_placement(int(parts[0][1:]), depth + 1)
-        if len(parts) >= 2 and parts[1].startswith("#"):
-            rel_mat = _resolve_axis2placement3d(int(parts[1][1:]))
-        res = parent_mat @ rel_mat
-        placement_cache[pid] = res
-        return res
-
-    # Helper: extract mesh from a geometric representation item (#id)
-    def _extract_geom_item(gid: int) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-        if gid not in entity_map:
-            return None
-        etype, eargs = entity_map[gid]
-
-        if etype == "IFCFACETEDBREP":
-            refs = [int(x) for x in re.findall(r"#(\d+)", eargs)]
-            if not refs:
-                return None
-            shell_id = refs[0]
-            if shell_id not in entity_map:
-                return None
-            _, s_args = entity_map[shell_id]
-            face_ids = [int(x) for x in re.findall(r"#(\d+)", s_args)]
-            v_list: List[Tuple[float, float, float]] = []
-            f_list: List[Tuple[int, int, int, int]] = []
-            for fid in face_ids:
-                if fid not in entity_map:
-                    continue
-                _, f_args = entity_map[fid]
-                bound_ids = [int(x) for x in re.findall(r"#(\d+)", f_args)]
-                for bid in bound_ids:
-                    if bid not in entity_map:
-                        continue
-                    _, b_args = entity_map[bid]
-                    loop_ids = [int(x) for x in re.findall(r"#(\d+)", b_args)]
-                    for lid in loop_ids:
-                        if lid not in entity_map:
-                            continue
-                        ltype, l_args = entity_map[lid]
-                        if ltype == "IFCPOLYLOOP":
-                            pt_ids = [int(x) for x in re.findall(r"#(\d+)", l_args)]
-                            pts = [pts_2d3d.get(pid) for pid in pt_ids if pid in pts_2d3d]
-                            pts3 = [(p[0], p[1], p[2]) for p in pts if p and len(p) >= 3]
-                            if len(pts3) >= 3:
-                                base = len(v_list)
-                                v_list.extend(pts3)
-                                if len(pts3) == 3:
-                                    f_list.append((base, base + 1, base + 2, base + 2))
-                                elif len(pts3) == 4:
-                                    f_list.append((base, base + 1, base + 2, base + 3))
-                                else:
-                                    for k in range(1, len(pts3) - 1):
-                                        f_list.append((base, base + k, base + k + 1, base + k + 1))
-            if v_list and f_list:
-                return np.array(v_list, dtype=np.float64), np.array(f_list, dtype=np.int64)
-
-        elif etype == "IFCEXTRUDEDAREASOLID":
-            # IFCEXTRUDEDAREASOLID(#SweptArea, #Position, #ExtrudedDirection, Depth)
-            parts = [p.strip() for p in eargs.split(",")]
-            if len(parts) < 4:
-                return None
-            prof_id = int(parts[0][1:]) if parts[0].startswith("#") else -1
-            pos_id = int(parts[1][1:]) if parts[1].startswith("#") else -1
-            dir_id = int(parts[2][1:]) if parts[2].startswith("#") else -1
-            try:
-                depth = float(parts[3])
-            except ValueError:
-                depth = 1.0
-
-            if prof_id not in entity_map:
-                return None
-            ptype, p_args = entity_map[prof_id]
-            loop_2d: List[Tuple[float, float]] = []
-            if ptype == "IFCRECTANGLEPROFILEDEF":
-                # IFCRECTANGLEPROFILEDEF(.AREA., 'Name', #Pos, XDim, YDim)
-                pp = [x.strip() for x in p_args.split(",")]
-                if len(pp) >= 5:
-                    try:
-                        xdim = float(pp[-2])
-                        ydim = float(pp[-1])
-                        hx, hy = 0.5 * xdim, 0.5 * ydim
-                        loop_2d = [(-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy)]
-                    except ValueError:
-                        pass
-            elif ptype == "IFCARBITRARYCLOSEDPROFILEDEF":
-                refs = [int(x) for x in re.findall(r"#(\d+)", p_args)]
-                if refs and refs[-1] in entity_map:
-                    _, c_args = entity_map[refs[-1]]
-                    pt_ids = [int(x) for x in re.findall(r"#(\d+)", c_args)]
-                    for pid in pt_ids:
-                        p2 = pts_2d3d.get(pid)
-                        if p2 and len(p2) >= 2:
-                            loop_2d.append((p2[0], p2[1]))
-                    if len(loop_2d) > 2 and loop_2d[0] == loop_2d[-1]:
-                        loop_2d.pop()
-
-            if len(loop_2d) < 3:
-                return None
-
-            ext_dir = dirs_2d3d.get(dir_id, (0.0, 0.0, 1.0))
-            dx = (ext_dir[0] if len(ext_dir) >= 1 else 0.0) * depth
-            dy = (ext_dir[1] if len(ext_dir) >= 2 else 0.0) * depth
-            dz = (ext_dir[2] if len(ext_dir) >= 3 else 1.0) * depth
-
-            n_p = len(loop_2d)
-            bot_pts = [(x, y, 0.0) for x, y in loop_2d]
-            top_pts = [(x + dx, y + dy, dz) for x, y in loop_2d]
-            verts = np.array(bot_pts + top_pts, dtype=np.float64)
-            faces: List[Tuple[int, int, int, int]] = []
-            for i in range(n_p):
-                j = (i + 1) % n_p
-                faces.append((i, j, n_p + j, n_p + i))
-            pos_mat = _resolve_axis2placement3d(pos_id) if pos_id > 0 else np.eye(4, dtype=np.float64)
-            verts = _apply_xform(verts, pos_mat)
-            return verts, np.array(faces, dtype=np.int64)
-
-        return None
-
-    # Helper: traverse IFCPRODUCTDEFINITIONSHAPE -> IFCSHAPEREPRESENTATION -> Items
-    def _extract_product_meshes(prod_args: str) -> List[Tuple[np.ndarray, np.ndarray]]:
-        # Product args typically: ('Guid', #Owner, 'Name', 'Desc', 'ObjType', #ObjectPlacement, #Representation, ...)
-        refs = [int(x) for x in re.findall(r"#(\d+)", prod_args)]
-        if len(refs) < 2:
-            return []
-        place_id = -1
-        rep_id = -1
-        for r in refs:
-            if r in entity_map:
-                rt, _ = entity_map[r]
-                if rt == "IFCLOCALPLACEMENT" and place_id < 0:
-                    place_id = r
-                elif rt in ("IFCPRODUCTDEFINITIONSHAPE", "IFCSHAPEREPRESENTATION") and rep_id < 0:
-                    rep_id = r
-
-        if rep_id < 0:
-            return []
-
-        place_mat = _resolve_local_placement(place_id) if place_id > 0 else np.eye(4, dtype=np.float64)
-
-        shape_rep_ids: List[int] = []
-        rt, r_args = entity_map[rep_id]
-        if rt == "IFCPRODUCTDEFINITIONSHAPE":
-            shape_rep_ids = [int(x) for x in re.findall(r"#(\d+)", r_args)]
-        else:
-            shape_rep_ids = [rep_id]
-
-        meshes: List[Tuple[np.ndarray, np.ndarray]] = []
-        for srid in shape_rep_ids:
-            if srid not in entity_map:
-                continue
-            st, s_args = entity_map[srid]
-            if st != "IFCSHAPEREPRESENTATION":
-                continue
-            item_ids = [int(x) for x in re.findall(r"#(\d+)", s_args)]
-            for iid in item_ids:
-                if iid not in entity_map:
-                    continue
-                it_type, it_args = entity_map[iid]
-                if it_type == "IFCMAPPEDITEM":
-                    # IFCMAPPEDITEM(#MappingSource, #MappingTarget)
-                    m_refs = [int(x) for x in re.findall(r"#(\d+)", it_args)]
-                    if m_refs and m_refs[0] in entity_map:
-                        _, ms_args = entity_map[m_refs[0]]
-                        ms_refs = [int(x) for x in re.findall(r"#(\d+)", ms_args)]
-                        if len(ms_refs) >= 2:
-                            origin_mat = _resolve_axis2placement3d(ms_refs[0])
-                            sub_sr_id = ms_refs[1]
-                            if sub_sr_id in entity_map:
-                                _, sub_args = entity_map[sub_sr_id]
-                                for sub_iid in [int(x) for x in re.findall(r"#(\d+)", sub_args)]:
-                                    gm = _extract_geom_item(sub_iid)
-                                    if gm:
-                                        v_t = _apply_xform(_apply_xform(gm[0], origin_mat), place_mat)
-                                        meshes.append((v_t, gm[1]))
-                else:
-                    gm = _extract_geom_item(iid)
-                    if gm:
-                        v_t = _apply_xform(gm[0], place_mat)
-                        meshes.append((v_t, gm[1]))
-        return meshes
-
-    target_bim_types = {
-        "IFCCURTAINWALL": ("BIM_CurtainWall", "Composite_CurtainWall"),
-        "IFCPLATE": ("BIM_CurtainWall_Panel", "Glazing_or_Spandrel"),
-        "IFCMEMBER": ("BIM_CurtainWall_Frame", "Aluminum_Mullion_Transom"),
-        "IFCWINDOW": ("BIM_Window_Glazing", "Vision_Glass"),
-        "IFCWALL": ("BIM_Exterior_Wall", "Opaque_Wall"),
-        "IFCWALLSTANDARDCASE": ("BIM_Exterior_Wall", "Opaque_Wall"),
-        "IFCSHADINGDEVICE": ("BIM_External_Shading", "Sun_Louver_Fin"),
-        "IFCSLAB": ("BIM_Floor_Slab", "Concrete_Slab"),
-        "IFCROOF": ("BIM_Roof_Slab", "Roof_Assembly"),
-    }
-
-    chunks: Dict[Tuple[str, str], List[Tuple[np.ndarray, np.ndarray]]] = {}
-    for eid, (etype, eargs) in entity_map.items():
-        if etype not in target_bim_types:
-            continue
-        default_layer, default_mat = target_bim_types[etype]
-        strs = re.findall(r"'([^']*)'", eargs)
-        elem_name = strs[1] if len(strs) >= 2 and strs[1] else default_layer
-        obj_type_tag = strs[3] if len(strs) >= 4 and strs[3] else default_mat
-
-        # Clean layer & material group naming for BIM element
-        layer_label = f"{etype.replace('IFC', 'IFC_')}"
-        mat_label = obj_type_tag if obj_type_tag else elem_name
-        if "spandrel" in elem_name.lower() or "spandrel" in mat_label.lower():
-            mat_label = "Spandrel_Panel"
-        elif "vision" in elem_name.lower() or "glass" in elem_name.lower() or "kaca" in elem_name.lower():
-            mat_label = "Vision_Glass"
-        elif "mullion" in elem_name.lower() or "transom" in elem_name.lower() or etype == "IFCMEMBER":
-            mat_label = "Mullion_Frame"
-
-        meshes = _extract_product_meshes(eargs)
-        if not meshes:
-            continue
-        key = (layer_label, mat_label)
-        if key not in chunks:
-            chunks[key] = []
-        chunks[key].extend(meshes)
-
-    return chunks, detected_unit, storeys
 
 
 def create_sample_ifc_preset(output_path: str) -> str:
@@ -1927,53 +1585,51 @@ def load_universal_model_stages_1_and_2(
             audit.notes.append(f"{audit.hidden_objects_skipped} objek/layer tersembunyi (Hidden/Off) diabaikan otomatis.")
 
     # ------------------------------------------------------------------------
-    # B. NATIVE BIM .IFC — PRIMARY: IfcOpenShell (OpenCASCADE C++), FALLBACK: STEP
+    # B. NATIVE BIM .IFC — STRICT IfcOpenShell (OpenCASCADE C++)
     # ------------------------------------------------------------------------
     elif ext == ".ifc":
-        used_ifcopenshell = False
-        if HAS_IFCOPENSHELL:
-            try:
-                (
-                    ios_chunks,
-                    ifc_unit,
-                    ifc_storeys,
-                    slivers_rm,
-                    interior_rm,
-                    kernel_info,
-                    ifc_filtered_items,
-                ) = _parse_ifc_with_ifcopenshell(filepath, restore_filtered_set=restore_set)
-                if ios_chunks:
-                    used_ifcopenshell = True
-                    coords_already_in_meters = True
-                    audit.geometry_kernel = kernel_info
-                    audit.detected_unit = ifc_unit
-                    audit.detected_up_axis = "Z"
-                    audit.bim_storeys = ifc_storeys
-                    audit.total_raw_objects = len(ios_chunks)
-                    audit.slivers_removed = slivers_rm
-                    audit.interior_elements_filtered = interior_rm
-                    audit.filtered_items.extend(ifc_filtered_items)
-                    for g_name, src_layer, src_mat, cat, v_arr, f_arr, is_ext, u_bim in ios_chunks:
-                        _add_chunk(g_name, src_layer, src_mat, cat, v_arr, f_arr, is_ext=is_ext, u_bim=u_bim)
-                    if slivers_rm > 0:
-                        audit.notes.append(f"Filter BIM membersihkan {slivers_rm} tepi tipis panel solid & menggabung segitiga koplanar.")
-                    if interior_rm > 0:
-                        audit.notes.append(f"{interior_rm} elemen interior (IsExternal=False) dipisahkan dari selubung OTTV.")
-            except Exception as e_ios:
-                audit.notes.append(f"Fallback STEP parser digunakan ({type(e_ios).__name__}).")
+        if not HAS_IFCOPENSHELL:
+            raise ValueError(
+                "IfcOpenShell tidak terpasang di server. Modul IfcOpenShell wajib tersedia "
+                "untuk membaca file BIM .IFC secara akurat."
+            )
+        try:
+            (
+                ios_chunks,
+                ifc_unit,
+                ifc_storeys,
+                slivers_rm,
+                interior_rm,
+                kernel_info,
+                ifc_filtered_items,
+            ) = _parse_ifc_with_ifcopenshell(filepath, restore_filtered_set=restore_set)
+        except Exception as e_ios:
+            raise ValueError(
+                f"File IFC tidak dapat dibaca oleh IfcOpenShell ({type(e_ios).__name__}: {e_ios}). "
+                "Pastikan file IFC valid (IFC2x3/IFC4/IFC4.3) dan tidak rusak."
+            ) from e_ios
 
-        if not used_ifcopenshell:
-            ifc_chunks, ifc_unit, ifc_storeys = _parse_ifc_file(filepath)
-            audit.geometry_kernel = "Pure-Python IFC STEP Fallback"
-            audit.detected_unit = ifc_unit
-            audit.detected_up_axis = "Z"
-            audit.bim_storeys = ifc_storeys
-            audit.total_raw_objects = len(ifc_chunks)
-            for (layer_label, mat_label), m_list in ifc_chunks.items():
-                g_name = f"{layer_label} :: {mat_label}" if mat_label != layer_label else layer_label
-                cat = classify_layer_or_material_role(f"{layer_label} {mat_label}")
-                for v_arr, f_arr in m_list:
-                    _add_chunk(g_name, layer_label, mat_label, cat, v_arr, f_arr)
+        if not ios_chunks:
+            raise ValueError(
+                "IfcOpenShell tidak menemukan geometri bangunan yang dapat dibaca pada file IFC ini. "
+                "Pastikan elemen selubung (IfcWall/IfcCurtainWall/IfcPlate/IfcWindow) diekspor bersama representasi 3D (Body)."
+            )
+
+        coords_already_in_meters = True
+        audit.geometry_kernel = kernel_info
+        audit.detected_unit = ifc_unit
+        audit.detected_up_axis = "Z"
+        audit.bim_storeys = ifc_storeys
+        audit.total_raw_objects = len(ios_chunks)
+        audit.slivers_removed = slivers_rm
+        audit.interior_elements_filtered = interior_rm
+        audit.filtered_items.extend(ifc_filtered_items)
+        for g_name, src_layer, src_mat, cat, v_arr, f_arr, is_ext, u_bim in ios_chunks:
+            _add_chunk(g_name, src_layer, src_mat, cat, v_arr, f_arr, is_ext=is_ext, u_bim=u_bim)
+        if slivers_rm > 0:
+            audit.notes.append(f"Filter BIM membersihkan {slivers_rm} tepi tipis panel solid & menggabung segitiga koplanar.")
+        if interior_rm > 0:
+            audit.notes.append(f"{interior_rm} elemen interior (IsExternal=False) dipisahkan dari selubung OTTV.")
 
     # ------------------------------------------------------------------------
     # C. WAVEFRONT .OBJ + .MTL (TRANSPARENCY & LAYER::USEMTL DECOMPOSITION)
