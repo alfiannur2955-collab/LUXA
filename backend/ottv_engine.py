@@ -15,6 +15,7 @@ Implements:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -363,7 +364,7 @@ class RawGroupMesh:
 
 
 # In-memory cache of parsed 3D files for sub-second re-analysis
-_PARSED_FILE_CACHE: Dict[Tuple[str, float, int, int], List[RawGroupMesh]] = {}
+_PARSED_FILE_CACHE: Dict[Tuple[str, float, int, int, int], List[RawGroupMesh]] = {}
 
 
 def _rhino_mesh_to_numpy(rh_mesh: rhino3dm.Mesh) -> Optional[Tuple[np.ndarray, np.ndarray]]:
@@ -411,8 +412,10 @@ def load_raw_groups_from_file(
     Uses an in-memory cache keyed by file modification time so repeated slider/filter
     changes run in milliseconds.
     """
-    mtime = os.path.getmtime(filepath) if os.path.exists(filepath) else 0.0
-    cache_key = (filepath, mtime, nurbs_u_div, nurbs_v_div)
+    abs_path = os.path.abspath(filepath)
+    mtime = os.path.getmtime(abs_path) if os.path.exists(abs_path) else 0.0
+    fsize = os.path.getsize(abs_path) if os.path.exists(abs_path) else 0
+    cache_key = (abs_path, mtime, fsize, nurbs_u_div, nurbs_v_div)
     if cache_key in _PARSED_FILE_CACHE:
         return _PARSED_FILE_CACHE[cache_key]
 
@@ -684,26 +687,31 @@ def raycast_z_slab_solar_rays(
     return hits_out
 
 
-_RAYCAST_TRI_CACHE: Dict[Tuple[int, int], Tuple[np.ndarray, ...]] = {}
+_RAYCAST_TRI_CACHE: Dict[Tuple[Tuple[int, ...], str, bytes], Tuple[np.ndarray, ...]] = {}
 
 
 def _get_tri_raycast_accel(tris: np.ndarray) -> Tuple[np.ndarray, ...]:
-    """Caches precomputed triangle edges and XY/Z bounding geometry for exact ray-triangle culling."""
-    key = (id(tris), len(tris))
+    """
+    Caches precomputed triangle edges and XY/Z bounding geometry keyed strictly by
+    array content hash (blake2b + shape + dtype) — NEVER by Python memory address `id(tris)`.
+    """
+    tris_c = np.ascontiguousarray(tris)
+    digest = hashlib.blake2b(tris_c.view(np.uint8), digest_size=16).digest()
+    key = (tris_c.shape, str(tris_c.dtype), digest)
     cached = _RAYCAST_TRI_CACHE.get(key)
-    if cached is not None and cached[0].shape[0] == len(tris):
+    if cached is not None:
         return cached
-    if len(_RAYCAST_TRI_CACHE) > 16:
+    if len(_RAYCAST_TRI_CACHE) >= 16:
         _RAYCAST_TRI_CACHE.clear()
-    v0 = np.ascontiguousarray(tris[:, 0, :], dtype=np.float64)
-    e1 = np.ascontiguousarray(tris[:, 1, :] - v0, dtype=np.float64)
-    e2 = np.ascontiguousarray(tris[:, 2, :] - v0, dtype=np.float64)
-    z_min = np.min(tris[:, :, 2], axis=1)
-    z_max = np.max(tris[:, :, 2], axis=1)
-    x_min = np.min(tris[:, :, 0], axis=1)
-    x_max = np.max(tris[:, :, 0], axis=1)
-    y_min = np.min(tris[:, :, 1], axis=1)
-    y_max = np.max(tris[:, :, 1], axis=1)
+    v0 = np.ascontiguousarray(tris_c[:, 0, :], dtype=np.float64)
+    e1 = np.ascontiguousarray(tris_c[:, 1, :] - v0, dtype=np.float64)
+    e2 = np.ascontiguousarray(tris_c[:, 2, :] - v0, dtype=np.float64)
+    z_min = np.min(tris_c[:, :, 2], axis=1)
+    z_max = np.max(tris_c[:, :, 2], axis=1)
+    x_min = np.min(tris_c[:, :, 0], axis=1)
+    x_max = np.max(tris_c[:, :, 0], axis=1)
+    y_min = np.min(tris_c[:, :, 1], axis=1)
+    y_max = np.max(tris_c[:, :, 1], axis=1)
     cx = (0.5 * (x_min + x_max)).astype(np.float32)
     cy = (0.5 * (y_min + y_max)).astype(np.float32)
     rx = (0.5 * (x_max - x_min)).astype(np.float32)
@@ -720,6 +728,7 @@ def _raycast_arbitrary_rays_against_tris(
     tris: np.ndarray,
     min_dist: float = 0.04,
     max_dist: float = 500.0,
+    accel: Optional[Tuple[np.ndarray, ...]] = None,
 ) -> np.ndarray:
     """
     Exact Z-slab + 2D bounding-circle culled Möller-Trumbore raycast for per-ray arbitrary directions.
@@ -733,7 +742,7 @@ def _raycast_arbitrary_rays_against_tris(
         return min_t_out
 
     v0_all, e1_all, e2_all, tri_z_min, tri_z_max, tri_x_min, tri_x_max, tri_y_min, tri_y_max, tri_cx, tri_cy, tri_r_xy = (
-        _get_tri_raycast_accel(tris)
+        accel if accel is not None else _get_tri_raycast_accel(tris)
     )
 
     orig_z = origins[:, 2]
@@ -888,9 +897,12 @@ def detect_exterior_faces_raycast(
 
     origins = centroids + normals * 0.06
     reach = max(60.0, max_span * 2.5)
+    shell_accel = _get_tri_raycast_accel(all_shell_tris)
 
     # Probe 1: straight horizontal normal (+n_h, 0 deg)
-    t_center = _raycast_arbitrary_rays_against_tris(origins, n_h, all_shell_tris, min_dist=0.03, max_dist=reach)
+    t_center = _raycast_arbitrary_rays_against_tris(
+        origins, n_h, all_shell_tris, min_dist=0.03, max_dist=reach, accel=shell_accel
+    )
 
     # 1. Faces hitting a solid partner face within <= 0.42m point INTO solid wall/glass thickness -> Inner!
     hits_solid_core = t_center <= 0.42
@@ -908,7 +920,9 @@ def detect_exterior_faces_raycast(
     if np.any(ambiguous):
         idx_amb = np.where(ambiguous)[0]
         back_origins = centroids[idx_amb] - n_h[idx_amb] * 0.35
-        t_back = _raycast_arbitrary_rays_against_tris(back_origins, -n_h[idx_amb], all_shell_tris, min_dist=0.03, max_dist=reach)
+        t_back = _raycast_arbitrary_rays_against_tris(
+            back_origins, -n_h[idx_amb], all_shell_tris, min_dist=0.03, max_dist=reach, accel=shell_accel
+        )
         back_is_open_air = ~np.isfinite(t_back)
         confirmed_inner[idx_amb[back_is_open_air]] = True
 
@@ -921,7 +935,9 @@ def detect_exterior_faces_raycast(
         ca, sa = math.cos(ang), math.sin(ang)
         nh_sub = n_h[idx_na]
         d_fan = np.column_stack([nh_sub[:, 0] * ca - nh_sub[:, 1] * sa, nh_sub[:, 0] * sa + nh_sub[:, 1] * ca, np.zeros(len(idx_na))])
-        t_fan = _raycast_arbitrary_rays_against_tris(origins[idx_na], d_fan, all_shell_tris, min_dist=0.05, max_dist=reach)
+        t_fan = _raycast_arbitrary_rays_against_tris(
+            origins[idx_na], d_fan, all_shell_tris, min_dist=0.05, max_dist=reach, accel=shell_accel
+        )
         escaped_na = ~np.isfinite(t_fan)
         escaped_horiz[idx_na[escaped_na]] = True
 
@@ -2287,22 +2303,43 @@ def analyze_building_ottv(
     front_mask = cos_inc_mat > 0.01
     outer_mask_np = np.array([bool(p["is_outer"]) for p in panel_records], dtype=bool)
 
-    mtime_rc = os.path.getmtime(filepath) if os.path.exists(filepath) else 0.0
+    abs_fp_rc = os.path.abspath(filepath)
+    mtime_rc = os.path.getmtime(abs_fp_rc) if os.path.exists(abs_fp_rc) else 0.0
+    fsize_rc = os.path.getsize(abs_fp_rc) if os.path.exists(abs_fp_rc) else 0
+    obs_hash = (
+        hashlib.blake2b(np.ascontiguousarray(obs_tris_all).view(np.uint8), digest_size=16).digest()
+        if len(obs_tris_all) > 0
+        else b""
+    )
+    orig_hash = hashlib.blake2b(np.ascontiguousarray(origins_np).view(np.uint8), digest_size=16).digest()
     rc_key = (
-        filepath,
+        abs_fp_rc,
         mtime_rc,
+        fsize_rc,
         num_panels,
         len(obs_tris_all),
+        obs_hash,
+        orig_hash,
         round(lat_deg, 2),
         round(params.north_angle_deg, 1),
         params.design_month,
         ext_mode,
+        round(self_shade_reach, 2),
+        params.unit_mode,
+        params.up_axis,
+        round(float(params.z_ground_cutoff_m), 3),
+        bool(params.outer_skin_only),
+        tuple(sorted(params.disabled_groups)),
+        tuple(sorted(params.group_category_overrides.items())),
+        tuple(sorted(params.restore_filtered)),
     )
     if not hasattr(analyze_building_ottv, "_rc_cache"):
         analyze_building_ottv._rc_cache = {}
     if rc_key in analyze_building_ottv._rc_cache:
         hourly_hits = analyze_building_ottv._rc_cache[rc_key]
     else:
+        if len(analyze_building_ottv._rc_cache) >= 16:
+            analyze_building_ottv._rc_cache.clear()
         hourly_hits = np.zeros((len(solar_vectors), num_panels), dtype=np.float64)
         if len(obs_tris_all) > 0:
             for h_idx, sv in enumerate(solar_vectors):

@@ -1449,13 +1449,16 @@ def load_universal_model_stages_1_and_2(
     Executes Stage 1 (Geometry, Unit & Axis Normalization) and Stage 2 (Layer::Material +
     Geometric Auto-Splitter) with caching for sub-second interactive response.
     """
-    mtime = os.path.getmtime(filepath) if os.path.exists(filepath) else 0.0
+    abs_fp = os.path.abspath(filepath)
+    mtime = os.path.getmtime(abs_fp) if os.path.exists(abs_fp) else 0.0
+    fsize = os.path.getsize(abs_fp) if os.path.exists(abs_fp) else 0
     split_tuple = tuple(sorted(groups_to_auto_split or []))
     restore_tuple = tuple(sorted(restore_filtered or []))
     restore_set = set(restore_tuple)
     cache_key = (
-        filepath,
+        abs_fp,
         mtime,
+        fsize,
         unit_mode,
         up_axis,
         nurbs_u_div,
@@ -1468,6 +1471,8 @@ def load_universal_model_stages_1_and_2(
     )
     if cache_key in _UNIVERSAL_FILE_CACHE:
         return _UNIVERSAL_FILE_CACHE[cache_key]
+    if len(_UNIVERSAL_FILE_CACHE) >= 32:
+        _UNIVERSAL_FILE_CACHE.clear()
 
     ext = os.path.splitext(filepath.lower())[1]
     audit = Stage1GeometryAudit()

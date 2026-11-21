@@ -252,3 +252,35 @@ def test_case04_north_angle_equivalence():
     for code in ("TL", "TGR", "BD", "BL"):
         assert abs(float(g_map[code]["total_area_m2"]) - float(c_map[code]["total_area_m2"])) <= 0.05
         assert abs(float(g_map[code]["ottv_orientation_wm2"]) - float(c_map[code]["ottv_orientation_wm2"])) <= 0.01
+
+
+def test_k1_cache_isolation_01_04_01_same_process():
+    """
+    K1 regression: menjalankan 01_kotak_m -> 04_kotak_putar30 -> 01_kotak_m dalam satu proses
+    (termasuk gc.collect() agar alamat memori array lama bisa dipakai ulang) harus selalu
+    menghasilkan luas total 1600 m2 dan luas per orientasi yang benar tanpa kontaminasi cache.
+    """
+    import gc
+
+    c01 = next(c for c in ALL_CASES if c["case"] == "01_kotak_m")
+    c04 = next(c for c in ALL_CASES if c["case"] == "04_kotak_putar30")
+
+    for fmt in ("obj", "3dm", "glb", "ifc"):
+        r1 = _run_case_format(c01, fmt)
+        gc.collect()
+        r4 = _run_case_format(c04, fmt)
+        gc.collect()
+        r1_again = _run_case_format(c01, fmt)
+
+        assert abs(float(r1["summary"]["total_envelope_area_m2"]) - 1600.0) <= 1.0, f"r1 {fmt}"
+        assert abs(float(r4["summary"]["total_envelope_area_m2"]) - 1600.0) <= 1.0, f"r4 {fmt}"
+        assert abs(float(r1_again["summary"]["total_envelope_area_m2"]) - 1600.0) <= 1.0, f"r1_again {fmt}"
+
+        m1 = {r["code"]: r["total_area_m2"] for r in r1["orientation_breakdown"]}
+        m4 = {r["code"]: r["total_area_m2"] for r in r4["orientation_breakdown"]}
+        m1b = {r["code"]: r["total_area_m2"] for r in r1_again["orientation_breakdown"]}
+
+        assert m1["U"] == 320.0 and m1["T"] == 480.0 and m1["TL"] == 0.0
+        assert m4["TL"] == 320.0 and m4["TGR"] == 480.0 and m4["U"] == 0.0
+        assert m1b["U"] == 320.0 and m1b["T"] == 480.0 and m1b["TL"] == 0.0
+        assert abs(float(r1["ottv_total_wm2"]) - float(r1_again["ottv_total_wm2"])) <= 0.01
