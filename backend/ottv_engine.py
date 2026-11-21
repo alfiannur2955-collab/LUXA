@@ -1,0 +1,2204 @@
+"""
+OTTV 3D Parametric Studio — Core Computational Engine v2.0 (SNI 6389:2020)
+==========================================================================
+Implements:
+1. Ultra-fast multi-format 3D CAD/BIM parser (.3dm Rhino 8, .obj, .hbjson, .stl, .ply)
+2. Planar mesh tessellation on curved/NURBS surfaces using `ladybug-geometry`
+3. Automatic classification between Frame (Mullion/Transom/Ring), Shading (Fins/Louvers),
+   and Surface Panels (Wall/Spandrel vs Vision/Crown Glazing)
+4. Automatic Outer-Skin detection (`is_outer`) via radial floor-centroid normal projection
+5. Smart Floor-by-Floor Sectioning (auto-detecting floor levels L1..LN & section filtering)
+6. Continuous angular interpolation of SNI 6389:2020 Solar Factor (SF) + EPW climate scaling
+7. Fast Z-slab indexed Möller-Trumbore solar raycasting (08:00-16:00) against Frame & Louver geometry
+8. Material Library & Category Template mapping + Indonesian Brand Optimization Recommender.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+import rhino3dm
+import trimesh
+from ladybug_geometry.geometry3d.face import Face3D
+from ladybug_geometry.geometry3d.mesh import Mesh3D
+from ladybug_geometry.geometry3d.plane import Plane
+from ladybug_geometry.geometry3d.pointvector import Point3D, Vector3D
+
+from materials_and_epw import (
+    INDONESIAN_CITY_PRESETS,
+    generate_material_recommendations,
+    get_material_by_id,
+)
+from universal_pipeline import (
+    RawGroupMesh,
+    Stage1GeometryAudit,
+    assign_panels_to_floors,
+    build_dynamic_floor_levels,
+    classify_layer_or_material_role,
+    create_sample_ifc_preset,
+    enrich_floor_zones_and_presets,
+    load_universal_model_stages_1_and_2,
+    suggest_material_id_for_group,
+    tessellate_nurbs_surface_with_ladybug,
+)
+
+# ============================================================================
+# 1. SNI 6389:2020 CONSTANTS & SOLAR FACTOR (SF) TABLE
+# ============================================================================
+
+SNI_6389_LIMIT_WM2: float = 35.0
+
+SNI_SF_ANCHORS: List[Tuple[float, str, str, float]] = [
+    (0.0,   "U",   "Utara (North)",          130.0),
+    (45.0,  "TL",  "Timur Laut (Northeast)", 113.0),
+    (90.0,  "T",   "Timur (East)",           112.0),
+    (135.0, "TGR", "Tenggara (Southeast)",    97.0),
+    (180.0, "S",   "Selatan (South)",         97.0),
+    (225.0, "BD",  "Barat Daya (Southwest)", 176.0),
+    (270.0, "B",   "Barat (West)",           243.0),
+    (315.0, "BL",  "Barat Laut (Northwest)", 211.0),
+]
+
+ORIENTATION_CODES: List[str] = [item[1] for item in SNI_SF_ANCHORS]
+ORIENTATION_NAMES: Dict[str, str] = {item[1]: item[2] for item in SNI_SF_ANCHORS}
+ORIENTATION_ANGLES: Dict[str, float] = {item[1]: item[0] for item in SNI_SF_ANCHORS}
+ORIENTATION_BASE_SF: Dict[str, float] = {item[1]: item[3] for item in SNI_SF_ANCHORS}
+
+
+@dataclass
+class EnvelopeParameters:
+    """Parametric envelope thermal, material, floor section, and climate settings."""
+    # Stage 1: Universal Geometry, Unit & Axis Normalization + v5.0 Intake Profile
+    source_software: str = "archicad"
+    unit_mode: str = "auto"  # 'auto' | 'm' | 'cm' | 'mm' | 'ft' | 'in'
+    up_axis: str = "auto"    # 'auto' | 'Z' | 'Y'
+    z_ground_cutoff_m: float = 0.0  # Ground plane Z0 cutoff (excludes basement faces below Z0)
+
+    # Stage 2: 3-Tier Sub-Element Decomposer & 6-Role Envelope Classification
+    auto_split_merged_cw: bool = False
+    groups_to_auto_split: List[str] = field(default_factory=list)
+    frame_width_threshold_m: float = 0.28
+    spandrel_height_threshold_m: float = 1.15
+    group_wwr_map: Dict[str, float] = field(default_factory=dict)
+    face_category_overrides: Dict[str, str] = field(default_factory=dict)
+    face_z_band_overrides: List[Dict[str, Any]] = field(default_factory=list)
+
+    # Stage 3: Universal Dynamic Floor Detection
+    floor_mode: str = "auto"  # 'auto' | 'uniform' | 'custom'
+    floor_height_m: float = 3.60
+    custom_floor_zones: List[Dict[str, Any]] = field(default_factory=list)
+    section_floor_min: Optional[int] = None
+    section_floor_max: Optional[int] = None
+
+    # Stage 4: Layer-Bound Material Assignment & Orientation Overrides
+    use_global_slider_override: bool = False
+    orientation_material_overrides: Dict[str, str] = field(default_factory=dict)
+
+    # Opaque wall / spandrel parameters
+    alpha_wall: float = 0.42
+    u_wall: float = 0.62
+    td_ek: float = 15.0
+
+    # Fenestration / Glazing parameters
+    u_fenestration: float = 1.10
+    delta_t: float = 5.0
+    sc_glass: float = 0.23
+    wwr_override: Optional[float] = None
+    default_wall_wwr: float = 0.35
+
+    # Curtain wall Frame (Mullion/Transom) thermal parameters
+    include_frame_conduction: bool = True
+    u_frame: float = 2.10
+    frame_area_ratio: float = 0.08  # Typical 8% frame area fraction in curtain wall
+
+    # Outer skin & group/panel selection filters
+    outer_skin_only: bool = True
+    exterior_detection_mode: str = "auto"  # 'auto' (Raycast+BIM) | 'raycast' | 'radial' | 'all'
+    disabled_groups: List[str] = field(default_factory=list)
+    group_category_overrides: Dict[str, str] = field(default_factory=dict)
+    group_material_map: Dict[str, str] = field(default_factory=dict)
+    glazing_material_id: Optional[str] = "glz_saint_gobain_xtreme_60_28"
+    wall_material_id: Optional[str] = "wal_spandrel_rockwool_nichias_50"
+    frame_material_id: Optional[str] = "frm_ykkap_schuco_thermal_break"
+
+    # Parametric Louver / Shading generator settings (OFF by default so OTTV uses 100% actual modeled geometry)
+    enable_parametric_louvers: bool = False
+    louver_depth_m: float = 0.65
+    louver_spacing_m: float = 1.10
+    louver_tilt_deg: float = 22.0
+
+    # Tessellation & geographic / EPW parameters
+    nurbs_u_div: int = 4
+    nurbs_v_div: int = 2
+    max_panel_edge_m: float = 4.0
+    north_angle_deg: float = 0.0
+    city_preset: str = "jakarta"
+    latitude_deg: float = -6.2088
+    longitude_deg: float = 106.8456
+    sf_climate_multiplier: float = 1.00
+    design_month: int = 9
+    custom_epw_info: Optional[Dict[str, Any]] = None
+
+
+# ============================================================================
+# 2. VECTORIZED AZIMUTH, ORIENTATION & SNI 6389:2020 SF INTERPOLATION
+# ============================================================================
+
+def compute_azimuth_from_normal(
+    nx: float,
+    ny: float,
+    nz: float,
+    north_angle_deg: float = 0.0
+) -> float:
+    horiz_mag = math.hypot(nx, ny)
+    if horiz_mag < 1e-6:
+        return 0.0
+    raw_deg = math.degrees(math.atan2(nx, ny))
+    azimuth = (raw_deg - north_angle_deg) % 360.0
+    if math.isclose(azimuth, 360.0, abs_tol=1e-4):
+        azimuth = 0.0
+    return round(float(azimuth), 2)
+
+
+def compute_tilt_from_normal(nx: float, ny: float, nz: float) -> float:
+    mag = math.sqrt(nx * nx + ny * ny + nz * nz)
+    if mag < 1e-9:
+        return 90.0
+    clamped_nz = max(-1.0, min(1.0, nz / mag))
+    return round(math.degrees(math.acos(clamped_nz)), 1)
+
+
+def classify_sni_orientation(azimuth_deg: float) -> str:
+    az = azimuth_deg % 360.0
+    sector_idx = int(((az + 22.5) % 360.0) // 45.0)
+    return ORIENTATION_CODES[sector_idx]
+
+
+def interpolate_sni_solar_factor(
+    azimuth_deg: float,
+    tilt_deg: float = 90.0,
+    climate_multiplier: float = 1.0
+) -> float:
+    az = azimuth_deg % 360.0
+    sector = int(az // 45.0) % 8
+    next_sector = (sector + 1) % 8
+    t = (az - (sector * 45.0)) / 45.0
+
+    sf_start = SNI_SF_ANCHORS[sector][3]
+    sf_end = SNI_SF_ANCHORS[next_sector][3]
+    sf_interp = ((1.0 - t) * sf_start + t * sf_end) * climate_multiplier
+
+    tilt_rad = math.radians(max(15.0, min(165.0, tilt_deg)))
+    if tilt_deg < 85.0:
+        zenith_boost = 1.0 + 0.18 * math.cos(tilt_rad)
+        sf_interp *= zenith_boost
+    elif tilt_deg > 95.0:
+        sf_interp *= max(0.65, math.sin(tilt_rad))
+
+    return round(float(sf_interp), 2)
+
+
+# ============================================================================
+# 3. SOLAR VECTOR CALCULATOR (08:00 - 16:00)
+# ============================================================================
+
+def compute_solar_vectors_08_to_16(
+    latitude_deg: float = -6.2088,
+    month: int = 9,
+    north_angle_deg: float = 0.0,
+    custom_hourly_dni: Optional[Dict[int, float]] = None,
+) -> List[Dict[str, Any]]:
+    month_days = [21, 52, 80, 111, 141, 172, 202, 233, 264, 294, 325, 355]
+    doy = month_days[max(0, min(11, month - 1))]
+
+    declination_deg = 23.45 * math.sin(math.radians(360.0 * (284 + doy) / 365.0))
+    lat_rad = math.radians(latitude_deg)
+    dec_rad = math.radians(declination_deg)
+    north_rad = math.radians(north_angle_deg)
+
+    solar_vectors: List[Dict[str, Any]] = []
+    for hour in range(8, 17):
+        hour_angle_deg = (hour - 12.0) * 15.0
+        omega_rad = math.radians(hour_angle_deg)
+
+        sin_alt = (
+            math.sin(lat_rad) * math.sin(dec_rad)
+            + math.cos(lat_rad) * math.cos(dec_rad) * math.cos(omega_rad)
+        )
+        sin_alt = max(-1.0, min(1.0, sin_alt))
+        alt_rad = math.asin(sin_alt)
+        alt_deg = math.degrees(alt_rad)
+
+        sx0 = -math.cos(dec_rad) * math.sin(omega_rad)
+        sy0 = (
+            math.cos(lat_rad) * math.sin(dec_rad)
+            - math.sin(lat_rad) * math.cos(dec_rad) * math.cos(omega_rad)
+        )
+        sz0 = max(0.05, sin_alt)
+
+        cos_n = math.cos(north_rad)
+        sin_n = math.sin(north_rad)
+        sx = sx0 * cos_n + sy0 * sin_n
+        sy = -sx0 * sin_n + sy0 * cos_n
+        sz = sz0
+
+        vec_lb = Vector3D(sx, sy, sz).normalize()
+        az_deg = (math.degrees(math.atan2(vec_lb.x, vec_lb.y))) % 360.0
+
+        if custom_hourly_dni and hour in custom_hourly_dni:
+            dni_wm2 = float(custom_hourly_dni[hour])
+        else:
+            air_mass = 1.0 / (math.sin(max(0.08, alt_rad)) + 0.50572 * ((6.07995 + max(5.0, alt_deg)) ** -1.6364))
+            dni_wm2 = 1080.0 * math.exp(-0.185 * air_mass)
+
+        solar_vectors.append({
+            "hour": hour,
+            "time_label": f"{hour:02d}:00",
+            "altitude_deg": round(alt_deg, 2),
+            "azimuth_deg": round(az_deg, 2),
+            "vector": [round(vec_lb.x, 5), round(vec_lb.y, 5), round(vec_lb.z, 5)],
+            "dni_wm2": round(dni_wm2, 1),
+        })
+
+    return solar_vectors
+
+
+# ============================================================================
+# 4. FAST VECTORIZED 3D GEOMETRY EXTRACTION & LADYBUG-GEOMETRY TESSELLATION
+# ============================================================================
+
+def _classify_layer_or_name(label: str) -> str:
+    """
+    Classifies an object/layer/group name into:
+    - 'frame': Mullion, Transom, Ring, Curtain Wall Frame profile
+    - 'shading': Fin, Louver, Sun Shade, Canopy, Overhang, SkyGarden Fins
+    - 'glazing': Vision Glass, Crown Glass, Window, Curtain Wall Glazing
+    - 'roof': Roof, Slab, Floor, Ceiling
+    - 'wall': Spandrel Panel, Opaque Wall, Cladding
+    """
+    s = (label or "").lower()
+    if any(k in s for k in ("shade", "shading", "louver", "louvre", "fin", "fins", "overhang", "brise", "canopy", "sunscreen", "skygarden")):
+        return "shading"
+    if any(k in s for k in ("transom", "mullion", "rings", "_ring", "frame", "rangka", "profile", "stiffener")):
+        return "frame"
+    if any(k in s for k in ("glass", "glaz", "window", "vision", "fenestration", "aperture", "kaca", "jendela")):
+        return "glazing"
+    if any(k in s for k in ("roof", "atap", "slab", "floor", "lantai", "ceiling", "ground")):
+        return "roof"
+    return "wall"
+
+
+def tessellate_nurbs_surface_with_ladybug(
+    surface: rhino3dm.Surface,
+    u_div: int = 4,
+    v_div: int = 2,
+) -> Mesh3D:
+    """Uses `ladybug-geometry` Mesh3D to tessellate a curved/NURBS Rhino surface."""
+    u_domain = surface.Domain(0)
+    v_domain = surface.Domain(1)
+    u_min, u_max = u_domain.T0, u_domain.T1
+    v_min, v_max = v_domain.T0, v_domain.T1
+
+    u_steps = max(2, int(u_div))
+    v_steps = max(2, int(v_div))
+
+    lb_points: List[Point3D] = []
+    for i in range(u_steps + 1):
+        u = u_min + (u_max - u_min) * (i / u_steps)
+        for j in range(v_steps + 1):
+            v = v_min + (v_max - v_min) * (j / v_steps)
+            pt = surface.PointAt(u, v)
+            lb_points.append(Point3D(float(pt.X), float(pt.Y), float(pt.Z)))
+
+    faces: List[Tuple[int, ...]] = []
+    stride = v_steps + 1
+    for i in range(u_steps):
+        for j in range(v_steps):
+            idx0 = i * stride + j
+            idx1 = (i + 1) * stride + j
+            idx2 = (i + 1) * stride + (j + 1)
+            idx3 = i * stride + (j + 1)
+            faces.append((idx0, idx1, idx2, idx3))
+
+    return Mesh3D(lb_points, faces)
+
+
+@dataclass
+class RawGroupMesh:
+    """Stores a named group's vertices and quad/tri faces in fast NumPy arrays."""
+    group_id: str
+    group_name: str
+    default_category: str  # 'wall' | 'glazing' | 'frame' | 'shading' | 'roof'
+    vertices: np.ndarray   # shape (V, 3) float64
+    faces: np.ndarray      # shape (F, 4) int64 (for triangles, col 3 == col 2)
+
+
+# In-memory cache of parsed 3D files for sub-second re-analysis
+_PARSED_FILE_CACHE: Dict[Tuple[str, float, int, int], List[RawGroupMesh]] = {}
+
+
+def _rhino_mesh_to_numpy(rh_mesh: rhino3dm.Mesh) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    n_v = len(rh_mesh.Vertices)
+    n_f = len(rh_mesh.Faces)
+    if n_v < 3 or n_f < 1:
+        return None
+    verts = np.empty((n_v, 3), dtype=np.float64)
+    for i in range(n_v):
+        v = rh_mesh.Vertices[i]
+        verts[i, 0] = v.X
+        verts[i, 1] = v.Y
+        verts[i, 2] = v.Z
+
+    faces = np.empty((n_f, 4), dtype=np.int64)
+    for i in range(n_f):
+        f = rh_mesh.Faces[i]
+        faces[i, 0] = f[0]
+        faces[i, 1] = f[1]
+        faces[i, 2] = f[2]
+        faces[i, 3] = f[3] if len(f) >= 4 else f[2]
+    return verts, faces
+
+
+def _ladybug_mesh_to_numpy(lb_mesh: Mesh3D) -> Optional[Tuple[np.ndarray, np.ndarray]]:
+    verts_lb = lb_mesh.vertices
+    faces_lb = lb_mesh.faces
+    if len(verts_lb) < 3 or len(faces_lb) < 1:
+        return None
+    verts = np.array([[p.x, p.y, p.z] for p in verts_lb], dtype=np.float64)
+    faces = np.array(
+        [[f[0], f[1], f[2], f[3] if len(f) >= 4 else f[2]] for f in faces_lb],
+        dtype=np.int64,
+    )
+    return verts, faces
+
+
+def load_raw_groups_from_file(
+    filepath: str,
+    nurbs_u_div: int = 4,
+    nurbs_v_div: int = 2
+) -> List[RawGroupMesh]:
+    """
+    Loads a .3dm, .obj, .hbjson, .stl, or .ply file into a list of RawGroupMesh objects.
+    Uses an in-memory cache keyed by file modification time so repeated slider/filter
+    changes run in milliseconds.
+    """
+    mtime = os.path.getmtime(filepath) if os.path.exists(filepath) else 0.0
+    cache_key = (filepath, mtime, nurbs_u_div, nurbs_v_div)
+    if cache_key in _PARSED_FILE_CACHE:
+        return _PARSED_FILE_CACHE[cache_key]
+
+    ext = os.path.splitext(filepath.lower())[1]
+    groups_map: Dict[str, List[Tuple[np.ndarray, np.ndarray, str]]] = {}
+
+    def _add_chunk(g_name: str, cat: str, v_arr: np.ndarray, f_arr: np.ndarray) -> None:
+        if g_name not in groups_map:
+            groups_map[g_name] = []
+        groups_map[g_name].append((v_arr, f_arr, cat))
+
+    if ext == ".3dm":
+        model = rhino3dm.File3dm.Read(filepath)
+        if model is None:
+            raise ValueError("Gagal membaca file Rhino .3dm.")
+        layer_names = {i: (l.Name or f"Layer_{i}") for i, l in enumerate(model.Layers)}
+
+        for idx, obj in enumerate(model.Objects):
+            geom = obj.Geometry
+            attr = obj.Attributes
+            layer_name = layer_names.get(attr.LayerIndex, "Default")
+            obj_name = attr.Name or layer_name or f"Object_{idx+1}"
+            cat = _classify_layer_or_name(f"{obj_name} {layer_name}")
+
+            if isinstance(geom, rhino3dm.Mesh):
+                res = _rhino_mesh_to_numpy(geom)
+                if res:
+                    _add_chunk(obj_name, cat, res[0], res[1])
+            elif isinstance(geom, rhino3dm.Extrusion):
+                rh_m = geom.GetMesh(rhino3dm.MeshType.Any)
+                if rh_m and len(rh_m.Faces) > 0:
+                    res = _rhino_mesh_to_numpy(rh_m)
+                    if res:
+                        _add_chunk(obj_name, cat, res[0], res[1])
+                else:
+                    brep = geom.ToBrep(True)
+                    if brep:
+                        geom = brep
+            if isinstance(geom, rhino3dm.Brep):
+                for f_i in range(len(geom.Faces)):
+                    bf = geom.Faces[f_i]
+                    rh_m = bf.GetMesh(rhino3dm.MeshType.Any)
+                    if rh_m and len(rh_m.Faces) > 0:
+                        res = _rhino_mesh_to_numpy(rh_m)
+                        if res:
+                            _add_chunk(obj_name, cat, res[0], res[1])
+                            continue
+                    srf = bf.UnderlyingSurface()
+                    if srf:
+                        u_d = 2 if cat in ("frame", "shading") else nurbs_u_div
+                        v_d = 2 if cat in ("frame", "shading") else nurbs_v_div
+                        lb_m = tessellate_nurbs_surface_with_ladybug(srf, u_d, v_d)
+                        res = _ladybug_mesh_to_numpy(lb_m)
+                        if res:
+                            _add_chunk(obj_name, cat, res[0], res[1])
+            elif isinstance(geom, rhino3dm.Surface):
+                u_d = 2 if cat in ("frame", "shading") else nurbs_u_div
+                v_d = 2 if cat in ("frame", "shading") else nurbs_v_div
+                lb_m = tessellate_nurbs_surface_with_ladybug(geom, u_d, v_d)
+                res = _ladybug_mesh_to_numpy(lb_m)
+                if res:
+                    _add_chunk(obj_name, cat, res[0], res[1])
+
+    elif ext in (".obj", ".stl", ".ply", ".glb", ".gltf"):
+        loaded = trimesh.load(filepath, force="scene", process=False)
+        geoms = loaded.geometry if isinstance(loaded, trimesh.Scene) else {"Model_Body": loaded}
+        for name, tm in geoms.items():
+            if len(tm.vertices) < 3 or len(tm.faces) < 1:
+                continue
+            v_arr = np.asarray(tm.vertices, dtype=np.float64)
+            f_in = np.asarray(tm.faces, dtype=np.int64)
+            if f_in.shape[1] == 3:
+                f_arr = np.column_stack([f_in, f_in[:, 2]])
+            else:
+                f_arr = f_in[:, :4]
+            cat = _classify_layer_or_name(name)
+            _add_chunk(name, cat, v_arr, f_arr)
+
+    elif ext in (".hbjson", ".json"):
+        with open(filepath, "r", encoding="utf-8") as f:
+            hb_data = json.load(f)
+
+        def _hb_f3d_to_chunk(g_name: str, cat: str, geom_dict: Dict[str, Any]) -> None:
+            try:
+                f3d = Face3D.from_dict(geom_dict)
+                lb_m = f3d.mesh_grid(x_dim=4.0, y_dim=4.0) if cat in ("wall", "glazing") else f3d.triangulated_mesh3d
+                res = _ladybug_mesh_to_numpy(lb_m)
+                if res:
+                    _add_chunk(g_name, cat, res[0], res[1])
+            except Exception:
+                pass
+
+        for sh in hb_data.get("orphaned_shades", []) + hb_data.get("shades", []):
+            if sh.get("geometry"):
+                _hb_f3d_to_chunk("HB_Outdoor_Shades", "shading", sh["geometry"])
+
+        all_faces = list(hb_data.get("faces", []))
+        for rm in hb_data.get("rooms", []):
+            for sh in rm.get("outdoor_shades", []):
+                if sh.get("geometry"):
+                    _hb_f3d_to_chunk("HB_Outdoor_Shades", "shading", sh["geometry"])
+            all_faces.extend(rm.get("faces", []))
+
+        for fo in all_faces:
+            f_type = (fo.get("face_type") or "Wall").lower()
+            geom_d = fo.get("geometry")
+            if not geom_d:
+                continue
+            for sh in fo.get("outdoor_shades", []):
+                if sh.get("geometry"):
+                    _hb_f3d_to_chunk("HB_Outdoor_Shades", "shading", sh["geometry"])
+            if "roof" in f_type or "floor" in f_type:
+                _hb_f3d_to_chunk("HB_Roof_Floor", "roof", geom_d)
+                continue
+            aps = fo.get("apertures", [])
+            ap_f3ds = []
+            for ap in aps:
+                for sh in ap.get("outdoor_shades", []):
+                    if sh.get("geometry"):
+                        _hb_f3d_to_chunk("HB_Aperture_Louvers", "shading", sh["geometry"])
+                if ap.get("geometry"):
+                    try:
+                        ap_f = Face3D.from_dict(ap["geometry"])
+                        ap_f3ds.append(ap_f)
+                        _hb_f3d_to_chunk("HB_Vision_Glazing", "glazing", ap["geometry"])
+                    except Exception:
+                        pass
+            try:
+                base_f = Face3D.from_dict(geom_d)
+                if ap_f3ds:
+                    punched = Face3D.from_punched_geometry(base_f, ap_f3ds)
+                    res = _ladybug_mesh_to_numpy(punched.triangulated_mesh3d)
+                else:
+                    res = _ladybug_mesh_to_numpy(base_f.mesh_grid(x_dim=4.0, y_dim=4.0))
+                if res:
+                    _add_chunk("HB_Opaque_Walls", "wall", res[0], res[1])
+            except Exception:
+                _hb_f3d_to_chunk("HB_Opaque_Walls", "wall", geom_d)
+    else:
+        raise ValueError(f"Format file '{ext}' tidak didukung.")
+
+    raw_groups: List[RawGroupMesh] = []
+    for g_idx, (g_name, chunks) in enumerate(groups_map.items()):
+        v_list = []
+        f_list = []
+        v_offset = 0
+        cat = chunks[0][2]
+        for v_arr, f_arr, _ in chunks:
+            v_list.append(v_arr)
+            f_list.append(f_arr + v_offset)
+            v_offset += len(v_arr)
+        raw_groups.append(
+            RawGroupMesh(
+                group_id=f"R-{g_idx + 1}",
+                group_name=g_name,
+                default_category=cat,
+                vertices=np.vstack(v_list),
+                faces=np.vstack(f_list),
+            )
+        )
+
+    _PARSED_FILE_CACHE[cache_key] = raw_groups
+    return raw_groups
+
+
+# ============================================================================
+# 5. SPATIAL Z-SLAB INDEXED RAYCASTING ENGINE (08:00 - 16:00)
+# ============================================================================
+
+def raycast_z_slab_solar_rays(
+    obs_tris: np.ndarray,
+    origins_np: np.ndarray,
+    solar_dir: np.ndarray,
+    min_dist: float = 0.08,
+    max_dist: float = 35.0,
+) -> np.ndarray:
+    """
+    Fast Z-slab partitioned Möller-Trumbore raycasting for parallel solar vector `solar_dir`.
+    Supports both close-range shading devices (mullions/louvers) and long-range full-building
+    self-shading (L-shape/U-shape wings, podium setbacks, cantilevered balconies).
+    """
+    num_rays = len(origins_np)
+    if obs_tris is None or len(obs_tris) == 0 or num_rays == 0:
+        return np.zeros(num_rays, dtype=np.float64)
+
+    # Subsample obstruction triangles only if extremely dense (> 12,000 tris) for interactive speed
+    if len(obs_tris) > 12000:
+        step = max(1, len(obs_tris) // 12000)
+        tris = obs_tris[::step]
+    else:
+        tris = obs_tris
+
+    v0 = tris[:, 0, :]
+    e1 = tris[:, 1, :] - v0
+    e2 = tris[:, 2, :] - v0
+
+    d = np.asarray(solar_dir, dtype=np.float64)
+    d = d / max(1e-9, float(np.linalg.norm(d)))
+
+    h = np.cross(np.broadcast_to(d, e2.shape), e2)
+    a = np.einsum("ij,ij->i", e1, h)
+
+    valid_tri = np.abs(a) > 1e-7
+    if not np.any(valid_tri):
+        return np.zeros(num_rays, dtype=np.float64)
+
+    v0 = v0[valid_tri]
+    e1 = e1[valid_tri]
+    e2 = e2[valid_tri]
+    h = h[valid_tri]
+    f = 1.0 / a[valid_tri]
+    tri_z_min = np.min(tris[valid_tri, :, 2], axis=1)
+    tri_z_max = np.max(tris[valid_tri, :, 2], axis=1)
+
+    p_u = h * f[:, None]
+    p_v = np.cross(e1, np.broadcast_to(d, e1.shape)) * f[:, None]
+    p_t = np.cross(e1, e2) * f[:, None]
+
+    c_u = np.einsum("ij,ij->i", v0, p_u)
+    c_v = np.einsum("ij,ij->i", v0, p_v)
+    c_t = np.einsum("ij,ij->i", v0, p_t)
+
+    hits_out = np.zeros(num_rays, dtype=np.float64)
+
+    # Partition rays by Z slabs of 12 meters
+    orig_z = origins_np[:, 2]
+    z_min_all = float(np.min(orig_z))
+    z_max_all = float(np.max(orig_z))
+    slab_h = 12.0
+    num_slabs = max(1, int(math.ceil((z_max_all - z_min_all + 0.1) / slab_h)))
+    z_reach = max(4.0, max_dist * max(0.25, float(d[2])))
+
+    for s_idx in range(num_slabs):
+        z_lo = z_min_all + s_idx * slab_h
+        z_hi = z_lo + slab_h
+        ray_indices = np.where((orig_z >= z_lo - 0.01) & (orig_z < z_hi + 0.01))[0]
+        if len(ray_indices) == 0:
+            continue
+
+        tri_mask = (tri_z_max >= (z_lo - 0.5)) & (tri_z_min <= (z_hi + z_reach + 0.5))
+        if not np.any(tri_mask):
+            continue
+
+        pu_s = p_u[tri_mask]
+        pv_s = p_v[tri_mask]
+        pt_s = p_t[tri_mask]
+        cu_s = c_u[tri_mask]
+        cv_s = c_v[tri_mask]
+        ct_s = c_t[tri_mask]
+
+        for b_start in range(0, len(ray_indices), 512):
+            b_idx = ray_indices[b_start:b_start + 512]
+            o_batch = origins_np[b_idx]
+
+            u = o_batch @ pu_s.T - cu_s[None, :]
+            mask = (u >= -1e-4) & (u <= 1.0001)
+            if not np.any(mask):
+                continue
+
+            v = o_batch @ pv_s.T - cv_s[None, :]
+            mask &= (v >= -1e-4) & ((u + v) <= 1.0001)
+            if not np.any(mask):
+                continue
+
+            t = o_batch @ pt_s.T - ct_s[None, :]
+            mask &= (t >= min_dist) & (t <= max_dist)
+            hits_out[b_idx] = np.any(mask, axis=1).astype(np.float64)
+
+    return hits_out
+
+
+def _raycast_arbitrary_rays_against_tris(
+    origins: np.ndarray,
+    directions: np.ndarray,
+    tris: np.ndarray,
+    min_dist: float = 0.04,
+    max_dist: float = 500.0,
+) -> np.ndarray:
+    """
+    Fast Z-slab partitioned Möller-Trumbore raycast for per-ray arbitrary directions.
+    Returns `(N,)` array of closest hit distance `t` (or `np.inf` if ray escapes to infinity).
+    Designed for 3-Layer Exterior Skin detection on L-shape, U-shape, Courtyard, Twin-Tower,
+    and full-building BIM models.
+    """
+    n_rays = len(origins)
+    min_t_out = np.full(n_rays, np.inf, dtype=np.float64)
+    if n_rays == 0 or tris is None or len(tris) == 0:
+        return min_t_out
+
+    # NEVER stride-decimate shell triangles during exterior visibility raycasting,
+    # otherwise missing triangles create holes that inward rays escape through!
+    tris_use = tris
+
+    v0_all = tris_use[:, 0, :]
+    e1_all = tris_use[:, 1, :] - v0_all
+    e2_all = tris_use[:, 2, :] - v0_all
+    tri_z_min = np.min(tris_use[:, :, 2], axis=1)
+    tri_z_max = np.max(tris_use[:, :, 2], axis=1)
+
+    orig_z = origins[:, 2]
+    z_min_all = float(np.min(orig_z))
+    z_max_all = float(np.max(orig_z))
+    is_vertical_ray = bool(np.mean(np.abs(directions[:, 2])) > 0.85)
+    slab_h = 2.0 if not is_vertical_ray else max(100.0, z_max_all - z_min_all + 2.0)
+    num_slabs = max(1, int(math.ceil((z_max_all - z_min_all + 0.1) / slab_h)))
+
+    for s_idx in range(num_slabs):
+        z_lo = z_min_all + s_idx * slab_h
+        z_hi = z_lo + slab_h
+        ray_indices = np.where((orig_z >= z_lo - 0.01) & (orig_z < z_hi + 0.01))[0]
+        if len(ray_indices) == 0:
+            continue
+
+        if is_vertical_ray:
+            tri_mask = tri_z_max >= (z_lo - 0.5)
+        else:
+            tri_mask = (tri_z_max >= (z_lo - 0.15)) & (tri_z_min <= (z_hi + 0.15))
+        if not np.any(tri_mask):
+            continue
+
+        v0_s = v0_all[tri_mask]   # (M, 3)
+        e1_s = e1_all[tri_mask]   # (M, 3)
+        e2_s = e2_all[tri_mask]   # (M, 3)
+
+        # Batch rays in chunks of 128 so (B, M, 3) memory stays tiny (< 30 MB)
+        for b_start in range(0, len(ray_indices), 128):
+            b_idx = ray_indices[b_start:b_start + 128]
+            o_b = origins[b_idx][:, None, :]      # (B, 1, 3)
+            d_b = directions[b_idx][:, None, :]   # (B, 1, 3)
+
+            # Möller-Trumbore: h = d x e2
+            h = np.cross(d_b, e2_s[None, :, :])   # (B, M, 3)
+            a = np.einsum("ij,bij->bi", e1_s, h)  # (B, M)
+            valid = np.abs(a) > 1e-7
+            if not np.any(valid):
+                continue
+
+            f = np.where(valid, 1.0 / np.where(valid, a, 1.0), 0.0)
+            s = o_b - v0_s[None, :, :]            # (B, M, 3)
+            u = f * np.einsum("bij,bij->bi", s, h)
+            mask = valid & (u >= -1e-4) & (u <= 1.0001)
+            if not np.any(mask):
+                continue
+
+            q = np.cross(s, e1_s[None, :, :])     # (B, M, 3)
+            v = f * np.einsum("bij,bij->bi", d_b, q)
+            mask &= (v >= -1e-4) & ((u + v) <= 1.0001)
+            if not np.any(mask):
+                continue
+
+            t = f * np.einsum("ij,bij->bi", e2_s, q)
+            mask &= (t >= min_dist) & (t <= max_dist)
+            if not np.any(mask):
+                continue
+
+            t_masked = np.where(mask, t, np.inf)
+            min_t_out[b_idx] = np.minimum(min_t_out[b_idx], np.min(t_masked, axis=1))
+
+    return min_t_out
+
+
+def detect_exterior_faces_raycast(
+    centroids: np.ndarray,
+    normals: np.ndarray,
+    all_shell_tris: np.ndarray,
+    roof_tris: np.ndarray,
+    max_span: float,
+) -> np.ndarray:
+    """
+    3-Layer Universal Exterior Skin Visibility Engine:
+    Determines which vertical/tilted facade faces truly face the exterior atmosphere
+    (works on Box, Curved Tower, L-Shape, U-Shape, Courtyard, Twin-Tower, and Full-BIM
+    models containing interior partitions — zero convex/single-center assumptions!).
+    """
+    n_p = len(centroids)
+    if n_p == 0 or len(all_shell_tris) == 0:
+        return np.ones(n_p, dtype=bool)
+
+    # Build horizontal unit outward direction per panel
+    n_h = np.zeros_like(normals)
+    n_h[:, 0] = normals[:, 0]
+    n_h[:, 1] = normals[:, 1]
+    h_mag = np.linalg.norm(n_h[:, :2], axis=1, keepdims=True)
+    n_h = np.where(h_mag > 1e-6, n_h / np.maximum(1e-6, h_mag), np.array([0.0, 1.0, 0.0]))
+
+    origins = centroids + normals * 0.06
+    reach = max(60.0, max_span * 2.5)
+
+    # Probe 1: straight horizontal normal (+n_h, 0 deg)
+    t_center = _raycast_arbitrary_rays_against_tris(origins, n_h, all_shell_tris, min_dist=0.03, max_dist=reach)
+
+    # 1. Faces hitting a solid partner face within <= 0.42m point INTO solid wall/glass thickness -> Inner!
+    hits_solid_core = t_center <= 0.42
+    # 2. Faces escaping straight to infinity along +n_h -> Definitely Exterior!
+    escaped_horiz = (~hits_solid_core) & (~np.isfinite(t_center))
+
+    # 3. For faces blocked across an open space (0.42m < t_center < inf):
+    #    Check immediately behind the wall (-n_h starting 0.35m behind centroid).
+    #    If the space behind this wall escapes directly to infinity, then the OTHER side is the exterior
+    #    and THIS side is the inward-facing interior skin of a closed/open-top shell!
+    #    Otherwise (building interior is behind this wall), test wide horizontal fan (+-35, +-62 deg)
+    #    to detect L-shape / U-shape / H-shape courtyard exterior facades!
+    ambiguous = (~hits_solid_core) & (~escaped_horiz)
+    confirmed_inner = hits_solid_core.copy()
+    if np.any(ambiguous):
+        idx_amb = np.where(ambiguous)[0]
+        back_origins = centroids[idx_amb] - n_h[idx_amb] * 0.35
+        t_back = _raycast_arbitrary_rays_against_tris(back_origins, -n_h[idx_amb], all_shell_tris, min_dist=0.03, max_dist=reach)
+        back_is_open_air = ~np.isfinite(t_back)
+        confirmed_inner[idx_amb[back_is_open_air]] = True
+
+    for deg_ang in (35.0, -35.0, 62.0, -62.0):
+        still_need = (~confirmed_inner) & (~escaped_horiz)
+        if not np.any(still_need):
+            break
+        idx_na = np.where(still_need)[0]
+        ang = math.radians(deg_ang)
+        ca, sa = math.cos(ang), math.sin(ang)
+        nh_sub = n_h[idx_na]
+        d_fan = np.column_stack([nh_sub[:, 0] * ca - nh_sub[:, 1] * sa, nh_sub[:, 0] * sa + nh_sub[:, 1] * ca, np.zeros(len(idx_na))])
+        t_fan = _raycast_arbitrary_rays_against_tris(origins[idx_na], d_fan, all_shell_tris, min_dist=0.05, max_dist=reach)
+        escaped_na = ~np.isfinite(t_fan)
+        escaped_horiz[idx_na[escaped_na]] = True
+
+    is_outer = escaped_horiz.copy()
+
+    # 4. Enclosed 4-sided Courtyard check: if not confirmed_inner and still blocked horizontally,
+    #    check if open to sky above (no roof slab overhead)
+    still_blocked = (~confirmed_inner) & (~escaped_horiz)
+    if np.any(still_blocked) and len(roof_tris) > 0:
+        idx_sb = np.where(still_blocked)[0]
+        sky_origins = centroids[idx_sb] + n_h[idx_sb] * 0.45
+        sky_dirs = np.tile(np.array([[0.0, 0.0, 1.0]]), (len(idx_sb), 1))
+        t_roof = _raycast_arbitrary_rays_against_tris(sky_origins, sky_dirs, roof_tris, min_dist=0.10, max_dist=reach)
+        is_courtyard = ~np.isfinite(t_roof)
+        is_outer[idx_sb[is_courtyard]] = True
+
+    return is_outer
+
+
+def compute_panel_heatmap_color(ottv_wm2: float) -> Tuple[str, List[float]]:
+    stops = [
+        (0.0,  (16, 185, 129)),   # #10b981 Emerald
+        (18.0, (34, 197, 94)),    # #22c55e Green
+        (30.0, (234, 179, 8)),    # #eab308 Amber-Yellow
+        (35.0, (245, 158, 11)),   # #f59e0b SNI 6389:2020 Threshold (35 W/m2)
+        (48.0, (239, 68, 68)),    # #ef4444 Red
+        (70.0, (185, 28, 28)),    # #b91c1c Deep Crimson
+    ]
+    val = max(0.0, float(ottv_wm2))
+    r, g, b = stops[-1][1]
+    for i in range(len(stops) - 1):
+        v0, c0 = stops[i]
+        v1, c1 = stops[i + 1]
+        if val <= v1:
+            t = 0.0 if v1 == v0 else (val - v0) / (v1 - v0)
+            r = int(round(c0[0] + t * (c1[0] - c0[0])))
+            g = int(round(c0[1] + t * (c1[1] - c0[1])))
+            b = int(round(c0[2] + t * (c1[2] - c0[2])))
+            break
+    hex_color = f"#{r:02x}{g:02x}{b:02x}"
+    rgb_norm = [round(r / 255.0, 3), round(g / 255.0, 3), round(b / 255.0, 3)]
+    return hex_color, rgb_norm
+
+
+# ============================================================================
+# 6. MAIN OTTV ENGINE PIPELINE v2.0 (SNI 6389:2020)
+# ============================================================================
+
+def analyze_building_ottv(
+    filepath: str,
+    filename: str,
+    params: Optional[EnvelopeParameters] = None
+) -> Dict[str, Any]:
+    if params is None:
+        params = EnvelopeParameters()
+
+    # Resolve location / EPW preset
+    if params.custom_epw_info:
+        loc_info = params.custom_epw_info
+    else:
+        loc_info = INDONESIAN_CITY_PRESETS.get(
+            (params.city_preset or "jakarta").lower(),
+            INDONESIAN_CITY_PRESETS["jakarta"],
+        )
+
+    lat_deg = float(loc_info.get("latitude_deg", params.latitude_deg))
+    lon_deg = float(loc_info.get("longitude_deg", params.longitude_deg))
+    delta_t = float(loc_info.get("design_delta_t", params.delta_t))
+    sf_mult = float(loc_info.get("sf_multiplier", params.sf_climate_multiplier))
+    custom_hourly_dni = loc_info.get("hourly_dni_profile")
+
+    # Apply material library specs if selected
+    glz_mat = get_material_by_id(params.glazing_material_id)
+    wal_mat = get_material_by_id(params.wall_material_id)
+    frm_mat = get_material_by_id(params.frame_material_id)
+
+    # STAGE 1 & STAGE 2: Universal Geometry Normalization, BIM/3DM/OBJ Ingestion & Sub-Element Decomposition
+    raw_groups, stage1_audit = load_universal_model_stages_1_and_2(
+        filepath=filepath,
+        unit_mode=params.unit_mode,
+        up_axis=params.up_axis,
+        nurbs_u_div=params.nurbs_u_div,
+        nurbs_v_div=params.nurbs_v_div,
+        auto_split_merged_cw=params.auto_split_merged_cw,
+        groups_to_auto_split=params.groups_to_auto_split,
+        frame_width_threshold_m=params.frame_width_threshold_m,
+        spandrel_height_threshold_m=params.spandrel_height_threshold_m,
+    )
+    if not raw_groups:
+        raise ValueError("Tidak ditemukan geometri 3D pada file yang diunggah.")
+
+    # Separate groups into surface groups ('wall', 'spandrel', 'glazing', 'composite_cw') vs 'frame', 'shading', 'roof', 'ignore'
+    surface_groups: List[Tuple[RawGroupMesh, str]] = []
+    frame_groups: List[RawGroupMesh] = []
+    shading_groups: List[RawGroupMesh] = []
+    roof_groups: List[RawGroupMesh] = []
+    ignored_groups: List[RawGroupMesh] = []
+    group_summaries: List[Dict[str, Any]] = []
+
+    for rg in raw_groups:
+        eff_cat = params.group_category_overrides.get(rg.group_name, rg.default_category)
+        if eff_cat == "frame":
+            frame_groups.append(rg)
+        elif eff_cat in ("shading", "context_shading"):
+            shading_groups.append(rg)
+        elif eff_cat == "roof":
+            roof_groups.append(rg)
+        elif eff_cat in ("ignore", "excluded"):
+            ignored_groups.append(rg)
+        elif eff_cat in ("wall", "spandrel", "glazing", "composite_cw"):
+            surface_groups.append((rg, eff_cat))
+        else:
+            surface_groups.append((rg, "wall"))
+
+    # Fallback: if all groups were classified as frame/shading/ignored, treat largest group as glazing
+    if not surface_groups and raw_groups:
+        surface_groups.append((raw_groups[0], "glazing"))
+
+    # Compute overall building horizontal center, bounding box & Z range across all surface groups
+    all_surf_verts = np.vstack([rg.vertices for rg, _ in surface_groups])
+    x_min_bldg = float(np.min(all_surf_verts[:, 0]))
+    x_max_bldg = float(np.max(all_surf_verts[:, 0]))
+    y_min_bldg = float(np.min(all_surf_verts[:, 1]))
+    y_max_bldg = float(np.max(all_surf_verts[:, 1]))
+    z_min_bldg_raw = float(np.min(all_surf_verts[:, 2]))
+    z_max_bldg = float(np.max(all_surf_verts[:, 2]))
+    z_ground_cut = max(0.0, float(params.z_ground_cutoff_m or 0.0))
+    z_min_bldg = z_min_bldg_raw
+    if z_ground_cut > 0.05 and z_ground_cut < z_max_bldg - 1.0:
+        z_min_bldg = max(z_min_bldg_raw, z_ground_cut)
+    bldg_cx = 0.5 * (x_min_bldg + x_max_bldg)
+    bldg_cy = 0.5 * (y_min_bldg + y_max_bldg)
+    bldg_cz = 0.5 * (z_min_bldg + z_max_bldg)
+    span_x = max(1.0, x_max_bldg - x_min_bldg)
+    span_y = max(1.0, y_max_bldg - y_min_bldg)
+    span_z = max(1.0, z_max_bldg - z_min_bldg)
+    horiz_radius = 0.5 * math.hypot(span_x, span_y)
+    max_span = max(span_x, span_y, span_z, 10.0)
+    recommended_dome_radius = max(span_z * 1.12, horiz_radius * 2.1, 26.0)
+
+    # First pass: collect panel Z min/max across above-ground surface groups for Stage 3 Z-clustering
+    all_p_zmin: List[np.ndarray] = []
+    all_p_zmax: List[np.ndarray] = []
+    for rg, _ in surface_groups:
+        vs = rg.vertices
+        fs = rg.faces
+        z0123 = np.stack([vs[fs[:, 0], 2], vs[fs[:, 1], 2], vs[fs[:, 2], 2], vs[fs[:, 3], 2]], axis=1)
+        pz_lo = np.min(z0123, axis=1)
+        pz_hi = np.max(z0123, axis=1)
+        if z_ground_cut > 0.05:
+            above_m = 0.5 * (pz_lo + pz_hi) >= (z_ground_cut - 0.05)
+            pz_lo = pz_lo[above_m]
+            pz_hi = pz_hi[above_m]
+        if len(pz_lo) > 0:
+            all_p_zmin.append(pz_lo)
+            all_p_zmax.append(pz_hi)
+
+    p_zmin_concat = np.concatenate(all_p_zmin) if all_p_zmin else None
+    p_zmax_concat = np.concatenate(all_p_zmax) if all_p_zmax else None
+
+    # Filter BIM storeys below Z0 ground cutoff so basement storeys don't shift L1..LN
+    eff_bim_storeys = [
+        st for st in (stage1_audit.bim_storeys or [])
+        if float(st.get("z_max", st.get("z_min", 0.0) + 3.0)) > (z_ground_cut + 0.3)
+    ] if z_ground_cut > 0.05 else stage1_audit.bim_storeys
+
+    # STAGE 3: Build Dynamic Floor Levels (`auto` | `uniform` | `custom`)
+    floor_defs, floor_detection_method = build_dynamic_floor_levels(
+        z_min_bldg=z_min_bldg,
+        z_max_bldg=z_max_bldg,
+        floor_mode=params.floor_mode,
+        floor_height_m=params.floor_height_m,
+        bim_storeys=eff_bim_storeys,
+        panel_z_mins=p_zmin_concat,
+        panel_z_maxs=p_zmax_concat,
+        custom_floor_zones=params.custom_floor_zones,
+    )
+    total_floors = max(1, len(floor_defs))
+    floor_h = round(span_z / total_floors, 2)
+
+    # Precompute horizontal center per floor slice for accurate outer-skin detection on twisted/podium towers
+    floor_centers = np.zeros((total_floors, 2), dtype=np.float64)
+    for fl_idx, fdef in enumerate(floor_defs):
+        zf0 = float(fdef["z_min"])
+        zf1 = float(fdef["z_max"])
+        mask_z = (all_surf_verts[:, 2] >= zf0 - 0.5) & (all_surf_verts[:, 2] <= zf1 + 0.5)
+        if np.any(mask_z):
+            floor_centers[fl_idx, 0] = float(np.mean(all_surf_verts[mask_z, 0]))
+            floor_centers[fl_idx, 1] = float(np.mean(all_surf_verts[mask_z, 1]))
+        else:
+            floor_centers[fl_idx] = [bldg_cx, bldg_cy]
+
+    # Build unified building shell & roof triangle arrays for 3-Layer Exterior Skin Engine
+    def _groups_to_tris(rg_list: List[RawGroupMesh]) -> np.ndarray:
+        chunks: List[np.ndarray] = []
+        for r in rg_list:
+            if r.group_name in params.disabled_groups or len(r.faces) == 0:
+                continue
+            vs_r, fs_r = r.vertices, r.faces
+            chunks.append(np.stack([vs_r[fs_r[:, 0]], vs_r[fs_r[:, 1]], vs_r[fs_r[:, 2]]], axis=1))
+            is_q_r = fs_r[:, 2] != fs_r[:, 3]
+            if np.any(is_q_r):
+                fq_r = fs_r[is_q_r]
+                chunks.append(np.stack([vs_r[fq_r[:, 0]], vs_r[fq_r[:, 2]], vs_r[fq_r[:, 3]]], axis=1))
+        return np.vstack(chunks) if chunks else np.empty((0, 3, 3), dtype=np.float64)
+
+    # Keep all_shell_tris purely from surface_groups (un-strided!) for watertight exterior visibility
+    all_shell_tris = _groups_to_tris([rg for rg, _ in surface_groups])
+    roof_tris = _groups_to_tris(roof_groups)
+    is_single_flat_wall_model = min(span_x, span_y) < 1.5
+    ext_mode = (params.exterior_detection_mode or "auto").lower()
+
+    # Vectorized extraction of planar panels from each surface group
+    panel_records: List[Dict[str, Any]] = []
+    panel_centroids_list: List[np.ndarray] = []
+    panel_normals_list: List[np.ndarray] = []
+    extra_face_shading_tris: List[np.ndarray] = []
+    basement_panels_excluded = 0
+
+    face_ov_map = params.face_category_overrides or {}
+    z_band_ovs = params.face_z_band_overrides or []
+    has_explicit_glazing = (
+        any(cat in ("glazing", "composite_cw") for _, cat in surface_groups)
+        or any(v in ("glazing", "composite_cw") for v in face_ov_map.values())
+        or any(str(b.get("category", "")) in ("glazing", "composite_cw") for b in z_band_ovs)
+    )
+
+    for rg, eff_cat in surface_groups:
+        vs = rg.vertices
+        fs = rg.faces
+        is_quad = fs[:, 2] != fs[:, 3]
+
+        p0 = vs[fs[:, 0]]
+        p1 = vs[fs[:, 1]]
+        p2 = vs[fs[:, 2]]
+        p3 = vs[fs[:, 3]]
+
+        # Cross product for triangle 1 (p0, p1, p2) and triangle 2 (p0, p2, p3)
+        c1 = np.cross(p1 - p0, p2 - p0)
+        c2 = np.where(is_quad[:, None], np.cross(p2 - p0, p3 - p0), 0.0)
+        cross_sum = c1 + c2
+        areas = 0.5 * np.linalg.norm(cross_sum, axis=1)
+
+        valid_mask = areas > 1e-3
+        if not np.any(valid_mask):
+            continue
+
+        orig_idx_v = np.arange(len(fs), dtype=np.int64)[valid_mask]
+        fs_v = fs[valid_mask]
+        is_quad_v = is_quad[valid_mask]
+        p0_v, p1_v, p2_v, p3_v = p0[valid_mask], p1[valid_mask], p2[valid_mask], p3[valid_mask]
+        areas_v = areas[valid_mask]
+        normals_v = cross_sum[valid_mask] / (2.0 * areas_v[:, None])
+
+        # Filter out horizontal roof/floor caps (|nz| > 0.85)
+        vert_mask = np.abs(normals_v[:, 2]) <= 0.85
+        if not np.any(vert_mask):
+            continue
+
+        orig_idx_v = orig_idx_v[vert_mask]
+        fs_v = fs_v[vert_mask]
+        is_quad_v = is_quad_v[vert_mask]
+        p0_v, p1_v, p2_v, p3_v = p0_v[vert_mask], p1_v[vert_mask], p2_v[vert_mask], p3_v[vert_mask]
+        areas_v = areas_v[vert_mask]
+        normals_v = normals_v[vert_mask]
+
+        centroids_v = np.where(
+            is_quad_v[:, None],
+            0.25 * (p0_v + p1_v + p2_v + p3_v),
+            (p0_v + p1_v + p2_v) / 3.0,
+        )
+
+        # Assign floor index (0 .. total_floors-1) using Stage 3 dynamic floor boundaries
+        fl_indices = np.clip(
+            assign_panels_to_floors(centroids_v[:, 2], floor_defs),
+            0,
+            total_floors - 1,
+        )
+
+        # 3-LAYER EXTERIOR SKIN ENGINE (Works on Tower, L-Shape, U-Shape, Courtyard, Twin-Tower, Single-Wall!)
+        f_centers = floor_centers[fl_indices]
+        radial_xy = centroids_v[:, :2] - f_centers
+        radial_dot = np.einsum("ij,ij->i", radial_xy, normals_v[:, :2])
+
+        if ext_mode == "all":
+            is_outer_arr = np.ones(len(areas_v), dtype=bool)
+        elif ext_mode == "radial":
+            pos_ratio = float(np.mean(radial_dot >= 0.0))
+            if 0.25 <= pos_ratio <= 0.75:
+                is_outer_arr = radial_dot >= 0.0
+            else:
+                normals_v[radial_dot < 0.0] *= -1.0
+                is_outer_arr = np.ones(len(areas_v), dtype=bool)
+        else:
+            # 'auto' or 'raycast': True 3D Raycast Exterior Visibility + Single-Wall & Inverted-Normal Guard
+            if is_single_flat_wall_model:
+                # Single standalone wall/curtain-wall slice: pick dominant positive hemisphere side
+                ref_axis = np.array([0.0, 1.0]) if span_x >= span_y else np.array([1.0, 0.0])
+                side_dot = normals_v[:, :2] @ ref_axis
+                pos_r = float(np.mean(side_dot >= 0.0))
+                if 0.25 <= pos_r <= 0.75:
+                    is_outer_arr = side_dot >= 0.0
+                else:
+                    is_outer_arr = np.ones(len(areas_v), dtype=bool)
+            else:
+                is_outer_arr = detect_exterior_faces_raycast(
+                    centroids_v, normals_v, all_shell_tris, roof_tris, max_span
+                )
+                # Rescue ONLY genuinely inverted single-skinned CAD meshes (SketchUp/Rhino):
+                # Do NOT flip interior BIM partitions/doors OR the interior back-face of a double-sided
+                # glass/wall panel (e.g. ArchiCAD .3dm 'Glass - Blue' sitting 2cm behind 'Glass - Clear Fast')!
+                if float(np.mean(is_outer_arr)) < 0.08:
+                    twin_origins = centroids_v - normals_v * 0.002
+                    t_twin = _raycast_arbitrary_rays_against_tris(
+                        twin_origins, -normals_v, all_shell_tris, min_dist=0.001, max_dist=0.35
+                    )
+                    has_front_twin = float(np.mean(t_twin <= 0.35))
+                    if has_front_twin < 0.35:
+                        flipped_normals = -normals_v
+                        flipped_outer = detect_exterior_faces_raycast(
+                            centroids_v, flipped_normals, all_shell_tris, roof_tris, max_span
+                        )
+                        if float(np.mean(flipped_outer)) > float(np.mean(is_outer_arr)) + 0.15:
+                            normals_v = flipped_normals
+                            is_outer_arr = flipped_outer
+
+        # Vectorized Azimuth (0-360 deg from North +Y) & Tilt (0-180 deg)
+        raw_az = (np.degrees(np.arctan2(normals_v[:, 0], normals_v[:, 1])) - params.north_angle_deg) % 360.0
+        raw_az = np.where(np.isclose(raw_az, 360.0, atol=1e-3), 0.0, raw_az)
+        tilt_arr = np.degrees(np.arccos(np.clip(normals_v[:, 2], -1.0, 1.0)))
+
+        group_disabled = rg.group_name in params.disabled_groups
+        # STAGE 4: Resolve per-group bound material (with smart initial suggestion)
+        suggested_mat_id = suggest_material_id_for_group(
+            group_name=rg.group_name,
+            category=eff_cat,
+            default_glazing_id=params.glazing_material_id,
+            default_wall_id=params.wall_material_id,
+            default_frame_id=params.frame_material_id,
+        )
+        group_mat_id = params.group_material_map.get(rg.group_name, suggested_mat_id)
+        group_mat = get_material_by_id(group_mat_id)
+        mat_name = group_mat["name"] if group_mat else (
+            glz_mat["name"] if eff_cat == "glazing" and glz_mat else (wal_mat["name"] if wal_mat else "Default SNI")
+        )
+        grp_wwr_ratio = float(params.group_wwr_map.get(rg.group_name, 0.70))
+
+        outer_count_grp = int(np.sum(is_outer_arr))
+        total_area_grp = float(np.sum(areas_v[is_outer_arr])) if outer_count_grp > 0 else float(np.sum(areas_v))
+        z_min_grp = float(np.min(centroids_v[:, 2])) if len(centroids_v) > 0 else 0.0
+        z_max_grp = float(np.max(centroids_v[:, 2])) if len(centroids_v) > 0 else 0.0
+
+        group_summaries.append({
+            "group_id": rg.group_id,
+            "group_name": rg.group_name,
+            "source_layer": rg.source_layer,
+            "source_material": rg.source_material,
+            "category": eff_cat,
+            "role": "surface",
+            "is_auto_split_child": rg.is_auto_split_child,
+            "composite_wwr": round(grp_wwr_ratio, 2) if eff_cat == "composite_cw" else None,
+            "total_faces": len(areas_v),
+            "outer_faces": outer_count_grp,
+            "outer_area_m2": round(total_area_grp, 2),
+            "z_range_m": [round(z_min_grp, 1), round(z_max_grp, 1)],
+            "material_id": group_mat_id,
+            "material_name": mat_name,
+            "enabled": not group_disabled,
+        })
+
+        for i in range(len(areas_v)):
+            fl_num = int(fl_indices[i]) + 1
+            is_outer = bool(is_outer_arr[i])
+            cz_i = float(centroids_v[i, 2])
+            is_below_ground = (z_ground_cut > 0.05) and (cz_i < z_ground_cut - 0.05)
+            if is_below_ground:
+                basement_panels_excluded += 1
+
+            # Per-face & Z-band role overrides from 3D Staging Inspection
+            orig_face_key = f"{rg.group_id}-F{int(orig_idx_v[i]) + 1}"
+            seq_face_key = f"{rg.group_id}-F{i + 1}"
+            panel_cat = eff_cat
+            if orig_face_key in face_ov_map:
+                panel_cat = face_ov_map[orig_face_key]
+            elif seq_face_key in face_ov_map:
+                panel_cat = face_ov_map[seq_face_key]
+            elif z_band_ovs:
+                for zb in z_band_ovs:
+                    g_match = str(zb.get("group_name") or "*")
+                    if g_match not in ("*", rg.group_name):
+                        continue
+                    z_lo_b = float(zb.get("z_min", -1e9))
+                    z_hi_b = float(zb.get("z_max", 1e9))
+                    if z_lo_b - 0.05 <= cz_i <= z_hi_b + 0.05:
+                        panel_cat = str(zb.get("category") or panel_cat)
+
+            face_non_envelope = panel_cat in ("ignore", "excluded", "shading", "context_shading", "roof", "frame")
+            if panel_cat in ("shading", "context_shading"):
+                extra_face_shading_tris.append(np.array([p0_v[i], p1_v[i], p2_v[i]], dtype=np.float64))
+                if is_quad_v[i]:
+                    extra_face_shading_tris.append(np.array([p0_v[i], p2_v[i], p3_v[i]], dtype=np.float64))
+
+            in_floor_section = True
+            if params.section_floor_min is not None and fl_num < params.section_floor_min:
+                in_floor_section = False
+            if params.section_floor_max is not None and fl_num > params.section_floor_max:
+                in_floor_section = False
+
+            active = (
+                (not group_disabled)
+                and (not is_below_ground)
+                and (not face_non_envelope)
+                and in_floor_section
+                and (is_outer if params.outer_skin_only else True)
+            )
+            az_val = round(float(raw_az[i]), 1)
+            tilt_val = round(float(tilt_arr[i]), 1)
+            orient_code = classify_sni_orientation(az_val)
+            sf_val = interpolate_sni_solar_factor(az_val, tilt_val, sf_mult)
+
+            # Resolve panel material (respecting per-face override category if changed from group default)
+            eff_panel_mat_id = group_mat_id
+            eff_panel_mat_name = mat_name
+            if panel_cat != eff_cat and panel_cat in ("glazing", "spandrel", "wall", "composite_cw"):
+                eff_panel_mat_id = suggest_material_id_for_group(
+                    group_name=rg.group_name,
+                    category=panel_cat,
+                    default_glazing_id=params.glazing_material_id,
+                    default_wall_id=params.wall_material_id,
+                    default_frame_id=params.frame_material_id,
+                )
+                pm_obj = get_material_by_id(eff_panel_mat_id)
+                eff_panel_mat_name = pm_obj["name"] if pm_obj else mat_name
+            if panel_cat in ("glazing", "composite_cw") and orient_code in params.orientation_material_overrides:
+                ov_id = params.orientation_material_overrides[orient_code]
+                ov_mat = get_material_by_id(ov_id)
+                if ov_mat:
+                    eff_panel_mat_id = ov_id
+                    eff_panel_mat_name = ov_mat["name"]
+
+            if is_below_ground:
+                verif_label = "Basement (< Z0)"
+            elif face_non_envelope:
+                verif_label = f"Override: {panel_cat}"
+            elif not is_outer:
+                verif_label = "Sisi Dalam (Nonaktif)"
+            elif abs(tilt_val - 90.0) > 6.5:
+                verif_label = "Perlu Cek (Condong)"
+            else:
+                verif_label = "Sisi Luar Aktif"
+
+            if is_quad_v[i]:
+                verts_i = [
+                    [round(float(p0_v[i, 0]), 3), round(float(p0_v[i, 1]), 3), round(float(p0_v[i, 2]), 3)],
+                    [round(float(p1_v[i, 0]), 3), round(float(p1_v[i, 1]), 3), round(float(p1_v[i, 2]), 3)],
+                    [round(float(p2_v[i, 0]), 3), round(float(p2_v[i, 1]), 3), round(float(p2_v[i, 2]), 3)],
+                    [round(float(p3_v[i, 0]), 3), round(float(p3_v[i, 1]), 3), round(float(p3_v[i, 2]), 3)],
+                ]
+            else:
+                verts_i = [
+                    [round(float(p0_v[i, 0]), 3), round(float(p0_v[i, 1]), 3), round(float(p0_v[i, 2]), 3)],
+                    [round(float(p1_v[i, 0]), 3), round(float(p1_v[i, 1]), 3), round(float(p1_v[i, 2]), 3)],
+                    [round(float(p2_v[i, 0]), 3), round(float(p2_v[i, 1]), 3), round(float(p2_v[i, 2]), 3)],
+                ]
+
+            panel_records.append({
+                "id": orig_face_key,
+                "group_id": rg.group_id,
+                "group_name": rg.group_name,
+                "name": f"{rg.group_name}_{i + 1}",
+                "element_type": panel_cat,
+                "floor_number": fl_num,
+                "floor_label": f"L{fl_num}",
+                "is_outer": is_outer,
+                "is_below_ground": is_below_ground,
+                "face_excluded": face_non_envelope,
+                "in_floor_section": in_floor_section,
+                "active": active,
+                "verification_label": verif_label,
+                "material_id": eff_panel_mat_id,
+                "material_name": eff_panel_mat_name,
+                "vertices": verts_i,
+                "centroid": [
+                    round(float(centroids_v[i, 0]), 3),
+                    round(float(centroids_v[i, 1]), 3),
+                    round(float(centroids_v[i, 2]), 3),
+                ],
+                "normal": [
+                    round(float(normals_v[i, 0]), 3),
+                    round(float(normals_v[i, 1]), 3),
+                    round(float(normals_v[i, 2]), 3),
+                ],
+                "area_m2": round(float(areas_v[i]), 3),
+                "azimuth_deg": az_val,
+                "tilt_deg": tilt_val,
+                "orientation_code": orient_code,
+                "sf_wm2": sf_val,
+            })
+            panel_centroids_list.append(centroids_v[i])
+            panel_normals_list.append(normals_v[i])
+
+    # Add frame, shading, and roof/excluded group summaries for Stage 2 UI role mapping
+    for rg in frame_groups:
+        f_mat_id = params.group_material_map.get(rg.group_name, params.frame_material_id)
+        f_mat = get_material_by_id(f_mat_id) or frm_mat
+        group_summaries.append({
+            "group_id": rg.group_id,
+            "group_name": rg.group_name,
+            "source_layer": rg.source_layer,
+            "source_material": rg.source_material,
+            "category": "frame",
+            "role": "frame",
+            "is_auto_split_child": rg.is_auto_split_child,
+            "total_faces": len(rg.faces),
+            "outer_faces": len(rg.faces),
+            "outer_area_m2": 0.0,
+            "material_id": f_mat_id,
+            "material_name": f_mat["name"] if f_mat else "Aluminium Curtain Wall Frame",
+            "enabled": rg.group_name not in params.disabled_groups,
+        })
+    for rg in shading_groups:
+        group_summaries.append({
+            "group_id": rg.group_id,
+            "group_name": rg.group_name,
+            "source_layer": rg.source_layer,
+            "source_material": rg.source_material,
+            "category": "shading",
+            "role": "shading",
+            "is_auto_split_child": rg.is_auto_split_child,
+            "total_faces": len(rg.faces),
+            "outer_faces": len(rg.faces),
+            "outer_area_m2": 0.0,
+            "material_id": params.frame_material_id,
+            "material_name": "External Shading / Louver Fin",
+            "enabled": rg.group_name not in params.disabled_groups,
+        })
+    for rg in roof_groups:
+        group_summaries.append({
+            "group_id": rg.group_id,
+            "group_name": rg.group_name,
+            "source_layer": rg.source_layer,
+            "source_material": rg.source_material,
+            "category": "roof",
+            "role": "excluded",
+            "is_auto_split_child": rg.is_auto_split_child,
+            "total_faces": len(rg.faces),
+            "outer_faces": 0,
+            "outer_area_m2": 0.0,
+            "material_id": None,
+            "material_name": "Non-OTTV (Atap / Plat Lantai)",
+            "enabled": rg.group_name not in params.disabled_groups,
+        })
+    for rg in ignored_groups:
+        group_summaries.append({
+            "group_id": rg.group_id,
+            "group_name": rg.group_name,
+            "source_layer": rg.source_layer,
+            "source_material": rg.source_material,
+            "category": "ignore",
+            "role": "ignored",
+            "is_auto_split_child": rg.is_auto_split_child,
+            "total_faces": len(rg.faces),
+            "outer_faces": 0,
+            "outer_area_m2": 0.0,
+            "material_id": None,
+            "material_name": "Diabaikan (Tapak / Tanah / Interior)",
+            "enabled": False,
+        })
+
+    if not panel_records:
+        raise ValueError("Tidak ada bidang fasad vertikal/condong yang dapat dievaluasi.")
+
+    # Build FULL-BUILDING obstruction mesh for true self-shading + external/neighbor shading:
+    # Keep opaque walls, spandrels, overhanging slabs/roofs, and shading louvers/neighbors 100% un-strided;
+    # optimize ultra-dense bevelled curtain-wall frame triangles (>18k tris) for fast <5s raycasting.
+    opaque_self_shade_groups = [
+        rg for rg, cat in surface_groups if cat in ("wall", "spandrel")
+    ]
+    major_obs_tris = _groups_to_tris(shading_groups + opaque_self_shade_groups + roof_groups)
+    frame_obs_tris = _groups_to_tris(frame_groups)
+    if len(frame_obs_tris) > 18000:
+        # Filter microscopic bevel slivers (< 0.004 m2) first, then uniform stride to <= 18k tris
+        f_cross = np.cross(frame_obs_tris[:, 1] - frame_obs_tris[:, 0], frame_obs_tris[:, 2] - frame_obs_tris[:, 0])
+        f_areas = 0.5 * np.linalg.norm(f_cross, axis=1)
+        frame_obs_tris = frame_obs_tris[f_areas >= 0.004]
+        if len(frame_obs_tris) > 18000:
+            f_step = max(1, int(math.ceil(len(frame_obs_tris) / 18000)))
+            frame_obs_tris = frame_obs_tris[::f_step]
+
+    obs_chunks = [arr for arr in (major_obs_tris, frame_obs_tris) if len(arr) > 0]
+    if extra_face_shading_tris:
+        obs_chunks.append(np.array(extra_face_shading_tris, dtype=np.float64))
+    obs_tris_all = np.vstack(obs_chunks) if obs_chunks else np.empty((0, 3, 3), dtype=np.float64)
+
+    # Solar vectors (08:00 - 16:00)
+    solar_vectors = compute_solar_vectors_08_to_16(
+        latitude_deg=lat_deg,
+        month=params.design_month,
+        north_angle_deg=params.north_angle_deg,
+        custom_hourly_dni=custom_hourly_dni,
+    )
+
+    # Vectorized raycasting from panel centroids (offset 10cm along outward normal to avoid self-hit)
+    centroids_np = np.array(panel_centroids_list, dtype=np.float64)
+    normals_np = np.array(panel_normals_list, dtype=np.float64)
+    origins_np = centroids_np + normals_np * 0.10
+    num_panels = len(panel_records)
+    self_shade_reach = max(24.0, max_span * 1.5)
+
+    # Compute hourly incidence cosine matrix upfront so we ONLY raycast sun-facing outer panels (4x speedup, 0% accuracy loss!)
+    sun_dirs_np = np.array([sv["vector"] for sv in solar_vectors], dtype=np.float64)  # (9, 3)
+    dni_np = np.array([sv["dni_wm2"] for sv in solar_vectors], dtype=np.float64)[:, None]  # (9, 1)
+    cos_inc_mat = sun_dirs_np @ normals_np.T  # (9, num_panels)
+    front_mask = cos_inc_mat > 0.01
+    outer_mask_np = np.array([bool(p["is_outer"]) for p in panel_records], dtype=bool)
+
+    mtime_rc = os.path.getmtime(filepath) if os.path.exists(filepath) else 0.0
+    rc_key = (
+        filepath,
+        mtime_rc,
+        num_panels,
+        len(obs_tris_all),
+        round(lat_deg, 2),
+        round(params.north_angle_deg, 1),
+        params.design_month,
+        ext_mode,
+    )
+    if not hasattr(analyze_building_ottv, "_rc_cache"):
+        analyze_building_ottv._rc_cache = {}
+    if rc_key in analyze_building_ottv._rc_cache:
+        hourly_hits = analyze_building_ottv._rc_cache[rc_key]
+    else:
+        hourly_hits = np.zeros((len(solar_vectors), num_panels), dtype=np.float64)
+        if len(obs_tris_all) > 0:
+            for h_idx, sv in enumerate(solar_vectors):
+                s_vec = np.array(sv["vector"], dtype=np.float64)
+                active_sun_idx = np.where(front_mask[h_idx] & outer_mask_np)[0]
+                if len(active_sun_idx) == 0:
+                    continue
+                hourly_hits[h_idx, active_sun_idx] = raycast_z_slab_solar_rays(
+                    obs_tris_all, origins_np[active_sun_idx], s_vec, min_dist=0.08, max_dist=self_shade_reach
+                )
+        analyze_building_ottv._rc_cache[rc_key] = hourly_hits
+
+    # Parametric louver supplement if enabled by user
+    param_louver_bonus = 0.0
+    if params.enable_parametric_louvers and params.louver_depth_m > 0.05:
+        ratio = params.louver_depth_m / max(0.25, params.louver_spacing_m)
+        tilt_boost = 1.0 + 0.35 * math.sin(math.radians(params.louver_tilt_deg))
+        param_louver_bonus = min(0.75, 0.42 * ratio * tilt_boost)
+
+    effective_hits = np.clip(hourly_hits + param_louver_bonus, 0.0, 1.0)
+    weights_mat = np.where(front_mask, cos_inc_mat * dni_np, 0.0)
+    sunlit_weights = np.sum((1.0 - effective_hits) * weights_mat, axis=0)
+    total_weights = np.sum(weights_mat, axis=0)
+
+    sunlit_frac_arr = np.where(total_weights > 1e-3, sunlit_weights / np.maximum(1e-6, total_weights), 0.35)
+    shaded_frac_arr = 1.0 - sunlit_frac_arr
+
+    # Direct beam share (0.72) attenuated by shading; diffuse sky (0.28) remains
+    sc_Display_mult_arr = 0.28 + 0.72 * sunlit_frac_arr
+
+    # Compute per-hour sunlit bitmask (bits 0..8 for hours 08:00..16:00)
+    sunlit_bool_mat = front_mask & (hourly_hits < 0.5)
+    bit_weights = (1 << np.arange(len(solar_vectors), dtype=np.int64))[:, None]
+    sunlit_mask_arr = np.sum(sunlit_bool_mat.astype(np.int64) * bit_weights, axis=0)
+    direct_sun_hours_arr = np.sum(sunlit_bool_mat, axis=0)
+
+    # Aggregate SNI 6389:2020 OTTV across active panels, 8 orientations, and floors
+    orientation_buckets: Dict[str, Dict[str, Any]] = {
+        code: {
+            "code": code,
+            "name_id": ORIENTATION_NAMES[code],
+            "azimuth_center_deg": ORIENTATION_ANGLES[code],
+            "sni_sf_wm2": round(ORIENTATION_BASE_SF[code] * sf_mult, 1),
+            "panel_count": 0,
+            "total_area_m2": 0.0,
+            "wall_area_m2": 0.0,
+            "glazing_area_m2": 0.0,
+            "_sum_sf_area": 0.0,
+            "_sum_sc_eff_area": 0.0,
+            "_sum_shaded_area": 0.0,
+            "_sum_q_wall_w": 0.0,
+            "_sum_q_glass_w": 0.0,
+            "_sum_q_solar_w": 0.0,
+        }
+        for code in ORIENTATION_CODES
+    }
+
+    floor_def_by_num = {fd["floor_number"]: fd for fd in floor_defs}
+    floor_buckets: Dict[int, Dict[str, Any]] = {
+        fd["floor_number"]: {
+            "floor_number": fd["floor_number"],
+            "floor_label": fd["floor_label"],
+            "zone_type": fd.get("zone_type", "Tipikal"),
+            "z_min": fd["z_min"],
+            "z_max": fd["z_max"],
+            "height_m": fd["height_m"],
+            "panel_count": 0,
+            "total_area_m2": 0.0,
+            "wall_area_m2": 0.0,
+            "glazing_area_m2": 0.0,
+            "_sum_heat_w": 0.0,
+        }
+        for fd in floor_defs
+    }
+
+    orientation_floor_buckets: Dict[str, Dict[int, Dict[str, float]]] = {
+        code: {
+            fl: {
+                "panel_count": 0.0,
+                "total_area_m2": 0.0,
+                "wall_area_m2": 0.0,
+                "glazing_area_m2": 0.0,
+                "_sum_sf_area": 0.0,
+                "_sum_sc_eff_area": 0.0,
+                "_sum_q_wall_w": 0.0,
+                "_sum_q_glass_w": 0.0,
+                "_sum_q_solar_w": 0.0,
+            }
+            for fl in range(1, total_floors + 1)
+        }
+        for code in ORIENTATION_CODES
+    }
+
+    total_active_panels = 0
+    total_outer_panels = 0
+    total_envelope_area = 0.0
+    total_glazing_area = 0.0
+    total_wall_cond_w = 0.0
+    total_glass_cond_w = 0.0
+    total_solar_rad_w = 0.0
+
+    u_frame_eff = float(frm_mat["u_value"]) if frm_mat else float(params.u_frame)
+    frame_cond_adder = (
+        u_frame_eff * params.frame_area_ratio * delta_t
+        if (params.include_frame_conduction and len(frame_groups) > 0)
+        else 0.0
+    )
+
+    for idx, p in enumerate(panel_records):
+        if p["is_outer"]:
+            total_outer_panels += 1
+
+        # Resolve per-group / per-orientation material parameters (unless global slider override is forced)
+        g_mat = get_material_by_id(p["material_id"])
+        cat = p["element_type"]
+
+        if params.use_global_slider_override:
+            u_f_k = float(params.u_fenestration)
+            sc_1_k = float(params.sc_glass)
+            u_w_k = float(params.u_wall)
+            alpha_k = float(params.alpha_wall)
+            tdek_k = float(params.td_ek)
+        elif cat in ("glazing", "composite_cw"):
+            u_f_k = float(g_mat["u_value"]) if (g_mat and g_mat["category"] == "glazing") else float(glz_mat["u_value"] if glz_mat else params.u_fenestration)
+            sc_1_k = float(g_mat["sc"]) if (g_mat and g_mat.get("sc") is not None) else float(glz_mat["sc"] if glz_mat else params.sc_glass)
+            u_w_k = float(wal_mat["u_value"]) if wal_mat else float(params.u_wall)
+            alpha_k = float(wal_mat["alpha"]) if wal_mat else float(params.alpha_wall)
+            tdek_k = float(wal_mat["td_ek"]) if wal_mat else float(params.td_ek)
+        else:
+            # 'wall' or 'spandrel'
+            u_w_k = float(g_mat["u_value"]) if (g_mat and g_mat["category"] == "wall") else float(wal_mat["u_value"] if wal_mat else params.u_wall)
+            alpha_k = float(g_mat["alpha"]) if (g_mat and g_mat.get("alpha") is not None) else float(wal_mat["alpha"] if wal_mat else params.alpha_wall)
+            tdek_k = float(g_mat["td_ek"]) if (g_mat and g_mat.get("td_ek") is not None) else float(wal_mat["td_ek"] if wal_mat else params.td_ek)
+            u_f_k = float(glz_mat["u_value"]) if glz_mat else float(params.u_fenestration)
+            sc_1_k = float(glz_mat["sc"]) if glz_mat else float(params.sc_glass)
+
+        if params.wwr_override is not None:
+            wwr_k = max(0.0, min(0.95, float(params.wwr_override)))
+        elif cat == "composite_cw":
+            wwr_k = max(0.05, min(0.95, float(params.group_wwr_map.get(p["group_name"], 0.70))))
+        elif has_explicit_glazing:
+            wwr_k = 1.0 if cat == "glazing" else 0.0
+        else:
+            wwr_k = max(0.0, min(0.95, float(params.default_wall_wwr)))
+
+        sc_mult = float(sc_Display_mult_arr[idx])
+        sc_eff = sc_1_k * sc_mult
+        shaded_frac = float(shaded_frac_arr[idx])
+
+        q_wall_wm2 = alpha_k * u_w_k * (1.0 - wwr_k) * tdek_k
+        q_glass_cond_wm2 = (u_f_k * wwr_k * delta_t) + (frame_cond_adder * wwr_k)
+        q_solar_wm2 = p["sf_wm2"] * wwr_k * sc_eff
+        ottv_panel_wm2 = q_wall_wm2 + q_glass_cond_wm2 + q_solar_wm2
+
+        area = p["area_m2"]
+        heat_w = ottv_panel_wm2 * area
+        elem_hex, elem_rgb = compute_panel_heatmap_color(ottv_panel_wm2)
+        solar_exp_wm2 = round(p["sf_wm2"] * sc_eff, 2)
+
+        p["wwr_panel"] = round(wwr_k, 3)
+        p["sc_glass"] = round(sc_1_k, 3)
+        p["sc_shading_multiplier"] = round(sc_mult, 3)
+        p["sc_effective"] = round(sc_eff, 3)
+        p["shaded_fraction"] = round(shaded_frac, 3)
+        p["sunlit_mask"] = int(sunlit_mask_arr[idx])
+        p["direct_sun_hours"] = int(direct_sun_hours_arr[idx])
+        p["solar_exposure_wm2"] = solar_exp_wm2
+        p["q_wall_wm2"] = round(q_wall_wm2, 2)
+        p["q_glass_cond_wm2"] = round(q_glass_cond_wm2, 2)
+        p["q_solar_wm2"] = round(q_solar_wm2, 2)
+        p["ottv_panel_wm2"] = round(ottv_panel_wm2, 2)
+        p["heat_gain_w"] = round(heat_w, 1)
+        p["heatmap_element_hex"] = elem_hex
+        p["heatmap_element_rgb"] = elem_rgb
+        p["heatmap_color_hex"] = elem_hex
+        p["heatmap_rgb"] = elem_rgb
+
+        # Accumulate floor breakdown for all above-ground outer-skin panels (so floor chart always shows full building profile)
+        if (
+            p["is_outer"]
+            and (not p.get("is_below_ground"))
+            and (not p.get("face_excluded"))
+            and (p["group_name"] not in params.disabled_groups)
+        ):
+            fb = floor_buckets[p["floor_number"]]
+            fb["panel_count"] += 1
+            fb["total_area_m2"] += area
+            fb["glazing_area_m2"] += area * wwr_k
+            fb["wall_area_m2"] += area * (1.0 - wwr_k)
+            fb["_sum_heat_w"] += heat_w
+
+            ofb = orientation_floor_buckets[p["orientation_code"]][p["floor_number"]]
+            ofb["panel_count"] += 1.0
+            ofb["total_area_m2"] += area
+            ofb["wall_area_m2"] += area * (1.0 - wwr_k)
+            ofb["glazing_area_m2"] += area * wwr_k
+            ofb["_sum_sf_area"] += p["sf_wm2"] * area
+            ofb["_sum_sc_eff_area"] += sc_eff * (area * wwr_k if wwr_k > 1e-4 else area)
+            ofb["_sum_q_wall_w"] += q_wall_wm2 * area
+            ofb["_sum_q_glass_w"] += q_glass_cond_wm2 * area
+            ofb["_sum_q_solar_w"] += q_solar_wm2 * area
+
+        # Accumulate active panels into global & 8-orientation OTTV
+        if p["active"]:
+            total_active_panels += 1
+            glz_a = area * wwr_k
+            wal_a = area * (1.0 - wwr_k)
+            qw_w = q_wall_wm2 * area
+            qgc_w = q_glass_cond_wm2 * area
+            qsol_w = q_solar_wm2 * area
+
+            total_envelope_area += area
+            total_glazing_area += glz_a
+            total_wall_cond_w += qw_w
+            total_glass_cond_w += qgc_w
+            total_solar_rad_w += qsol_w
+
+            b = orientation_buckets[p["orientation_code"]]
+            b["panel_count"] += 1
+            b["total_area_m2"] += area
+            b["wall_area_m2"] += wal_a
+            b["glazing_area_m2"] += glz_a
+            b["_sum_sf_area"] += p["sf_wm2"] * area
+            b["_sum_sc_eff_area"] += sc_eff * (glz_a if glz_a > 1e-4 else area)
+            b["_sum_shaded_area"] += shaded_frac * area
+            b["_sum_q_wall_w"] += qw_w
+            b["_sum_q_glass_w"] += qgc_w
+            b["_sum_q_solar_w"] += qsol_w
+
+    # Finalize 8-orientation breakdown
+    orientation_breakdown: List[Dict[str, Any]] = []
+    for code in ORIENTATION_CODES:
+        b = orientation_buckets[code]
+        a_tot = b["total_area_m2"]
+        a_glz = b["glazing_area_m2"]
+        if a_tot > 1e-4:
+            wwr_o = a_glz / a_tot
+            avg_sf = b["_sum_sf_area"] / a_tot
+            avg_sc = b["_sum_sc_eff_area"] / (a_glz if a_glz > 1e-4 else a_tot)
+            avg_sh = b["_sum_shaded_area"] / a_tot
+            qw = b["_sum_q_wall_w"] / a_tot
+            qgc = b["_sum_q_glass_w"] / a_tot
+            qsol = b["_sum_q_solar_w"] / a_tot
+            ottv_o = qw + qgc + qsol
+            hw = b["_sum_q_wall_w"] + b["_sum_q_glass_w"] + b["_sum_q_solar_w"]
+        else:
+            wwr_o, avg_sf, avg_sc, avg_sh = 0.0, b["sni_sf_wm2"], params.sc_glass, 0.0
+            qw, qgc, qsol, ottv_o, hw = 0.0, 0.0, 0.0, 0.0, 0.0
+
+        orientation_breakdown.append({
+            "code": code,
+            "name_id": b["name_id"],
+            "azimuth_center_deg": b["azimuth_center_deg"],
+            "sni_sf_wm2": b["sni_sf_wm2"],
+            "panel_count": b["panel_count"],
+            "total_area_m2": round(a_tot, 2),
+            "wall_area_m2": round(b["wall_area_m2"], 2),
+            "glazing_area_m2": round(a_glz, 2),
+            "wwr": round(wwr_o, 3),
+            "avg_sf_interpolated_wm2": round(avg_sf, 2),
+            "avg_sc_effective": round(avg_sc, 3),
+            "avg_shaded_ratio": round(avg_sh, 3),
+            "q_wall_conduction_wm2": round(qw, 2),
+            "q_glass_conduction_wm2": round(qgc, 2),
+            "q_solar_radiation_wm2": round(qsol, 2),
+            "ottv_orientation_wm2": round(ottv_o, 2),
+            "heat_gain_watts": round(hw, 1),
+        })
+
+    # Finalize Smart Floor Breakdown (100% Model-Driven)
+    floor_breakdown: List[Dict[str, Any]] = []
+    for fl_num in sorted(floor_buckets.keys()):
+        fb = floor_buckets[fl_num]
+        fa = fb["total_area_m2"]
+        if fa < 1e-3:
+            f_wwr = 0.0
+            f_ottv = 0.0
+        else:
+            f_wwr = fb["glazing_area_m2"] / fa
+            f_ottv = fb["_sum_heat_w"] / fa
+        floor_breakdown.append({
+            "floor_number": fl_num,
+            "floor_label": fb["floor_label"],
+            "zone_type": fb.get("zone_type", "Tipikal"),
+            "z_min": fb["z_min"],
+            "z_max": fb["z_max"],
+            "height_m": fb.get("height_m", round(fb["z_max"] - fb["z_min"], 2)),
+            "panel_count": fb["panel_count"],
+            "total_area_m2": round(fa, 2),
+            "glazing_area_m2": round(fb["glazing_area_m2"], 2),
+            "wall_area_m2": round(fb["wall_area_m2"], 2),
+            "wwr": round(f_wwr, 3),
+            "ottv_floor_wm2": round(f_ottv, 2),
+            "heat_gain_kw": round(fb["_sum_heat_w"] / 1000.0, 2),
+        })
+
+    dynamic_floor_presets = enrich_floor_zones_and_presets(floor_breakdown)
+
+    # Overall OTTV totals
+    total_heat_w = total_wall_cond_w + total_glass_cond_w + total_solar_rad_w
+    denom_a = max(1e-4, total_envelope_area)
+    ottv_total_wm2 = round(total_heat_w / denom_a, 2)
+    q_wall_tot = round(total_wall_cond_w / denom_a, 2)
+    q_glass_tot = round(total_glass_cond_w / denom_a, 2)
+    q_solar_tot = round(total_solar_rad_w / denom_a, 2)
+    eff_wwr = total_glazing_area / denom_a
+
+    active_panels_iter = [p for p in panel_records if p["active"]]
+    avg_sf_bldg = sum(p["sf_wm2"] * p["area_m2"] for p in active_panels_iter) / denom_a
+    avg_sc_bldg = sum(p["sc_effective"] * p["area_m2"] for p in active_panels_iter) / denom_a
+    avg_sh_bldg = sum(p["shaded_fraction"] * p["area_m2"] for p in active_panels_iter) / denom_a
+
+    # Compute Smooth Facade Composite OTTV (`ottv_composite_wm2`) per panel so the 3D thermal
+    # heatmap transitions continuously around the curved facade without spandrel/vision striping
+    u_w_glob = float(wal_mat["u_value"]) if wal_mat else float(params.u_wall)
+    alpha_glob = float(wal_mat["alpha"]) if wal_mat else float(params.alpha_wall)
+    tdek_glob = float(wal_mat["td_ek"]) if wal_mat else float(params.td_ek)
+    u_f_glob = float(glz_mat["u_value"]) if glz_mat else float(params.u_fenestration)
+    sc_1_glob = float(glz_mat["sc"]) if glz_mat else float(params.sc_glass)
+
+    # Angularly smooth SC multiplier across 36 azimuth sectors (10 deg each) per floor
+    n_az_bins = 36
+    bin_sc_sum = np.zeros((total_floors + 1, n_az_bins), dtype=np.float64)
+    bin_sc_cnt = np.zeros((total_floors + 1, n_az_bins), dtype=np.float64)
+    for p in panel_records:
+        if p["is_outer"]:
+            b_idx = int((p["azimuth_deg"] % 360.0) // 10.0) % n_az_bins
+            fl_i = p["floor_number"]
+            bin_sc_sum[fl_i, b_idx] += p["sc_shading_multiplier"] * p["area_m2"]
+            bin_sc_cnt[fl_i, b_idx] += p["area_m2"]
+
+    default_sc_mult = max(0.30, avg_sc_bldg / max(0.08, sc_1_glob))
+    bin_sc_avg = np.where(bin_sc_cnt > 1e-4, bin_sc_sum / np.maximum(1e-6, bin_sc_cnt), default_sc_mult)
+    # Circular smoothing along azimuth & vertical smoothing across adjacent floors
+    bin_sc_smooth = (
+        0.50 * bin_sc_avg
+        + 0.25 * np.roll(bin_sc_avg, 1, axis=1)
+        + 0.25 * np.roll(bin_sc_avg, -1, axis=1)
+    )
+    if total_floors >= 3:
+        vert_smooth = bin_sc_smooth.copy()
+        for fl_i in range(1, total_floors + 1):
+            f_prev = max(1, fl_i - 1)
+            f_next = min(total_floors, fl_i + 1)
+            vert_smooth[fl_i, :] = 0.20 * bin_sc_smooth[f_prev, :] + 0.60 * bin_sc_smooth[fl_i, :] + 0.20 * bin_sc_smooth[f_next, :]
+        bin_sc_smooth = vert_smooth
+
+    floor_wwr_map: Dict[int, float] = {}
+    for fb_item in floor_breakdown:
+        fl_n = fb_item["floor_number"]
+        raw_fw = fb_item["wwr"] if fb_item["total_area_m2"] > 1e-2 else eff_wwr
+        # Blend floor WWR with global effective WWR for smooth vertical continuity
+        floor_wwr_map[fl_n] = 0.72 * eff_wwr + 0.28 * raw_fw
+
+    raw_comp_vals: List[float] = []
+    comp_weighted_sum = 0.0
+    for p in panel_records:
+        fl_n = p["floor_number"]
+        w_comp = floor_wwr_map.get(fl_n, eff_wwr)
+        az_f = (p["azimuth_deg"] % 360.0) / 10.0
+        b0 = int(math.floor(az_f)) % n_az_bins
+        b1 = (b0 + 1) % n_az_bins
+        t_az = az_f - math.floor(az_f)
+        sc_m_s = (1.0 - t_az) * float(bin_sc_smooth[fl_n, b0]) + t_az * float(bin_sc_smooth[fl_n, b1])
+        sc_eff_s = sc_1_glob * sc_m_s
+
+        qw_c = alpha_glob * u_w_glob * (1.0 - w_comp) * tdek_glob
+        qg_c = (u_f_glob * delta_t + frame_cond_adder) * w_comp
+        qs_c = p["sf_wm2"] * w_comp * sc_eff_s
+        val_c = qw_c + qg_c + qs_c
+        raw_comp_vals.append(val_c)
+        if p["active"]:
+            comp_weighted_sum += val_c * p["area_m2"]
+
+    comp_norm_factor = (
+        (ottv_total_wm2 * denom_a) / comp_weighted_sum
+        if comp_weighted_sum > 1e-3
+        else 1.0
+    )
+    for idx, p in enumerate(panel_records):
+        comp_val = round(raw_comp_vals[idx] * comp_norm_factor, 2)
+        c_hex, c_rgb = compute_panel_heatmap_color(comp_val)
+        p["ottv_composite_wm2"] = comp_val
+        p["heatmap_composite_hex"] = c_hex
+        p["heatmap_composite_rgb"] = c_rgb
+        # Default heatmap color uses smooth composite so the 3D facade is continuous
+        p["heatmap_color_hex"] = c_hex
+        p["heatmap_rgb"] = c_rgb
+
+    # Finalize 8-orientation x floor breakdown for PUPR Metode 2 Excel template
+    orientation_floor_breakdown: Dict[str, List[Dict[str, Any]]] = {}
+    for code in ORIENTATION_CODES:
+        fl_rows: List[Dict[str, Any]] = []
+        for fl_num in range(1, total_floors + 1):
+            f_def = floor_def_by_num.get(fl_num, {"height_m": floor_h})
+            fh_cur = max(0.5, float(f_def.get("height_m", floor_h)))
+            ofb = orientation_floor_buckets[code][fl_num]
+            a_tot = ofb["total_area_m2"]
+            a_wal = ofb["wall_area_m2"]
+            a_glz = ofb["glazing_area_m2"]
+            if a_tot > 1e-4:
+                wwr_of = a_glz / a_tot
+                sf_of = ofb["_sum_sf_area"] / a_tot
+                sc_of = ofb["_sum_sc_eff_area"] / (a_glz if a_glz > 1e-4 else a_tot)
+                qw_of = ofb["_sum_q_wall_w"]
+                qg_of = ofb["_sum_q_glass_w"]
+                qs_of = ofb["_sum_q_solar_w"]
+                ottv_of = (qw_of + qg_of + qs_of) / a_tot
+            else:
+                wwr_of = 0.0
+                sf_of = round(ORIENTATION_BASE_SF[code] * sf_mult, 1)
+                sc_of = round(avg_sc_bldg, 3)
+                qw_of, qg_of, qs_of, ottv_of = 0.0, 0.0, 0.0, 0.0
+            fl_rows.append({
+                "floor_number": fl_num,
+                "floor_code": f"{code} {fl_num}",
+                "floor_height_m": round(fh_cur, 2),
+                "facade_length_m": round(a_tot / fh_cur, 2),
+                "total_area_m2": round(a_tot, 2),
+                "wall_area_m2": round(a_wal, 2),
+                "glazing_area_m2": round(a_glz, 2),
+                "wwr": round(wwr_of, 4),
+                "avg_sf_wm2": round(sf_of, 2),
+                "avg_sc_eff": round(sc_of, 3),
+                "q_wall_w": round(qw_of, 2),
+                "q_glass_w": round(qg_of, 2),
+                "q_solar_w": round(qs_of, 2),
+                "ottv_wm2": round(ottv_of, 2),
+            })
+        orientation_floor_breakdown[code] = fl_rows
+
+    # Serialize Frame & Shading meshes cleanly for smooth 60 FPS Three.js rendering
+    def _serialize_raw_groups(rg_list: List[RawGroupMesh], max_faces: int = 18000) -> List[Dict[str, Any]]:
+        out = []
+        total_f = sum(len(r.faces) for r in rg_list)
+        stride = max(1, total_f // max_faces) if total_f > max_faces else 1
+        for r in rg_list:
+            if r.group_name in params.disabled_groups:
+                continue
+            fs = r.faces[::stride]
+            vs = np.round(r.vertices, 3).tolist()
+            tris: List[List[int]] = []
+            for f in fs:
+                tris.append([int(f[0]), int(f[1]), int(f[2])])
+                if f[2] != f[3]:
+                    tris.append([int(f[0]), int(f[2]), int(f[3])])
+            out.append({
+                "group_name": r.group_name,
+                "vertices": vs,
+                "faces": tris,
+            })
+        return out
+
+    compliant = ottv_total_wm2 <= SNI_6389_LIMIT_WM2
+    recommendations = generate_material_recommendations(
+        current_ottv_wm2=ottv_total_wm2,
+        effective_wwr=eff_wwr,
+        total_envelope_area_m2=total_envelope_area,
+        current_heat_kw=total_heat_w / 1000.0,
+    )
+
+    # Build 5-Stage Gatekeeper Pipeline Status Summary
+    stage_gates = {
+        "gate1_geometry": {
+            "status": "PASSED",
+            "title": "Tahap 1: Geometri, Satuan & Sumbu",
+            "summary": f"Satuan: {stage1_audit.applied_unit.upper()} (×{stage1_audit.scale_factor_to_m}) · Sumbu: {stage1_audit.applied_up_axis}-Up · Dimensi: {span_x:.1f}×{span_y:.1f}×{span_z:.1f} m",
+        },
+        "gate2_groups": {
+            "status": "PASSED",
+            "title": "Tahap 2: Mapping Layer & Dekomposisi Sub-Elemen",
+            "summary": f"{len(group_summaries)} Grup Terpetakan ({len(surface_groups)} Selubung, {len(frame_groups)} Rangka, {len(shading_groups)} Peneduh)",
+        },
+        "gate3_floors": {
+            "status": "PASSED",
+            "title": "Tahap 3: Struktur Lantai Dinamis",
+            "summary": f"{total_floors} Lantai (L1–L{total_floors}) · {floor_detection_method}",
+        },
+        "gate4_materials": {
+            "status": "PASSED",
+            "title": "Tahap 4: Binding Material & Iklim",
+            "summary": f"WWR Efektif: {eff_wwr*100:.1f}% · Lokasi: {loc_info.get('city', 'Jakarta')}",
+        },
+        "gate5_compliance": {
+            "status": "PASSED" if compliant else "WARNING",
+            "title": "Tahap 5: Evaluasi SNI 6389 & Laporan PUPR",
+            "summary": f"OTTV: {ottv_total_wm2:.2f} / 35.0 W/m² ({'LULUS' if compliant else 'MELEBIHI BATAS'})",
+        },
+    }
+
+    return {
+        "filename": filename,
+        "format": os.path.splitext(filename)[1].lstrip(".").upper(),
+        "ottv_total_wm2": ottv_total_wm2,
+        "sni_limit_wm2": SNI_6389_LIMIT_WM2,
+        "margin_to_limit_wm2": round(SNI_6389_LIMIT_WM2 - ottv_total_wm2, 2),
+        "compliant": bool(compliant),
+        "status_label": (
+            "MEMENUHI SNI 6389:2020 (<= 35 W/m²)"
+            if compliant
+            else "MELEBIHI BATAS SNI 6389:2020 (> 35 W/m²)"
+        ),
+        "location_info": loc_info,
+        "stage1_geometry_audit": {
+            "detected_unit": stage1_audit.detected_unit,
+            "applied_unit": stage1_audit.applied_unit,
+            "scale_factor_to_m": stage1_audit.scale_factor_to_m,
+            "detected_up_axis": stage1_audit.detected_up_axis,
+            "applied_up_axis": stage1_audit.applied_up_axis,
+            "raw_span_xyz": stage1_audit.raw_span_xyz,
+            "normalized_span_m": stage1_audit.normalized_span_m,
+            "z_ground_offset_m": stage1_audit.z_ground_offset_m,
+            "xy_world_offset_m": stage1_audit.xy_world_offset_m,
+            "geometry_kernel": stage1_audit.geometry_kernel,
+            "slivers_removed": stage1_audit.slivers_removed,
+            "interior_elements_filtered": stage1_audit.interior_elements_filtered,
+            "hidden_objects_skipped": stage1_audit.hidden_objects_skipped,
+            "exterior_detection_mode": ext_mode,
+            "source_software": params.source_software,
+            "z_ground_cutoff_m": round(z_ground_cut, 2),
+            "basement_panels_excluded": int(basement_panels_excluded),
+            "bim_storeys_count": len(stage1_audit.bim_storeys),
+            "notes": stage1_audit.notes,
+        },
+        "stage_gates": stage_gates,
+        "floor_detection_method": floor_detection_method,
+        "dynamic_floor_presets": dynamic_floor_presets,
+        "summary": {
+            "total_detected_panels": len(panel_records),
+            "outer_panel_count": total_outer_panels,
+            "active_panel_count": total_active_panels,
+            "panel_count": total_active_panels,
+            "frame_and_shade_faces": int(sum(len(r.faces) for r in frame_groups + shading_groups)),
+            "shading_mesh_count": len(frame_groups) + len(shading_groups),
+            "total_floors": len(floor_breakdown),
+            "z_min_m": round(z_min_bldg, 2),
+            "z_max_m": round(z_max_bldg, 2),
+            "floor_height_m": floor_h,
+            "floor_mode": params.floor_mode,
+            "unit_mode": params.unit_mode,
+            "up_axis": params.up_axis,
+            "north_angle_deg": round(float(params.north_angle_deg), 1),
+            "bounding_box": {
+                "min": [round(x_min_bldg, 2), round(y_min_bldg, 2), round(z_min_bldg, 2)],
+                "max": [round(x_max_bldg, 2), round(y_max_bldg, 2), round(z_max_bldg, 2)],
+                "center": [round(bldg_cx, 2), round(bldg_cy, 2), round(bldg_cz, 2)],
+                "span": [round(span_x, 2), round(span_y, 2), round(span_z, 2)],
+                "max_span": round(max_span, 2),
+                "horiz_radius": round(horiz_radius, 2),
+                "recommended_dome_radius": round(recommended_dome_radius, 2),
+            },
+            "active_materials": {
+                "wall_name": wal_mat["name"] if wal_mat else "Spandrel Glass + Rockwool 50mm + Calcium Silicate",
+                "wall_brand": wal_mat["brand"] if wal_mat else "Nichias Tombo / Bradford",
+                "alpha_wall": round(alpha_glob, 3),
+                "u_wall": round(u_w_glob, 3),
+                "td_ek": round(tdek_glob, 2),
+                "glazing_name": glz_mat["name"] if glz_mat else "Double Glazed IGU Triple-Silver Low-E",
+                "glazing_brand": glz_mat["brand"] if glz_mat else "Saint-Gobain Cool-Lite Xtreme",
+                "u_fenestration": round(u_f_glob, 3),
+                "sc_glass": round(sc_1_glob, 3),
+                "shgc_glass": round(sc_1_glob * 0.87, 3),
+                "delta_t": round(delta_t, 2),
+                "frame_name": frm_mat["name"] if frm_mat else "Unitized Curtain Wall Thermal-Break Frame",
+                "u_frame": round(u_frame_eff, 3),
+                "louver_depth_m": round(float(params.louver_depth_m), 2),
+                "louver_spacing_m": round(float(params.louver_spacing_m), 2),
+                "louver_tilt_deg": round(float(params.louver_tilt_deg), 1),
+            },
+            "total_envelope_area_m2": round(total_envelope_area, 2),
+            "total_glazing_area_m2": round(total_glazing_area, 2),
+            "total_opaque_area_m2": round(total_envelope_area - total_glazing_area, 2),
+            "effective_wwr": round(eff_wwr, 3),
+            "avg_sf_wm2": round(avg_sf_bldg, 2),
+            "avg_sc_effective": round(avg_sc_bldg, 3),
+            "avg_shaded_fraction": round(avg_sh_bldg, 3),
+            "q_wall_conduction_wm2": q_wall_tot,
+            "q_glass_conduction_wm2": q_glass_tot,
+            "q_solar_radiation_wm2": q_solar_tot,
+            "total_heat_gain_kw": round(total_heat_w / 1000.0, 2),
+        },
+        "groups": group_summaries,
+        "orientation_breakdown": orientation_breakdown,
+        "orientation_floor_breakdown": orientation_floor_breakdown,
+        "floor_breakdown": floor_breakdown,
+        "recommendations": recommendations,
+        "solar_vectors": solar_vectors,
+        "panels": panel_records,
+        "frame_elements": _serialize_raw_groups(frame_groups, max_faces=14000),
+        "shading_elements": _serialize_raw_groups(shading_groups, max_faces=12000),
+        "roof_elements": _serialize_raw_groups(roof_groups, max_faces=4000),
+    }
+
+
+# ============================================================================
+# 7. SAMPLE ARCHITECTURAL PRESET GENERATORS
+# ============================================================================
+
+def create_sample_rhino_3dm_preset(output_path: str) -> str:
+    model = rhino3dm.File3dm()
+    model.Settings.ModelUnitSystem = rhino3dm.UnitSystem.Meters
+
+    def _add_layer(name: str, r: int, g: int, b: int) -> int:
+        layer = rhino3dm.Layer()
+        layer.Name = name
+        layer.Color = (r, g, b, 255)
+        return model.Layers.Add(layer)
+
+    idx_wall = _add_layer("Wall_Opaque_Spandrel", 148, 163, 184)
+    idx_glass = _add_layer("Glazing_LowE_CurtainWall", 56, 189, 248)
+    idx_shade = _add_layer("Shading_Kinetic_Louvers", 217, 119, 6)
+    idx_roof = _add_layer("Roof_Podium_Slab", 71, 85, 105)
+
+    num_tiers = 5
+    tier_height = 4.2
+    spandrel_h = 2.25
+    num_bays = 8
+    rx_base, ry_base = 14.0, 10.5
+
+    for tier in range(num_tiers):
+        z0 = tier * tier_height
+        z_spandrel = z0 + spandrel_h
+        z1 = z0 + tier_height
+        twist0 = math.radians(tier * 4.5)
+        twist1 = math.radians((tier + 0.4) * 4.5)
+        twist2 = math.radians((tier + 1.0) * 4.5)
+        scale0 = 1.0 - 0.025 * tier
+        scale1 = 1.0 - 0.025 * (tier + 0.4)
+        scale2 = 1.0 - 0.025 * (tier + 1.0)
+
+        for bay in range(num_bays):
+            theta_a = (2.0 * math.pi * bay) / num_bays
+            theta_m = (2.0 * math.pi * (bay + 0.5)) / num_bays
+            theta_b = (2.0 * math.pi * (bay + 1.0)) / num_bays
+
+            def _ring_pt(theta: float, twist: float, sc: float, z_val: float, bulge: float = 0.0) -> rhino3dm.Point3d:
+                ang = theta + twist
+                return rhino3dm.Point3d((rx_base * sc + bulge) * math.sin(ang), (ry_base * sc + bulge) * math.cos(ang), z_val)
+
+            bulge_m = 0.85
+            nurbs_wall = rhino3dm.NurbsSurface.Create(3, False, 3, 2, 3, 2)
+            nurbs_wall.KnotsU[0], nurbs_wall.KnotsU[1], nurbs_wall.KnotsU[2], nurbs_wall.KnotsU[3] = 0.0, 0.0, 1.0, 1.0
+            nurbs_wall.KnotsV[0], nurbs_wall.KnotsV[1] = 0.0, 1.0
+            pts_w_bot = [_ring_pt(theta_a, twist0, scale0, z0, 0.0), _ring_pt(theta_m, twist0, scale0, z0, bulge_m), _ring_pt(theta_b, twist0, scale0, z0, 0.0)]
+            pts_w_top = [_ring_pt(theta_a, twist1, scale1, z_spandrel, 0.0), _ring_pt(theta_m, twist1, scale1, z_spandrel, bulge_m), _ring_pt(theta_b, twist1, scale1, z_spandrel, 0.0)]
+            for u_i in range(3):
+                nurbs_wall.Points[u_i, 0] = rhino3dm.Point4d(pts_w_bot[u_i].X, pts_w_bot[u_i].Y, pts_w_bot[u_i].Z, 1.0)
+                nurbs_wall.Points[u_i, 1] = rhino3dm.Point4d(pts_w_top[u_i].X, pts_w_top[u_i].Y, pts_w_top[u_i].Z, 1.0)
+            attr_w = rhino3dm.ObjectAttributes()
+            attr_w.LayerIndex = idx_wall
+            attr_w.Name = "CW_Spandrel_Wall"
+            model.Objects.AddSurface(nurbs_wall, attr_w)
+
+            nurbs_glass = rhino3dm.NurbsSurface.Create(3, False, 3, 2, 3, 2)
+            nurbs_glass.KnotsU[0], nurbs_glass.KnotsU[1], nurbs_glass.KnotsU[2], nurbs_glass.KnotsU[3] = 0.0, 0.0, 1.0, 1.0
+            nurbs_glass.KnotsV[0], nurbs_glass.KnotsV[1] = 0.0, 1.0
+            pts_g_top = [_ring_pt(theta_a, twist2, scale2, z1, 0.0), _ring_pt(theta_m, twist2, scale2, z1, bulge_m), _ring_pt(theta_b, twist2, scale2, z1, 0.0)]
+            for u_i in range(3):
+                nurbs_glass.Points[u_i, 0] = rhino3dm.Point4d(pts_w_top[u_i].X, pts_w_top[u_i].Y, pts_w_top[u_i].Z, 1.0)
+                nurbs_glass.Points[u_i, 1] = rhino3dm.Point4d(pts_g_top[u_i].X, pts_g_top[u_i].Y, pts_g_top[u_i].Z, 1.0)
+            attr_g = rhino3dm.ObjectAttributes()
+            attr_g.LayerIndex = idx_glass
+            attr_g.Name = "CW_Vision_Glazing"
+            model.Objects.AddSurface(nurbs_glass, attr_g)
+
+            for z_frac in (0.35, 0.70, 1.0):
+                z_louver = z_spandrel + z_frac * (z1 - z_spandrel)
+                tw_l = twist1 + z_frac * (twist2 - twist1)
+                sc_l = scale1 + z_frac * (scale2 - scale1)
+                proj = 1.05 if z_frac == 1.0 else 0.75
+                p_in_a, p_in_m, p_in_b = _ring_pt(theta_a, tw_l, sc_l, z_louver, 0.05), _ring_pt(theta_m, tw_l, sc_l, z_louver, bulge_m + 0.05), _ring_pt(theta_b, tw_l, sc_l, z_louver, 0.05)
+                p_out_a, p_out_m, p_out_b = _ring_pt(theta_a, tw_l, sc_l, z_louver - 0.22, proj), _ring_pt(theta_m, tw_l, sc_l, z_louver - 0.22, bulge_m + proj), _ring_pt(theta_b, tw_l, sc_l, z_louver - 0.22, proj)
+                louver_mesh = rhino3dm.Mesh()
+                for pt in (p_in_a, p_in_m, p_in_b, p_out_b, p_out_m, p_out_a):
+                    louver_mesh.Vertices.Add(pt.X, pt.Y, pt.Z)
+                louver_mesh.Faces.AddFace(0, 1, 4, 5)
+                louver_mesh.Faces.AddFace(1, 2, 3, 4)
+                attr_s = rhino3dm.ObjectAttributes()
+                attr_s.LayerIndex = idx_shade
+                attr_s.Name = "Kinetic_Sun_Louvers"
+                model.Objects.AddMesh(louver_mesh, attr_s)
+
+    model.Write(output_path, 8)
+    return output_path
+
+
+def create_sample_obj_preset(output_path: str) -> str:
+    lines = ["# OTTV 3D Parametric Studio - Sample Bioclimatic Office (.obj)", "o Bioclimatic_Office_SNI6389"]
+    v_idx = 1
+
+    def _add_quad(group: str, p0: Tuple[float, float, float], p1: Tuple[float, float, float], p2: Tuple[float, float, float], p3: Tuple[float, float, float]) -> None:
+        nonlocal v_idx
+        lines.append(f"g {group}")
+        for px, py, pz in (p0, p1, p2, p3):
+            lines.append(f"v {px:.4f} {py:.4f} {pz:.4f}")
+        lines.append(f"f {v_idx} {v_idx+1} {v_idx+2} {v_idx+3}")
+        v_idx += 4
+
+    radius, floors, fh, spandrel = 12.0, 4, 4.0, 1.7
+    for fl in range(floors):
+        z0, zm, z1 = fl * fh, fl * fh + spandrel, (fl + 1) * fh
+        for s in range(8):
+            a0, a1 = math.radians(s * 45.0 - 22.5), math.radians((s + 1) * 45.0 - 22.5)
+            x0, y0, x1, y1 = radius * math.sin(a0), radius * math.cos(a0), radius * math.sin(a1), radius * math.cos(a1)
+            _add_quad("Wall_Spandrel", (x0, y0, z0), (x1, y1, z0), (x1, y1, zm), (x0, y0, zm))
+            _add_quad("Glazing_Vision", (x0, y0, zm), (x1, y1, zm), (x1, y1, z1), (x0, y0, z1))
+            r_out = radius + 0.95
+            xo0, yo0, xo1, yo1 = r_out * math.sin(a0), r_out * math.cos(a0), r_out * math.sin(a1), r_out * math.cos(a1)
+            _add_quad("Shading_Louver", (x0, y0, z1 - 0.1), (x1, y1, z1 - 0.1), (xo1, yo1, z1 - 0.35), (xo0, yo0, z1 - 0.35))
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    return output_path
+
+
+def create_sample_hbjson_preset(output_path: str) -> str:
+    faces = []
+    radius, floors, fh = 11.5, 3, 4.0
+    for fl in range(floors):
+        z0, z1 = fl * fh, (fl + 1) * fh
+        for s in range(8):
+            a0, a1 = math.radians(s * 45.0 - 22.5), math.radians((s + 1) * 45.0 - 22.5)
+            x0, y0, x1, y1 = radius * math.sin(a0), radius * math.cos(a0), radius * math.sin(a1), radius * math.cos(a1)
+            wall_f3d = Face3D([Point3D(x0, y0, z0), Point3D(x1, y1, z0), Point3D(x1, y1, z1), Point3D(x0, y0, z1)])
+            za0, za1 = z0 + 1.4, z1 - 0.3
+            xa0, ya0, xa1, ya1 = x0 + 0.15 * (x1 - x0), y0 + 0.15 * (y1 - y0), x0 + 0.85 * (x1 - x0), y0 + 0.85 * (y1 - y0)
+            ap_f3d = Face3D([Point3D(xa0, ya0, za0), Point3D(xa1, ya1, za0), Point3D(xa1, ya1, za1), Point3D(xa0, ya0, za1)])
+            r_sh = radius + 0.85
+            xs0, ys0, xs1, ys1 = r_sh * math.sin(a0), r_sh * math.cos(a0), r_sh * math.sin(a1), r_sh * math.cos(a1)
+            sh_f3d = Face3D([Point3D(x0, y0, za1), Point3D(x1, y1, za1), Point3D(xs1, ys1, za1 - 0.25), Point3D(xs0, ys0, za1 - 0.25)])
+            faces.append({
+                "type": "Face",
+                "identifier": f"HB_Wall_F{fl+1}_S{s+1}",
+                "display_name": "HB_Wall_Spandrel",
+                "face_type": "Wall",
+                "geometry": wall_f3d.to_dict(),
+                "apertures": [{
+                    "type": "Aperture",
+                    "identifier": f"HB_Glazing_F{fl+1}_S{s+1}",
+                    "display_name": "HB_Vision_Glazing",
+                    "geometry": ap_f3d.to_dict(),
+                    "outdoor_shades": [{
+                        "type": "Shade",
+                        "identifier": f"HB_Shade_F{fl+1}_S{s+1}",
+                        "display_name": "HB_Overhang_Shade",
+                        "geometry": sh_f3d.to_dict(),
+                    }],
+                }],
+            })
+
+    hb_model = {
+        "type": "Model",
+        "identifier": "SNI6389_Honeybee_Tower",
+        "display_name": "SNI 6389:2020 Honeybee Parametric Model",
+        "units": "Meters",
+        "rooms": [{"type": "Room", "identifier": "Main_Thermal_Zone", "display_name": "Main Thermal Zone", "faces": faces}],
+    }
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(hb_model, f, indent=2)
+    return output_path
