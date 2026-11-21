@@ -54,7 +54,10 @@ def test_project_config_v2_and_migrate_v1():
     cfg = ProjectConfig()
     assert cfg.version == 2
     assert cfg.model.unit_mode == "auto"
-    assert cfg.settings.mode == "simulasi"
+    assert cfg.settings.mode == "sni"
+    # Removed scalar thermal overrides must NOT exist on SettingsConfig
+    for removed in ("alpha_wall", "u_wall", "td_ek", "u_fenestration", "sc_glass", "u_frame", "delta_t"):
+        assert not hasattr(cfg.settings, removed), f"Scalar {removed} should be removed from SettingsConfig"
 
     legacy_v1 = {
         "model_id": "upload_tower_123456",
@@ -74,6 +77,9 @@ def test_project_config_v2_and_migrate_v1():
         "frame_width_threshold_m": 0.35,
         "city_preset": "surabaya",
         "custom_epw_info": {"city": "Custom City", "latitude_deg": -7.25},
+        "u_wall": 1.85,
+        "alpha_wall": 0.55,
+        "td_ek": 12.0,
     }
     migrated = migrate_v1(legacy_v1)
     assert isinstance(migrated, ProjectConfig)
@@ -88,6 +94,18 @@ def test_project_config_v2_and_migrate_v1():
     assert migrated.settings.city_preset == "surabaya"
     assert migrated.settings.custom_epw == {"city": "Custom City", "latitude_deg": -7.25}
     assert migrated.advanced.frame_width_threshold_m == 0.35
+    # Legacy custom wall scalars migrated into settings.custom_materials
+    assert migrated.settings.wall_material_id == "migrated_wall_custom"
+    assert any(cm.id == "migrated_wall_custom" and cm.u_value == 1.85 for cm in migrated.settings.custom_materials)
+
+    # Also test migrating an early v2 config that still had scalar fields
+    early_v2 = {
+        "version": 2,
+        "settings": {"city_preset": "jakarta", "u_fenestration": 2.4, "sc_glass": 0.45, "delta_t": 5.0},
+    }
+    mig_v2 = migrate_v1(early_v2)
+    assert mig_v2.settings.glazing_material_id == "migrated_glazing_custom"
+    assert any(cm.id == "migrated_glazing_custom" and cm.sc == 0.45 for cm in mig_v2.settings.custom_materials)
 
     # Round-trip v2 dict stays v2
     migrated_again = migrate_v1(migrated.model_dump(mode="json"))
@@ -95,37 +113,60 @@ def test_project_config_v2_and_migrate_v1():
 
 
 def test_resolve_material_priority_rule():
+    from config_schema import CustomMaterialSpec
+
     cfg = ProjectConfig(
         roles=RolesConfig(
             group_material_map={"Glass_Group_A": "glz_asahimas_panasap_grey_8"},
         ),
         settings=SettingsConfig(
             glazing_material_id="glz_asahimas_stopsol_supersilver_8",
-            wall_material_id="wal_aac_hebel_100_bright",
+            wall_material_id="custom_wall_project",
+            custom_materials=[
+                CustomMaterialSpec(
+                    id="custom_wall_project",
+                    name="Dinding Bata Kustom",
+                    category="wall",
+                    u_value=1.50,
+                    alpha=0.50,
+                    massa_kg_m2=160.0,
+                    sumber="Uji Lab Proyek",
+                    status="datasheet",
+                )
+            ],
             orientation_material_overrides={"B": "glz_saint_gobain_cool_lite_skn154"},
         ),
     )
 
-    # Priority 1: Orientation override beats group override and role default
+    # Priority 1: Group override beats orientation override and role default!
     r1 = resolve_material("Glass_Group_A", cfg, category="glazing", orientation_code="B")
-    assert r1["material_id"] == "glz_saint_gobain_cool_lite_skn154"
-    assert r1["source"] == "orientation_override"
+    assert r1["material_id"] == "glz_asahimas_panasap_grey_8"
+    assert r1["source"] == "group_override"
 
-    # Priority 2: Group override beats role default
-    r2 = resolve_material("Glass_Group_A", cfg, category="glazing", orientation_code="U")
-    assert r2["material_id"] == "glz_asahimas_panasap_grey_8"
-    assert r2["source"] == "group_override"
+    # Priority 2: Orientation override beats role default when group has no override
+    r2 = resolve_material("Generic_Glazing", cfg, category="glazing", orientation_code="B")
+    assert r2["material_id"] == "glz_saint_gobain_cool_lite_skn154"
+    assert r2["source"] == "orientation_override"
 
-    # Priority 3: Role default applies directly without any use_global_slider_override
+    # Priority 3: Role default (including per-model custom_materials!) applies directly
     r3 = resolve_material("Generic_Glazing", cfg, category="glazing", orientation_code="U")
     assert r3["material_id"] == "glz_asahimas_stopsol_supersilver_8"
     assert r3["source"] == "role_default"
 
-    # Priority 4: Suggestion when role default is None
+    r3_custom = resolve_material("Generic_Wall", cfg, category="wall", orientation_code="U")
+    assert r3_custom["material_id"] == "custom_wall_project"
+    assert r3_custom["material"]["td_ek"] == 12.0
+    assert r3_custom["source"] == "role_default"
+
+    # Priority 4: Name-based suggestion when role default is None
     cfg_no_default = ProjectConfig(settings=SettingsConfig(glazing_material_id=None))
     r4 = resolve_material("Kaca_Indoflo_Clear", cfg_no_default, category="glazing")
     assert r4["material_id"] == "glz_asahimas_indoflo_clear_8"
     assert r4["source"] == "suggested"
+
+    # Priority 5: Built-in catalog default fallback when role default is None & name unmatched
+    r5 = resolve_material("Panel_Kaca_Umum", cfg_no_default, category="glazing")
+    assert r5["source"] == "fallback"
 
 
 def test_inspect_is_strictly_readonly_does_not_write_files(isolated_client):

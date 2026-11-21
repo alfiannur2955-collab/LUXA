@@ -23,8 +23,11 @@ def generate_csv_report(analysis: Dict[str, Any]) -> bytes:
     buf = io.StringIO()
     writer = csv.writer(buf)
 
-    writer.writerow(["LAPORAN PERHITUNGAN OTTV SELUBUNG BANGUNAN — SNI 6389:2020"])
+    is_comp = bool(analysis.get("is_compliance", True))
+    mode_tag = "" if is_comp else " [EKSPLORASI — BUKAN UNTUK KEPATUHAN]"
+    writer.writerow([f"Laporan Perhitungan OTTV mengacu SNI 6389:2020{mode_tag}"])
     writer.writerow(["Tanggal Evaluasi", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+    writer.writerow(["Mode Perhitungan", analysis.get("mode_label", "Kepatuhan SNI 6389:2020")])
     writer.writerow(["File Model 3D", analysis.get("filename", "-"), "Format", analysis.get("format", "-")])
     loc = analysis.get("location_info", {})
     writer.writerow(["Lokasi / Cuaca EPW", loc.get("city", "Jakarta"), "Latitude", loc.get("latitude_deg", -6.21)])
@@ -140,17 +143,14 @@ def generate_csv_report(analysis: Dict[str, Any]) -> bytes:
 
 def generate_excel_report(analysis: Dict[str, Any]) -> bytes:
     """
-    Generates an official PUPR-compliant multi-sheet .xlsx workbook:
-    'BUILDING ENVELOPE COMPLIANCE FORM V2.0 (SNI 6389:2020)'
+    Generates a multi-sheet .xlsx report:
+    'Laporan Perhitungan OTTV mengacu SNI 6389:2020'
     Sheets:
       1..8: UTARA, TIMUR LAUT, TIMUR, TENGGARA, SELATAN, BARAT DAYA, BARAT, BARAT LAUT
-            (with TABEL 1 Wall, TABEL 2 Fenestration, TABEL 3/4/5 Shading, TABEL 6 Metode 2
-             Floor-by-Floor Identification, TABEL 7 Wall Conduction, TABEL 8 Glass Conduction,
-             TABEL 9 Solar Radiation — all using live Excel formulas!)
-      9:    SUMMARY OTTV (8-side summary linked via live Excel formulas, COMPLY? YES/NO,
-             narrative conclusion, and WWR per side table)
-      10:   BACK OFFICE (Composite Wall R/U-value tables EW 1..4, City SF table, Shading reference)
-      11:   LAMPIRAN 3D PANEL (Smart Floor Sectioning & Detailed 3D Panel Raycast Audit)
+      9:    SUMMARY OTTV (8-side summary + WWR + provisional/exploration warnings)
+      10:   Hitungan Manual (per-orientation Ao, WWR, Uw, alpha, TDek, Uf, SC, SF + formula substitution + RTTV)
+      11:   BACK OFFICE (Composite Wall R/U-value tables & SNI Tabel 8 SF)
+      12:   LAMPIRAN 3D PANEL (Smart Floor Sectioning & Detailed 3D Panel Audit)
     """
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -202,15 +202,24 @@ def generate_excel_report(analysis: Dict[str, Any]) -> bytes:
     louver_h = float(mats.get("louver_spacing_m", 1.10))
     louver_tilt = float(mats.get("louver_tilt_deg", 22.0))
 
+    is_compliance_xl = bool(analysis.get("is_compliance", True))
+    report_title_xl = (
+        "Laporan Perhitungan OTTV mengacu SNI 6389:2020"
+        if is_compliance_xl
+        else "Laporan Perhitungan OTTV mengacu SNI 6389:2020 — Mode Eksplorasi (Bukan untuk Kepatuhan)"
+    )
+
+    from sni_tables import get_sf_table8, normalize_sni_city_key
+    sni_city_k = normalize_sni_city_key(loc.get("id") or loc.get("city") or "jakarta")
     pupr_orientations = [
-        ("U",   "UTARA",      130.0),
-        ("TL",  "TIMUR LAUT", 113.0),
-        ("T",   "TIMUR",      112.0),
-        ("TGR", "TENGGARA",   97.0),
-        ("S",   "SELATAN",    97.0),
-        ("BD",  "BARAT DAYA", 176.0),
-        ("B",   "BARAT",      243.0),
-        ("BL",  "BARAT LAUT", 211.0),
+        ("U",   "UTARA",      get_sf_table8(sni_city_k, "U")),
+        ("TL",  "TIMUR LAUT", get_sf_table8(sni_city_k, "TL")),
+        ("T",   "TIMUR",      get_sf_table8(sni_city_k, "T")),
+        ("TGR", "TENGGARA",   get_sf_table8(sni_city_k, "TGR")),
+        ("S",   "SELATAN",    get_sf_table8(sni_city_k, "S")),
+        ("BD",  "BARAT DAYA", get_sf_table8(sni_city_k, "BD")),
+        ("B",   "BARAT",      get_sf_table8(sni_city_k, "B")),
+        ("BL",  "BARAT LAUT", get_sf_table8(sni_city_k, "BL")),
     ]
 
     ori_map = {r["code"]: r for r in analysis.get("orientation_breakdown", [])}
@@ -268,7 +277,7 @@ def generate_excel_report(analysis: Dict[str, Any]) -> bytes:
 
         # --- HEADER BLOCK (Rows 1..6) ---
         ws.merge_cells("B1:P1")
-        ws["B1"] = "BUILDING ENVELOPE COMPLIANCE FORM V2.0 — SNI 6389:2020 (KEMENTERIAN PUPR)"
+        ws["B1"] = report_title_xl
         ws["B1"].fill = pupr_navy
         ws["B1"].font = f_title
         ws["B1"].alignment = Alignment(horizontal="left", vertical="center")
@@ -709,11 +718,11 @@ def generate_excel_report(analysis: Dict[str, Any]) -> bytes:
             ws.column_dimensions[col_l].width = w_val
 
     # =========================================================================
-    # SHEET 9: SUMMARY OTTV (Official PUPR Summary Sheet)
+    # SHEET 9: SUMMARY OTTV
     # =========================================================================
     ws_sum = wb.create_sheet(title="SUMMARY OTTV")
     ws_sum.merge_cells("B1:H1")
-    ws_sum["B1"] = "BUILDING ENVELOPE COMPLIANCE FORM V2.0 — SUMMARY OTTV (SNI 6389:2020)"
+    ws_sum["B1"] = f"{report_title_xl} — RINGKASAN OTTV"
     ws_sum["B1"].fill = pupr_navy
     ws_sum["B1"].font = f_title
 
@@ -804,10 +813,14 @@ def generate_excel_report(analysis: Dict[str, Any]) -> bytes:
     is_prov_xl = bool(s.get("is_provisional", False))
     warnings_xl = s.get("warnings") or analysis.get("warnings") or []
 
-    ws_sum["F21"] = "COMPLY? (KEPATUHAN SNI 6389:2020)"
+    ws_sum["F21"] = "STATUS KEPATUHAN SNI 6389:2020"
     ws_sum["F21"].font = f_bold
     if is_prov_xl:
         ws_sum["G21"] = "HASIL SEMENTARA — perlu konfirmasi"
+        ws_sum["G21"].font = f_bold
+        ws_sum["G21"].fill = pupr_amber
+    elif not is_compliance_xl:
+        ws_sum["G21"] = "EKSPLORASI — bukan untuk kepatuhan"
         ws_sum["G21"].font = f_bold
         ws_sum["G21"].fill = pupr_amber
     else:
@@ -823,6 +836,12 @@ def generate_excel_report(analysis: Dict[str, Any]) -> bytes:
         ws_sum["B23"] = (
             '="HASIL SEMENTARA — perlu konfirmasi: Perhitungan OTTV memperoleh nilai sementara sebesar " '
             '& ROUND(H18,2) & " Watt/m2. Mohon selesaikan peringatan pada tabel di bawah sebelum menyatakan kepatuhan SNI 6389:2020."'
+        )
+        ws_sum["B23"].fill = pupr_amber
+    elif not is_compliance_xl:
+        ws_sum["B23"] = (
+            '="MODE EKSPLORASI — bukan untuk kepatuhan: Simulasi memperoleh nilai OTTV sebesar " '
+            '& ROUND(H18,2) & " Watt/m2. Gunakan mode Kepatuhan SNI untuk evaluasi formal SNI 6389:2020."'
         )
         ws_sum["B23"].fill = pupr_amber
     else:
@@ -908,7 +927,133 @@ def generate_excel_report(analysis: Dict[str, Any]) -> bytes:
         ws_sum.column_dimensions[col_l].width = w_val
 
     # =========================================================================
-    # SHEET 10: BACK OFFICE (PUPR Material R-Value & SF Lookup Tables)
+    # SHEET 10: HITUNGAN MANUAL (SNI 6389:2020 — Langkah Substitusi Rumus)
+    # =========================================================================
+    ws_man = wb.create_sheet(title="Hitungan Manual")
+    ws_man.merge_cells("B1:Q1")
+    ws_man["B1"] = f"{report_title_xl} — LEMBAR HITUNGAN MANUAL"
+    ws_man["B1"].fill = pupr_navy
+    ws_man["B1"].font = f_title
+    ws_man["B1"].alignment = Alignment(horizontal="left", vertical="center")
+
+    ws_man.merge_cells("B2:Q2")
+    ws_man["B2"] = (
+        f"Kota (Tabel 8): {city_name} | Mode: {analysis.get('mode_label', 'Kepatuhan SNI 6389:2020')} | "
+        "Rumus Pasal 4.2.2.1: OTTV_i = [α × Uw × (1 - WWR) × TDek] + [Uf × WWR × ΔT] + [SF × WWR × SC]"
+    )
+    ws_man["B2"].fill = pupr_amber
+    ws_man["B2"].font = f_bold
+
+    man_headers = [
+        "Orientasi", "Ao (m²)", "WWR", "α", "Uw (W/m²K)", "TDek (K)",
+        "Uf (W/m²K)", "ΔT (K)", "SCk", "SCeff", "SC", "SF (W/m²)",
+        "Q Dinding", "Q Kaca", "Q Surya", "OTTV_i (W/m²)", "Substitusi Rumus"
+    ]
+    for idx_c, h_txt in enumerate(man_headers, start=2):
+        c_let = get_column_letter(idx_c)
+        ws_man[f"{c_let}4"] = h_txt
+        ws_man[f"{c_let}4"].fill = pupr_sub
+        ws_man[f"{c_let}4"].font = f_tbl_hdr
+        ws_man[f"{c_let}4"].border = bdr_thin
+        ws_man[f"{c_let}4"].alignment = Alignment(horizontal="center", wrap_text=True)
+
+    sum_ao_man = 0.0
+    sum_ao_ottv_man = 0.0
+    for idx_m, (code, sh_name, _) in enumerate(pupr_orientations, start=5):
+        ob = ori_map.get(code, {})
+        mc = ob.get("manual_calc") or {}
+        ao_v = float(mc.get("ao_m2", ob.get("total_area_m2", 0.0)))
+        wwr_v = float(mc.get("wwr", ob.get("wwr", 0.0)))
+        alpha_v = float(mc.get("alpha", alpha_wall))
+        uw_v = float(mc.get("u_wall", u_wall))
+        tdek_v = float(mc.get("td_ek", td_ek))
+        uf_v = float(mc.get("u_f", u_fen))
+        dt_v = float(mc.get("delta_t", delta_t))
+        sck_v = float(mc.get("sc_k", sc_glass))
+        sceff_v = float(mc.get("sc_eff", 1.0))
+        sc_v = float(mc.get("sc", ob.get("avg_sc_effective", sc_glass)))
+        sf_v = float(mc.get("sf", ob.get("avg_sf_interpolated_wm2", 0.0)))
+        qw_v = float(mc.get("q_wall_wm2", ob.get("q_wall_conduction_wm2", 0.0)))
+        qg_v = float(mc.get("q_glass_wm2", ob.get("q_glass_conduction_wm2", 0.0)))
+        qs_v = float(mc.get("q_solar_wm2", ob.get("q_solar_radiation_wm2", 0.0)))
+        ottv_v = float(mc.get("ottv_wm2", ob.get("ottv_orientation_wm2", 0.0)))
+        subst_txt = str(mc.get("formula_substitution") or (
+            f"({alpha_v:.3f} × {uw_v:.2f} × (1 - {wwr_v:.3f}) × {tdek_v:.1f}) + "
+            f"({uf_v:.2f} × {wwr_v:.3f} × {dt_v:.1f}) + "
+            f"({sf_v:.1f} × {wwr_v:.3f} × {sc_v:.4f}) = {ottv_v:.2f} W/m²"
+            if ao_v > 0 else "Tidak ada bidang fasad"
+        ))
+        sum_ao_man += ao_v
+        sum_ao_ottv_man += ao_v * ottv_v
+
+        row_vals = [
+            f"{code} ({sh_name})", ao_v, wwr_v, alpha_v, uw_v, tdek_v,
+            uf_v, dt_v, sck_v, sceff_v, sc_v, sf_v,
+            qw_v, qg_v, qs_v, ottv_v, subst_txt
+        ]
+        for idx_c, val in enumerate(row_vals, start=2):
+            c_let = get_column_letter(idx_c)
+            ws_man[f"{c_let}{idx_m}"] = val
+            ws_man[f"{c_let}{idx_m}"].font = f_reg
+            ws_man[f"{c_let}{idx_m}"].border = bdr_thin
+        ws_man[f"D{idx_m}"].number_format = "0.0%"
+        ws_man[f"Q{idx_m}"].font = f_bold
+
+    # Row 13: Total OTTV formula (Pasal 4.2.2.3)
+    ottv_tot_man = (sum_ao_ottv_man / sum_ao_man) if sum_ao_man > 1e-4 else 0.0
+    ws_man["B13"] = "TOTAL OTTV GEDUNG (Pasal 4.2.2.3)"
+    ws_man["C13"] = round(sum_ao_man, 2)
+    ws_man["Q13"] = round(ottv_tot_man, 2)
+    ws_man["R13"] = f"Σ(Ao_i × OTTV_i) / ΣAo_i = {sum_ao_ottv_man:.2f} / {sum_ao_man:.2f} = {ottv_tot_man:.2f} W/m²"
+    for idx_c in range(2, 19):
+        c_let = get_column_letter(idx_c)
+        ws_man[f"{c_let}13"].fill = pupr_tot
+        ws_man[f"{c_let}13"].font = f_bold
+        ws_man[f"{c_let}13"].border = bdr_tot
+
+    # RTTV Manual Section (Pasal 4.4) if applicable
+    rttv_d = analysis.get("rttv") or {}
+    if rttv_d.get("applicable"):
+        ws_man.merge_cells("B15:R15")
+        ws_man["B15"] = "HITUNGAN MANUAL RTTV ATAP (SNI 6389:2020 Pasal 4.4)"
+        ws_man["B15"].fill = pupr_teal
+        ws_man["B15"].font = f_sec
+        r_hdrs = ["Ar Atap (m²)", "As Skylight (m²)", "Ao Total (m²)", "α Atap", "Ur (W/m²K)", "TDEQ (K)", "Us (W/m²K)", "SC Skylight", "SF Roof (W/m²)", "RTTV (W/m²)", "Batas SNI", "Status"]
+        for idx_c, h_txt in enumerate(r_hdrs, start=2):
+            c_let = get_column_letter(idx_c)
+            ws_man[f"{c_let}16"] = h_txt
+            ws_man[f"{c_let}16"].fill = pupr_sub
+            ws_man[f"{c_let}16"].font = f_tbl_hdr
+            ws_man[f"{c_let}16"].border = bdr_thin
+        r_vals = [
+            rttv_d.get("opaque_roof_area_m2", 0.0),
+            rttv_d.get("skylight_area_m2", 0.0),
+            rttv_d.get("total_roof_area_m2", 0.0),
+            rttv_d.get("alpha_roof", 0.0),
+            rttv_d.get("u_roof", 0.0),
+            rttv_d.get("td_eq_k", 0.0),
+            rttv_d.get("u_skylight", 0.0),
+            rttv_d.get("sc_skylight", 0.0),
+            rttv_d.get("sf_roof_wm2", 0.0),
+            rttv_d.get("rttv_wm2", 0.0),
+            rttv_d.get("limit_wm2", 10.0),
+            "MEMENUHI" if rttv_d.get("compliant") else "MELEBIHI",
+        ]
+        for idx_c, val in enumerate(r_vals, start=2):
+            c_let = get_column_letter(idx_c)
+            ws_man[f"{c_let}17"] = val
+            ws_man[f"{c_let}17"].font = f_bold if idx_c in (11, 13) else f_reg
+            ws_man[f"{c_let}17"].border = bdr_thin
+
+    for col_l, w_val in [
+        ("B", 22), ("C", 12), ("D", 10), ("E", 9), ("F", 11), ("G", 10),
+        ("H", 11), ("I", 9), ("J", 9), ("K", 10), ("L", 10), ("M", 11),
+        ("N", 11), ("O", 11), ("P", 11), ("Q", 14), ("R", 64),
+    ]:
+        ws_man.column_dimensions[col_l].width = w_val
+
+    # =========================================================================
+    # SHEET 11: BACK OFFICE (Material R-Value & SF Lookup Tables)
     # =========================================================================
     ws_bo = wb.create_sheet(title="BACK OFFICE")
     ws_bo["B1"] = "BACK OFFICE — PERHITUNGAN KONSTRUKSI DINDING KOMPOSIT (EW 1..EW 4) & TABEL ACUAN SNI 6389:2020"
@@ -1072,8 +1217,14 @@ def generate_pdf_report(analysis: Dict[str, Any]) -> bytes:
         spaceAfter=4,
     )
 
+    is_comp_pdf = bool(analysis.get("is_compliance", True))
+    pdf_title = (
+        "Laporan Perhitungan OTTV mengacu SNI 6389:2020"
+        if is_comp_pdf
+        else "Laporan Perhitungan OTTV mengacu SNI 6389:2020 — Mode Eksplorasi (Bukan untuk Kepatuhan)"
+    )
     elements: List[Any] = []
-    elements.append(Paragraph("LAPORAN TEKNIS PERHITUNGAN OTTV SELUBUNG BANGUNAN (SNI 6389:2020)", title_style))
+    elements.append(Paragraph(pdf_title, title_style))
     loc = analysis.get("location_info", {})
     elements.append(
         Paragraph(

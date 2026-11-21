@@ -2,12 +2,12 @@
 OTTV 3D Parametric Studio — Material Library & Indonesian EPW Weather Engine
 ============================================================================
 Provides:
-1. Extensive verified Architectural Material Catalog (Indonesian market brands +
-   conventional & advanced smart-facade technologies) for Glazing, Wall/Spandrel,
-   and Curtain Wall Frames.
+1. Architectural Material Catalog (Indonesian market brands + conventional &
+   advanced facade technologies) for Glazing, Wall/Spandrel, Roof, and Frames,
+   annotated with `massa_kg_m2`, `sumber`, and `status` (`datasheet` | `nilai_tipikal`).
 2. Custom Material registration and Category-to-Material template mapping.
-3. Intelligent SNI 6389:2020 Material Optimization & Brand Recommender.
-4. Indonesian Major Cities Climate Presets & EnergyPlus (.epw) Weather Parser.
+3. SNI 6389:2020 Material Optimization & Brand Recommender.
+4. Indonesian Cities Climate Presets (54 SNI 6389:2020 Tabel 8 cities) & EnergyPlus (.epw) Parser.
 """
 
 from __future__ import annotations
@@ -34,7 +34,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.92,
         "shgc": 0.80,
         "vlt": 0.87,
+        "massa_kg_m2": 20.0,
         "thickness_mm": 8.0,
+        "sumber": "Katalog Teknis PT Asahimas Flat Glass Tbk — Indoflo Clear 8mm",
+        "status": "datasheet",
         "market_availability": "Tersedia Luas di Indonesia",
         "description": "Kaca polos standar 8mm. Transmisi cahaya tinggi namun meneruskan panas surya sangat besar.",
     },
@@ -48,7 +51,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.60,
         "shgc": 0.52,
         "vlt": 0.48,
+        "massa_kg_m2": 20.0,
         "thickness_mm": 8.0,
+        "sumber": "Katalog Teknis PT Asahimas Flat Glass Tbk — Panasap 8mm",
+        "status": "datasheet",
         "market_availability": "Tersedia Luas di Indonesia",
         "description": "Kaca penyerap panas berwarna (Dark Grey/Euro Grey/Green) yang umum dipakai pada gedung komersial menengah.",
     },
@@ -62,7 +68,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.63,
         "shgc": 0.55,
         "vlt": 0.54,
+        "massa_kg_m2": 20.0,
         "thickness_mm": 8.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Tersedia Luas di Indonesia",
         "description": "Kaca warna produksi lokal Mulia Glass untuk reduksi silau matahari dan beban panas moderat.",
     },
@@ -76,7 +85,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.44,
         "shgc": 0.38,
         "vlt": 0.39,
+        "massa_kg_m2": 20.0,
         "thickness_mm": 8.0,
+        "sumber": "Katalog Teknis PT Asahimas Flat Glass Tbk — Stopsol Supersilver 8mm",
+        "status": "datasheet",
         "market_availability": "Tersedia Luas di Indonesia",
         "description": "Kaca reflektif berlapis oksida logam pirolitik tahan cuaca dengan pantulan radiasi surya tinggi.",
     },
@@ -90,7 +102,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.41,
         "shgc": 0.36,
         "vlt": 0.56,
+        "massa_kg_m2": 20.0,
         "thickness_mm": 8.0,
+        "sumber": "Katalog Teknis PT Asahimas Flat Glass Tbk — Sunergy 8mm",
+        "status": "datasheet",
         "market_availability": "Tersedia Luas di Indonesia",
         "description": "Kaca Low-E hard-coat produksi Asahimas yang dapat dipasang secara monolitik (single) maupun laminasi.",
     },
@@ -104,7 +119,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.31,
         "shgc": 0.27,
         "vlt": 0.48,
+        "massa_kg_m2": 30.0,
         "thickness_mm": 24.0,
+        "sumber": "Katalog Teknis PT Asahimas Flat Glass Tbk — Sunergy IGU 24mm",
+        "status": "datasheet",
         "market_availability": "Tersedia Luas di Indonesia",
         "description": "Unit kaca ganda (IGU) standar gedung perkantoran Grade-A di Jakarta & Surabaya; efektif menekan konduksi & radiasi.",
     },
@@ -118,7 +136,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.25,
         "shgc": 0.22,
         "vlt": 0.50,
+        "massa_kg_m2": 30.0,
         "thickness_mm": 24.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Tersedia di Indonesia (Proyek High-Rise)",
         "description": "Kaca IGU performa tinggi dengan selektivitas tinggi (VLT 50%, SC 0.25) untuk fasad curtain wall WWR besar.",
     },
@@ -132,7 +153,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.28,
         "shgc": 0.24,
         "vlt": 0.50,
+        "massa_kg_m2": 30.0,
         "thickness_mm": 24.0,
+        "sumber": "Saint-Gobain Glass Technical Datasheet — COOL-LITE SKN 154",
+        "status": "datasheet",
         "market_availability": "Tersedia di Indonesia (Distributor Resmi)",
         "description": "Kaca kontrol surya netral Saint-Gobain untuk bangunan hijau berstandar Greenship GBCI & BCA Green Mark.",
     },
@@ -146,7 +170,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.23,
         "shgc": 0.20,
         "vlt": 0.60,
+        "massa_kg_m2": 32.0,
         "thickness_mm": 26.0,
+        "sumber": "Saint-Gobain Glass Technical Datasheet — COOL-LITE XTREME 60/28",
+        "status": "datasheet",
         "market_availability": "Tersedia (Impor Proyek Premium Indonesia)",
         "description": "Teknologi kaca Triple-Silver mutakhir dengan rasio Light-to-Solar Gain (LSG = 2.14) sangat tinggi.",
     },
@@ -160,7 +187,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.33,
         "shgc": 0.29,
         "vlt": 0.49,
+        "massa_kg_m2": 30.0,
         "thickness_mm": 24.0,
+        "sumber": "Guardian Glass Technical Datasheet — SunGuard HP Neutral 50",
+        "status": "datasheet",
         "market_availability": "Tersedia di Pasar Asia Tenggara & Indonesia",
         "description": "Kaca Low-E sputtered regional ASEAN yang populer untuk menara komersial dengan tampilan netral.",
     },
@@ -174,7 +204,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.15,
         "shgc": 0.13,
         "vlt": 0.25,
+        "massa_kg_m2": 34.0,
         "thickness_mm": 26.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Teknologi Baru (Smart Building / Bandara / IKN)",
         "description": "Kaca pintar elektrokromik yang menggelap otomatis saat radiasi matahari terik (SC turun hingga 0.11-0.15).",
     },
@@ -188,7 +221,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.20,
         "shgc": 0.17,
         "vlt": 0.30,
+        "massa_kg_m2": 35.0,
         "thickness_mm": 28.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Teknologi Baru (Green Mark / Net-Zero Building)",
         "description": "Kaca fasad fotovoltaik semi-transparan untuk crown/skylight/curtain wall yang sekaligus memanen energi surya.",
     },
@@ -202,7 +238,10 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "sc": 0.28,
         "shgc": 0.24,
         "vlt": 0.45,
+        "massa_kg_m2": 34.0,
         "thickness_mm": 32.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Teknologi Baru Spesialis",
         "description": "Panel kaca berinsulasi nano-aerogel dengan difusi cahaya alami bebas silau dan U-value sangat rendah (0.65 W/m²K).",
     },
@@ -218,8 +257,11 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "technology": "Konstruksi Masonry Konvensional",
         "u_value": 2.55,
         "alpha": 0.65,
+        "massa_kg_m2": 260.0,
         "td_ek": 10.0,
         "thickness_mm": 150.0,
+        "sumber": "SNI 6389:2020 Tabel 5 & Tabel 7 (nilai tipikal pasangan bata merah 150mm)",
+        "status": "nilai_tipikal",
         "market_availability": "Tersedia Sangat Luas di Seluruh Indonesia",
         "description": "Dinding pasangan bata merah tradisional dengan plester semen-pasir dan cat warna sedang.",
     },
@@ -231,8 +273,11 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "technology": "Autoclaved Aerated Concrete (AAC)",
         "u_value": 1.42,
         "alpha": 0.52,
+        "massa_kg_m2": 140.0,
         "td_ek": 12.0,
         "thickness_mm": 115.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Standar Utama Gedung Tinggi di Indonesia",
         "description": "Dinding bata ringan pori mikro (AAC) dengan konduktivitas termal rendah (λ ≈ 0.14 W/mK).",
     },
@@ -244,8 +289,11 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "technology": "AAC + High-SRI Solar Reflective Coating",
         "u_value": 1.05,
         "alpha": 0.28,
+        "massa_kg_m2": 165.0,
         "td_ek": 12.0,
         "thickness_mm": 165.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Tersedia Luas di Indonesia",
         "description": "Kombinasi bata ringan 150mm dan cat pemantul inframerah (SRI tinggi, α = 0.28) yang memangkas konduksi dinding >60%.",
     },
@@ -257,8 +305,11 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "technology": "Spandrel Tanpa Insulasi (Generasi Lama)",
         "u_value": 3.10,
         "alpha": 0.68,
+        "massa_kg_m2": 35.0,
         "td_ek": 15.0,
         "thickness_mm": 50.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Umum pada Gedung Lama",
         "description": "Panel spandrel kaca dengan rongga udara dan plat aluminium belakang tanpa rockwool; konduksi panas tinggi.",
     },
@@ -270,8 +321,11 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "technology": "Insulated Spandrel Assembly",
         "u_value": 0.62,
         "alpha": 0.42,
+        "massa_kg_m2": 45.0,
         "td_ek": 15.0,
         "thickness_mm": 65.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Standar Gedung Hijau High-Rise Indonesia",
         "description": "Spandrel kaca berlapis mineral rockwool 50mm (Nichias Tombo) dan aluminium foil vapor barrier.",
     },
@@ -283,8 +337,11 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "technology": "Ventilated Rainscreen ACP + Thermal Insulation",
         "u_value": 0.55,
         "alpha": 0.36,
+        "massa_kg_m2": 145.0,
         "td_ek": 12.0,
         "thickness_mm": 175.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Tersedia Luas di Indonesia",
         "description": "Fasad Aluminium Composite Panel (PVDF Finish terang/silver) dengan rongga udara dan insulasi rockwool.",
     },
@@ -296,8 +353,11 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "technology": "Precast Architectural Concrete",
         "u_value": 2.85,
         "alpha": 0.60,
+        "massa_kg_m2": 288.0,
         "td_ek": 10.0,
         "thickness_mm": 120.0,
+        "sumber": "SNI 6389:2020 Tabel 5 & Tabel 7 (beton bertulang 120mm, ρ=2400 kg/m³)",
+        "status": "nilai_tipikal",
         "market_availability": "Tersedia Luas di Indonesia",
         "description": "Dinding pracetak beton bertulang massa berat (TD_ek = 10 K).",
     },
@@ -309,8 +369,11 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "technology": "Polyisocyanurate (PIR) High-R Panel",
         "u_value": 0.42,
         "alpha": 0.26,
+        "massa_kg_m2": 18.0,
         "td_ek": 15.0,
         "thickness_mm": 50.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Tersedia di Indonesia (Industri & Komersial Modern)",
         "description": "Panel insulasi PIR tertutup dengan baja lapis Colorbond Coolmax reflektansi tinggi.",
     },
@@ -322,8 +385,11 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "technology": "Phase Change Material (PCM) Latent Heat Storage",
         "u_value": 0.48,
         "alpha": 0.32,
+        "massa_kg_m2": 210.0,
         "td_ek": 10.0,
         "thickness_mm": 150.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Teknologi Baru (High-Performance Green Building)",
         "description": "Teknologi penyimpan panas laten (PCM titik leleh 25°C) yang meredam puncak gelombang panas siang hari.",
     },
@@ -340,6 +406,9 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "u_value": 5.80,
         "alpha": 0.45,
         "reflectance": 0.55,
+        "massa_kg_m2": 15.0,
+        "sumber": "SNI 6389:2020 Tabel 3 (Kusen alumunium/metal tanpa pemutus termal)",
+        "status": "datasheet",
         "market_availability": "Standar Utama Curtain Wall Indonesia",
         "description": "Profil rangka aluminium ekstrusi lokal tanpa pemutus jembatan termal (non-thermal break).",
     },
@@ -352,6 +421,9 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "u_value": 2.10,
         "alpha": 0.35,
         "reflectance": 0.65,
+        "massa_kg_m2": 18.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Tersedia untuk Proyek Premium di Indonesia",
         "description": "Profil mullion/transom dengan isolator poliamida yang memangkas konduksi panas rangka aluminium >60%.",
     },
@@ -364,8 +436,47 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
         "u_value": 1.80,
         "alpha": 0.30,
         "reflectance": 0.70,
+        "massa_kg_m2": 14.0,
+        "sumber": "",
+        "status": "nilai_tipikal",
         "market_availability": "Tersedia di Indonesia",
         "description": "Sirip peneduh matahari eksternal berbentuk aerofoil untuk mereduksi faktor bayangan SC_eff secara optimal.",
+    },
+
+    # ------------------------------------------------------------------------
+    # D. ROOF ASSEMBLIES (PENUTUP ATAP UNTUK RTTV PASAL 4.4)
+    # ------------------------------------------------------------------------
+    {
+        "id": "rf_dak_beton_120_insulasi",
+        "name": "Dak Beton Bertulang 120mm + Insulasi Rockwool 50mm + Waterproofing Cerah",
+        "brand": "Konstruksi Atap Beton Standar SNI",
+        "category": "roof",
+        "technology": "Insulated Concrete Roof Slab",
+        "u_value": 0.58,
+        "alpha": 0.50,
+        "massa_kg_m2": 288.0,
+        "td_ek": 16.0,
+        "thickness_mm": 180.0,
+        "sumber": "SNI 6389:2020 Tabel 1 (Atap putih α=0,50) & Tabel 9 (massa >230 kg/m² -> TD_EQ=16 K)",
+        "status": "nilai_tipikal",
+        "market_availability": "Standar Gedung Tinggi Indonesia",
+        "description": "Dak atap beton bertulang massa berat dengan lapisan insulasi termal dan pelapis kedap air cerah.",
+    },
+    {
+        "id": "rf_metal_insulasi_50",
+        "name": "Atap Metal Zincalume + Insulasi Glasswool/Rockwool 50mm + Aluminium Foil",
+        "brand": "BlueScope Lysaght / Standar SNI",
+        "category": "roof",
+        "technology": "Insulated Lightweight Metal Roof",
+        "u_value": 0.45,
+        "alpha": 0.26,
+        "massa_kg_m2": 25.0,
+        "td_ek": 24.0,
+        "thickness_mm": 60.0,
+        "sumber": "SNI 6389:2020 Tabel 1 (Seng putih α=0,26) & Tabel 9 (massa <50 kg/m² -> TD_EQ=24 K)",
+        "status": "nilai_tipikal",
+        "market_availability": "Tersedia Luas di Indonesia",
+        "description": "Atap metal ringan berinsulasi dengan reflektivitas tinggi (TD_EQ = 24 K sesuai Tabel 9).",
     },
 ]
 
@@ -373,13 +484,27 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
 CUSTOM_MATERIALS: List[Dict[str, Any]] = []
 
 
-def get_all_materials() -> List[Dict[str, Any]]:
-    return BUILTIN_MATERIALS + CUSTOM_MATERIALS
+def get_all_materials(extra_materials: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
+    mats = list(BUILTIN_MATERIALS) + list(CUSTOM_MATERIALS)
+    if extra_materials:
+        by_id = {m["id"]: m for m in mats}
+        for em in extra_materials:
+            if isinstance(em, dict) and em.get("id"):
+                by_id[em["id"]] = em
+        return list(by_id.values())
+    return mats
 
 
-def get_material_by_id(mat_id: Optional[str]) -> Optional[Dict[str, Any]]:
+def get_material_by_id(
+    mat_id: Optional[str],
+    extra_materials: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Dict[str, Any]]:
     if not mat_id:
         return None
+    if extra_materials:
+        for m in extra_materials:
+            if isinstance(m, dict) and m.get("id") == mat_id:
+                return m
     for m in get_all_materials():
         if m["id"] == mat_id:
             return m
@@ -387,10 +512,25 @@ def get_material_by_id(mat_id: Optional[str]) -> Optional[Dict[str, Any]]:
 
 
 def add_custom_material(data: Dict[str, Any]) -> Dict[str, Any]:
+    from sni_tables import get_tdek_roof, get_tdek_wall
+
     mat_id = data.get("id") or f"custom_{data.get('category', 'mat')}_{len(CUSTOM_MATERIALS) + 1:03d}"
     cat = data.get("category", "glazing").lower()
-    if cat not in ("glazing", "wall", "frame"):
+    if cat not in ("glazing", "wall", "frame", "roof"):
         cat = "glazing"
+
+    massa = float(data.get("massa_kg_m2", 150.0 if cat == "wall" else (250.0 if cat == "roof" else 25.0)))
+    sumber = str(data.get("sumber", "") or "").strip()
+    status = str(data.get("status") or ("datasheet" if sumber else "nilai_tipikal"))
+    if status not in ("datasheet", "nilai_tipikal"):
+        status = "datasheet" if sumber else "nilai_tipikal"
+
+    if cat == "wall":
+        td_ek_val: Optional[float] = get_tdek_wall(massa)
+    elif cat == "roof":
+        td_ek_val = get_tdek_roof(massa)
+    else:
+        td_ek_val = None
 
     new_mat: Dict[str, Any] = {
         "id": mat_id,
@@ -403,13 +543,15 @@ def add_custom_material(data: Dict[str, Any]) -> Dict[str, Any]:
         "shgc": round(float(data.get("sc", 0.35)) * 0.87, 3) if cat == "glazing" else None,
         "vlt": float(data.get("vlt", 0.50)) if cat == "glazing" else None,
         "alpha": float(data.get("alpha", 0.45)) if cat != "glazing" else None,
-        "td_ek": float(data.get("td_ek", 12.0)) if cat == "wall" else None,
+        "massa_kg_m2": massa,
+        "td_ek": td_ek_val,
+        "sumber": sumber,
+        "status": status,
         "thickness_mm": float(data.get("thickness_mm", 24.0)),
         "market_availability": data.get("market_availability", "Custom Project Spec"),
         "description": data.get("description", "Material kustom yang ditambahkan oleh pengguna."),
         "is_custom": True,
     }
-    # Replace if id exists
     for i, existing in enumerate(CUSTOM_MATERIALS):
         if existing["id"] == mat_id:
             CUSTOM_MATERIALS[i] = new_mat

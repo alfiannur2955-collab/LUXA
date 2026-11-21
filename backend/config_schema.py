@@ -1,19 +1,22 @@
 """
-OTTV 3D Parametric Studio — Single Source of Truth Configuration Schema (Fase 2)
-================================================================================
+OTTV 3D Parametric Studio — Single Source of Truth Configuration Schema (Fase 2 + Fase 3)
+=========================================================================================
 Defines Pydantic v2 `ProjectConfig` (version = 2) with 4 UX-aligned sections:
   - `model`    : file, unit_mode, up_axis, z_ground_cutoff_m, exterior_detection_mode,
                  outer_skin_only, restore_filtered
   - `roles`    : per-group roles, disabled_groups, group_wwr_map, group_material_map,
                  face overrides, Z-band overrides, auto-split settings
-  - `settings` : city_preset, custom_epw (stored per model!), mode ('sni' | 'simulasi'),
-                 materials per role, floor settings, north_angle_deg, design_month
+  - `settings` : city_preset, custom_epw (per model), mode ('sni' default | 'simulasi'),
+                 materials per role (glazing, wall, frame, roof), custom_materials list,
+                 floor settings, north_angle_deg, design_month
   - `advanced` : NURBS subdivision, parametric louvers, auto-split geometric thresholds
 
 Also provides:
-  - `migrate_v1(raw: dict) -> ProjectConfig`: migrates legacy v1 `.ottv.json` files
-  - `resolve_material(group, config, ...)`: single canonical material priority rule
-    (replaces the removed `use_global_slider_override` flag).
+  - `migrate_v1(raw: dict) -> ProjectConfig`: migrates legacy v1 and early v2 `.ottv.json`
+    (stripping removed scalar fields alpha_wall/u_wall/td_ek/u_fenestration/sc_glass/u_frame/delta_t
+    into `settings.custom_materials` when customized)
+  - `resolve_material(group, config, ...)`: single canonical material priority rule:
+    override grup > override orientasi > default peran > saran nama > default katalog.
 """
 
 from __future__ import annotations
@@ -24,12 +27,54 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 
 from materials_and_epw import get_material_by_id
+from sni_tables import get_tdek_roof, get_tdek_wall
 from universal_pipeline import suggest_material_id_for_group
 
 
 DEFAULT_GLAZING_MAT_ID = "glz_saint_gobain_xtreme_60_28"
 DEFAULT_WALL_MAT_ID = "wal_spandrel_rockwool_nichias_50"
 DEFAULT_FRAME_MAT_ID = "frm_ykkap_schuco_thermal_break"
+DEFAULT_ROOF_MAT_ID = "rf_dak_beton_120_insulasi"
+
+
+class CustomMaterialSpec(BaseModel):
+    """Per-model custom material selectable by ID alongside built-in catalog materials."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    name: str
+    category: Literal["glazing", "wall", "frame", "roof"] = "wall"
+    u_value: float = Field(ge=0.05, le=10.0)
+    sc: Optional[float] = Field(default=None, ge=0.05, le=1.0)
+    alpha: Optional[float] = Field(default=None, ge=0.05, le=0.98)
+    massa_kg_m2: float = Field(default=150.0, ge=1.0, le=2000.0)
+    sumber: str = ""
+    status: Literal["datasheet", "nilai_tipikal"] = "nilai_tipikal"
+    brand: str = "Spesifikasi Kustom Proyek"
+
+    def to_catalog_dict(self) -> Dict[str, Any]:
+        if self.category == "wall":
+            td_ek: Optional[float] = get_tdek_wall(self.massa_kg_m2)
+        elif self.category == "roof":
+            td_ek = get_tdek_roof(self.massa_kg_m2)
+        else:
+            td_ek = None
+        return {
+            "id": self.id,
+            "name": self.name,
+            "brand": self.brand,
+            "category": self.category,
+            "u_value": float(self.u_value),
+            "sc": float(self.sc) if self.sc is not None else (0.35 if self.category == "glazing" else None),
+            "shgc": round(float(self.sc) * 0.87, 3) if self.sc is not None else None,
+            "alpha": float(self.alpha) if self.alpha is not None else (0.50 if self.category != "glazing" else None),
+            "massa_kg_m2": float(self.massa_kg_m2),
+            "td_ek": td_ek,
+            "sumber": self.sumber,
+            "status": self.status if self.sumber else "nilai_tipikal",
+            "is_custom": True,
+        }
 
 
 class ModelConfig(BaseModel):
@@ -62,21 +107,22 @@ class SettingsConfig(BaseModel):
 
     city_preset: str = "jakarta"
     custom_epw: Optional[Dict[str, Any]] = None
-    mode: Literal["sni", "simulasi"] = "simulasi"
+    mode: Literal["sni", "simulasi"] = "sni"
     design_month: int = Field(default=9, ge=1, le=12)
     north_angle_deg: float = Field(default=0.0, ge=0.0, le=360.0)
 
-    # Material per role (single source of truth; per-group overrides live in roles.group_material_map)
+    # Material per role + per-model custom material catalog
     glazing_material_id: Optional[str] = DEFAULT_GLAZING_MAT_ID
     wall_material_id: Optional[str] = DEFAULT_WALL_MAT_ID
     frame_material_id: Optional[str] = DEFAULT_FRAME_MAT_ID
+    roof_material_id: Optional[str] = DEFAULT_ROOF_MAT_ID
+    custom_materials: List[CustomMaterialSpec] = Field(default_factory=list)
     orientation_material_overrides: Dict[str, str] = Field(default_factory=dict)
 
-    # Envelope thermal options
+    # Envelope thermal options (delta_t is always 5 K in SNI mode; TD_ek always derived from massa_kg_m2)
     include_frame_conduction: bool = True
     frame_area_ratio: float = Field(default=0.08, ge=0.0, le=0.35)
     wwr_override: Optional[float] = Field(default=None, ge=0.05, le=0.95)
-    delta_t: float = Field(default=5.0, ge=1.0, le=12.0)
 
     # Floor detection & sectioning
     floor_mode: Literal["auto", "uniform", "custom"] = "auto"
@@ -84,14 +130,6 @@ class SettingsConfig(BaseModel):
     custom_floor_zones: List[Dict[str, Any]] = Field(default_factory=list)
     section_floor_min: Optional[int] = None
     section_floor_max: Optional[int] = None
-
-    # Fallback numeric thermal values (only used if a role material ID is None or missing in catalog)
-    alpha_wall: float = Field(default=0.42, ge=0.10, le=0.95)
-    u_wall: float = Field(default=0.62, ge=0.15, le=5.50)
-    td_ek: float = Field(default=15.0, ge=8.0, le=18.0)
-    u_fenestration: float = Field(default=1.10, ge=0.40, le=6.00)
-    sc_glass: float = Field(default=0.23, ge=0.08, le=1.00)
-    u_frame: float = Field(default=2.10, ge=0.50, le=7.00)
 
 
 class AdvancedConfig(BaseModel):
@@ -117,6 +155,9 @@ class ProjectConfig(BaseModel):
     roles: RolesConfig = Field(default_factory=RolesConfig)
     settings: SettingsConfig = Field(default_factory=SettingsConfig)
     advanced: AdvancedConfig = Field(default_factory=AdvancedConfig)
+
+    def custom_material_dicts(self) -> List[Dict[str, Any]]:
+        return [cm.to_catalog_dict() for cm in self.settings.custom_materials]
 
     def to_envelope_parameters(self) -> Any:
         """Converts ProjectConfig into `ottv_engine.EnvelopeParameters`."""
@@ -145,22 +186,17 @@ class ProjectConfig(BaseModel):
             glazing_material_id=self.settings.glazing_material_id,
             wall_material_id=self.settings.wall_material_id,
             frame_material_id=self.settings.frame_material_id,
+            roof_material_id=self.settings.roof_material_id,
+            custom_materials=self.custom_material_dicts(),
             orientation_material_overrides=dict(self.settings.orientation_material_overrides),
             include_frame_conduction=self.settings.include_frame_conduction,
             frame_area_ratio=self.settings.frame_area_ratio,
             wwr_override=self.settings.wwr_override,
-            delta_t=self.settings.delta_t,
             floor_mode=self.settings.floor_mode,
             floor_height_m=self.settings.floor_height_m,
             custom_floor_zones=copy.deepcopy(self.settings.custom_floor_zones),
             section_floor_min=self.settings.section_floor_min,
             section_floor_max=self.settings.section_floor_max,
-            alpha_wall=self.settings.alpha_wall,
-            u_wall=self.settings.u_wall,
-            td_ek=self.settings.td_ek,
-            u_fenestration=self.settings.u_fenestration,
-            sc_glass=self.settings.sc_glass,
-            u_frame=self.settings.u_frame,
             nurbs_u_div=self.advanced.nurbs_u_div,
             nurbs_v_div=self.advanced.nurbs_v_div,
             enable_parametric_louvers=self.advanced.enable_parametric_louvers,
@@ -194,23 +230,111 @@ def _clean_choice(val: Any, allowed: tuple[str, ...], default: str) -> str:
     return default
 
 
+def _tdek_to_representative_mass(td_ek: float) -> float:
+    """Maps legacy scalar td_ek (15/12/10 K) to a representative wall mass in kg/m2 per Tabel 7."""
+    if td_ek >= 13.5:
+        return 80.0
+    if td_ek >= 11.0:
+        return 160.0
+    return 240.0
+
+
+def _migrate_legacy_scalars_into_settings(settings_dict: Dict[str, Any], source_dict: Dict[str, Any]) -> None:
+    """
+    Converts removed legacy thermal scalar fields (alpha_wall, u_wall, td_ek,
+    u_fenestration, sc_glass, u_frame) into `custom_materials` entries when they
+    differ from defaults and no explicit material_id override is set.
+    """
+    custom_mats = list(settings_dict.get("custom_materials") or [])
+    existing_ids = {m.get("id") for m in custom_mats if isinstance(m, dict)}
+
+    has_wall_legacy = any(k in source_dict for k in ("alpha_wall", "u_wall", "td_ek"))
+    if has_wall_legacy:
+        u_w = float(source_dict.get("u_wall", 0.62))
+        a_w = float(source_dict.get("alpha_wall", 0.42))
+        td_w = float(source_dict.get("td_ek", 15.0))
+        # Only synthesize a custom material if values differ from old default spandrel
+        if (abs(u_w - 0.62) > 1e-3 or abs(a_w - 0.42) > 1e-3 or abs(td_w - 15.0) > 1e-3) and (
+            settings_dict.get("wall_material_id") in (None, DEFAULT_WALL_MAT_ID)
+        ):
+            mid = "migrated_wall_custom"
+            if mid not in existing_ids:
+                custom_mats.append({
+                    "id": mid,
+                    "name": "Dinding Kustom (Migrasi Konfigurasi Lama)",
+                    "category": "wall",
+                    "u_value": u_w,
+                    "alpha": a_w,
+                    "massa_kg_m2": _tdek_to_representative_mass(td_w),
+                    "sumber": "Migrasi otomatis dari konfigurasi lama",
+                    "status": "nilai_tipikal",
+                })
+                existing_ids.add(mid)
+            settings_dict["wall_material_id"] = mid
+
+    has_glz_legacy = any(k in source_dict for k in ("u_fenestration", "sc_glass"))
+    if has_glz_legacy:
+        u_f = float(source_dict.get("u_fenestration", 1.10))
+        sc_g = float(source_dict.get("sc_glass", 0.23))
+        if (abs(u_f - 1.10) > 1e-3 or abs(sc_g - 0.23) > 1e-3) and (
+            settings_dict.get("glazing_material_id") in (None, DEFAULT_GLAZING_MAT_ID)
+        ):
+            mid = "migrated_glazing_custom"
+            if mid not in existing_ids:
+                custom_mats.append({
+                    "id": mid,
+                    "name": "Kaca Kustom (Migrasi Konfigurasi Lama)",
+                    "category": "glazing",
+                    "u_value": u_f,
+                    "sc": sc_g,
+                    "massa_kg_m2": 25.0,
+                    "sumber": "Migrasi otomatis dari konfigurasi lama",
+                    "status": "nilai_tipikal",
+                })
+                existing_ids.add(mid)
+            settings_dict["glazing_material_id"] = mid
+
+    if "u_frame" in source_dict:
+        u_fr = float(source_dict.get("u_frame", 2.10))
+        if abs(u_fr - 2.10) > 1e-3 and settings_dict.get("frame_material_id") in (None, DEFAULT_FRAME_MAT_ID):
+            mid = "migrated_frame_custom"
+            if mid not in existing_ids:
+                custom_mats.append({
+                    "id": mid,
+                    "name": "Rangka Kustom (Migrasi Konfigurasi Lama)",
+                    "category": "frame",
+                    "u_value": u_fr,
+                    "alpha": 0.40,
+                    "massa_kg_m2": 18.0,
+                    "sumber": "Migrasi otomatis dari konfigurasi lama",
+                    "status": "nilai_tipikal",
+                })
+                existing_ids.add(mid)
+            settings_dict["frame_material_id"] = mid
+
+    if custom_mats:
+        settings_dict["custom_materials"] = custom_mats
+
+
 def migrate_v1(raw: Dict[str, Any]) -> ProjectConfig:
     """
-    Migrates a legacy v1 `.ottv.json` dict (from v5.0 staging configs or flat
-    PresetAnalyzeRequest payloads) into a valid `ProjectConfig(version=2)`.
-    If `raw` is already version 2, validates and normalizes it directly.
+    Migrates legacy v1 `.ottv.json` OR early v2 `.ottv.json` (which still carried
+    scalar thermal fields like alpha_wall/u_wall/td_ek/u_fenestration/sc_glass/u_frame/delta_t)
+    into a clean current `ProjectConfig(version=2)`.
     """
     if not isinstance(raw, dict):
         return ProjectConfig()
 
     if raw.get("version") == 2 or raw.get("versi") == 2:
-        data = dict(raw)
+        data = copy.deepcopy(raw)
         data["version"] = 2
+        s_raw = data.get("settings")
+        if isinstance(s_raw, dict):
+            _migrate_legacy_scalars_into_settings(s_raw, s_raw)
         return ProjectConfig.model_validate(data)
 
     prof = raw.get("profile") if isinstance(raw.get("profile"), dict) else {}
 
-    # Derive exterior_detection_mode from legacy massing_type/geometry_scope if not explicitly present
     ext_mode = raw.get("exterior_detection_mode")
     if not ext_mode:
         if prof.get("massing_type") == "single_tower" and prof.get("geometry_scope") == "facade_only":
@@ -254,27 +378,23 @@ def migrate_v1(raw: Dict[str, Any]) -> ProjectConfig:
         "glazing_material_id",
         "wall_material_id",
         "frame_material_id",
+        "roof_material_id",
+        "custom_materials",
         "orientation_material_overrides",
         "include_frame_conduction",
         "frame_area_ratio",
         "wwr_override",
-        "delta_t",
         "floor_mode",
         "floor_height_m",
         "custom_floor_zones",
         "section_floor_min",
         "section_floor_max",
-        "alpha_wall",
-        "u_wall",
-        "td_ek",
-        "u_fenestration",
-        "sc_glass",
-        "u_frame",
     ):
         if key in raw and raw[key] is not None:
             settings_dict[key] = raw[key]
     if "custom_epw_info" in raw and raw["custom_epw_info"] is not None and "custom_epw" not in settings_dict:
         settings_dict["custom_epw"] = raw["custom_epw_info"]
+    _migrate_legacy_scalars_into_settings(settings_dict, raw)
 
     advanced_dict: Dict[str, Any] = {}
     for key in (
@@ -306,24 +426,16 @@ def resolve_material(
     orientation_code: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Single canonical material priority rule (replaces `use_global_slider_override`).
+    Single canonical material priority rule:
+      1. Override grup      (`roles.group_material_map[group_name]`)
+      2. Override orientasi (`settings.orientation_material_overrides[orientation_code]`)
+      3. Default peran      (`settings.glazing_material_id` / `wall_material_id` / `frame_material_id` / `roof_material_id`)
+      4. Saran nama         (`suggest_material_id_for_group`)
+      5. Default katalog
 
-    Priority order (highest -> lowest):
-      1. Orientation material override (`settings.orientation_material_overrides[orientation_code]`)
-         when `orientation_code` is provided and target category is glazing/composite_cw
-         (or the override material matches the target category).
-      2. Explicit per-group override (`roles.group_material_map[group_name]`).
-      3. Role default selected in settings:
-         - `glazing` / `composite_cw` -> `settings.glazing_material_id`
-         - `wall` / `spandrel`        -> `settings.wall_material_id`
-         - `frame`                    -> `settings.frame_material_id`
-      4. Smart name-based suggestion (`suggest_material_id_for_group`) if role default is None.
-      5. Built-in catalog default fallback.
-
-    Returns:
-      `{"material_id": str, "material": Optional[dict], "source": str}`
+    Supports both built-in catalog materials and per-model `settings.custom_materials`.
+    Returns `{"material_id": str, "material": Optional[dict], "source": str}`.
     """
-    # Extract group_name & effective category from str / dict / RawGroupMesh
     if isinstance(group, str):
         group_name = group
         inferred_cat = category or "wall"
@@ -334,70 +446,81 @@ def resolve_material(
         group_name = str(getattr(group, "group_name", "") or "")
         inferred_cat = category or str(getattr(group, "default_category", "wall") or "wall")
 
-    # Read config fields cleanly from either ProjectConfig or EnvelopeParameters
     if isinstance(config, ProjectConfig):
         group_mat_map = config.roles.group_material_map
         orient_overrides = config.settings.orientation_material_overrides
         role_glz_id = config.settings.glazing_material_id
         role_wal_id = config.settings.wall_material_id
         role_frm_id = config.settings.frame_material_id
+        role_roof_id = config.settings.roof_material_id
+        extra_mats = config.custom_material_dicts()
     else:
         group_mat_map = getattr(config, "group_material_map", {}) or {}
         orient_overrides = getattr(config, "orientation_material_overrides", {}) or {}
         role_glz_id = getattr(config, "glazing_material_id", DEFAULT_GLAZING_MAT_ID)
         role_wal_id = getattr(config, "wall_material_id", DEFAULT_WALL_MAT_ID)
         role_frm_id = getattr(config, "frame_material_id", DEFAULT_FRAME_MAT_ID)
+        role_roof_id = getattr(config, "roof_material_id", DEFAULT_ROOF_MAT_ID)
+        extra_mats = getattr(config, "custom_materials", None) or []
 
-    expected_mat_cat = (
-        "glazing"
-        if inferred_cat in ("glazing", "composite_cw")
-        else ("frame" if inferred_cat == "frame" else "wall")
-    )
+    if inferred_cat in ("glazing", "composite_cw"):
+        expected_mat_cat = "glazing"
+    elif inferred_cat == "frame":
+        expected_mat_cat = "frame"
+    elif inferred_cat == "roof":
+        expected_mat_cat = "roof"
+    else:
+        expected_mat_cat = "wall"
 
-    # Priority 1: Orientation override
+    # Priority 1: Explicit per-group override (most specific!)
+    if group_name and group_name in group_mat_map:
+        gm_id = group_mat_map[group_name]
+        gm_mat = get_material_by_id(gm_id, extra_materials=extra_mats)
+        if gm_mat is not None:
+            return {"material_id": gm_id, "material": gm_mat, "source": "group_override"}
+
+    # Priority 2: Orientation override
     if orientation_code and orientation_code in orient_overrides:
         ov_id = orient_overrides[orientation_code]
-        ov_mat = get_material_by_id(ov_id)
+        ov_mat = get_material_by_id(ov_id, extra_materials=extra_mats)
         if ov_mat is not None and (
             ov_mat.get("category") == expected_mat_cat
             or (inferred_cat in ("glazing", "composite_cw") and ov_mat.get("category") == "glazing")
         ):
             return {"material_id": ov_id, "material": ov_mat, "source": "orientation_override"}
 
-    # Priority 2: Explicit per-group override
-    if group_name and group_name in group_mat_map:
-        gm_id = group_mat_map[group_name]
-        gm_mat = get_material_by_id(gm_id)
-        if gm_mat is not None:
-            return {"material_id": gm_id, "material": gm_mat, "source": "group_override"}
-
     # Priority 3: Role-level material selected in settings
-    role_id = (
-        role_glz_id
-        if expected_mat_cat == "glazing"
-        else (role_frm_id if expected_mat_cat == "frame" else role_wal_id)
-    )
+    role_id = {
+        "glazing": role_glz_id,
+        "frame": role_frm_id,
+        "roof": role_roof_id,
+        "wall": role_wal_id,
+    }.get(expected_mat_cat, role_wal_id)
     if role_id:
-        r_mat = get_material_by_id(role_id)
+        r_mat = get_material_by_id(role_id, extra_materials=extra_mats)
         if r_mat is not None:
             return {"material_id": role_id, "material": r_mat, "source": "role_default"}
 
     # Priority 4: Name-based suggestion when role material is unset
-    sug_id = suggest_material_id_for_group(
-        group_name=group_name,
-        category=inferred_cat,
-        default_glazing_id=DEFAULT_GLAZING_MAT_ID,
-        default_wall_id=DEFAULT_WALL_MAT_ID,
-        default_frame_id=DEFAULT_FRAME_MAT_ID,
-    )
-    sug_mat = get_material_by_id(sug_id)
-    if sug_mat is not None:
-        return {"material_id": sug_id, "material": sug_mat, "source": "suggested"}
+    if expected_mat_cat != "roof":
+        sug_id = suggest_material_id_for_group(
+            group_name=group_name,
+            category=inferred_cat,
+            default_glazing_id=None,
+            default_wall_id=None,
+            default_frame_id=None,
+        )
+        # Only count as 'suggested' if suggest_material_id_for_group actually matched a name pattern
+        if sug_id and sug_id not in (DEFAULT_GLAZING_MAT_ID, DEFAULT_WALL_MAT_ID, DEFAULT_FRAME_MAT_ID):
+            sug_mat = get_material_by_id(sug_id, extra_materials=extra_mats)
+            if sug_mat is not None:
+                return {"material_id": sug_id, "material": sug_mat, "source": "suggested"}
 
-    # Priority 5: Built-in catalog fallback
-    fb_id = (
-        DEFAULT_GLAZING_MAT_ID
-        if expected_mat_cat == "glazing"
-        else (DEFAULT_FRAME_MAT_ID if expected_mat_cat == "frame" else DEFAULT_WALL_MAT_ID)
-    )
-    return {"material_id": fb_id, "material": get_material_by_id(fb_id), "source": "fallback"}
+    # Priority 5: Built-in catalog default fallback
+    fb_id = {
+        "glazing": DEFAULT_GLAZING_MAT_ID,
+        "frame": DEFAULT_FRAME_MAT_ID,
+        "roof": DEFAULT_ROOF_MAT_ID,
+        "wall": DEFAULT_WALL_MAT_ID,
+    }.get(expected_mat_cat, DEFAULT_WALL_MAT_ID)
+    return {"material_id": fb_id, "material": get_material_by_id(fb_id, extra_materials=extra_mats), "source": "fallback"}
