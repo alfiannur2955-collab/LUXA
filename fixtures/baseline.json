@@ -1,0 +1,617 @@
+{
+  "schema_version": 1,
+  "fixture_count": 5,
+  "fixtures": {
+    "archicad_bim_curtainwall.ifc": {
+      "filename": "archicad_bim_curtainwall.ifc",
+      "group_count": 3,
+      "groups": [
+        {
+          "group_name": "IFC_Member :: IfcMember",
+          "category": "frame",
+          "face_count": 84
+        },
+        {
+          "group_name": "IFC_Plate :: IfcPlate",
+          "category": "glazing",
+          "face_count": 168
+        },
+        {
+          "group_name": "IFC_Wall :: IfcWall",
+          "category": "wall",
+          "face_count": 12
+        }
+      ],
+      "bbox": {
+        "min": [
+          -14.5,
+          -14.717,
+          0.0
+        ],
+        "max": [
+          14.5,
+          14.717,
+          24.0
+        ],
+        "span": [
+          29.0,
+          29.434,
+          24.0
+        ],
+        "normalized_span_m": [
+          29.0,
+          29.43,
+          24.0
+        ]
+      },
+      "z_ground_offset_m": 0.0,
+      "slivers_removed": 0,
+      "outer_area_by_role": {
+        "frame": 0.0,
+        "glazing": 1651.28,
+        "wall": 298.73
+      },
+      "total_envelope_area_m2": 1950.02,
+      "total_floors": 6,
+      "wwr": 0.847,
+      "ottv_total_wm2": 33.86,
+      "ottv_by_orientation": {
+        "U": {
+          "ottv_wm2": 38.09,
+          "area_m2": 243.77
+        },
+        "TL": {
+          "ottv_wm2": 32.79,
+          "area_m2": 243.74
+        },
+        "T": {
+          "ottv_wm2": 14.67,
+          "area_m2": 243.76
+        },
+        "TGR": {
+          "ottv_wm2": 29.08,
+          "area_m2": 243.74
+        },
+        "S": {
+          "ottv_wm2": 30.93,
+          "area_m2": 243.77
+        },
+        "BD": {
+          "ottv_wm2": 46.47,
+          "area_m2": 243.74
+        },
+        "B": {
+          "ottv_wm2": 25.38,
+          "area_m2": 243.76
+        },
+        "BL": {
+          "ottv_wm2": 53.46,
+          "area_m2": 243.74
+        }
+      }
+    },
+    "fasad_unitized_24lantai.3dm": {
+      "filename": "fasad_unitized_24lantai.3dm",
+      "group_count": 18,
+      "groups": [
+        {
+          "group_name": "01_Vision_Glass",
+          "category": "glazing",
+          "face_count": 7976
+        },
+        {
+          "group_name": "02_Crown_Louver_Glass",
+          "category": "shading",
+          "face_count": 312
+        },
+        {
+          "group_name": "03_Spandrel_Panel",
+          "category": "spandrel",
+          "face_count": 7920
+        },
+        {
+          "group_name": "04_Frame_Mullion_Vertical",
+          "category": "frame",
+          "face_count": 17820
+        },
+        {
+          "group_name": "05_Frame_Transom_Horizontal",
+          "category": "frame",
+          "face_count": 17820
+        },
+        {
+          "group_name": "06_Unitized_Shading_Fin_Ring",
+          "category": "shading",
+          "face_count": 23142
+        },
+        {
+          "group_name": "07_Vertical_Biophilic_Louver",
+          "category": "shading",
+          "face_count": 3576
+        },
+        {
+          "group_name": "08_Structure_Slab_Core",
+          "category": "roof",
+          "face_count": 492
+        },
+        {
+          "group_name": "09_SkyGarden_Planter_Greenery",
+          "category": "shading",
+          "face_count": 78
+        },
+        {
+          "group_name": "By Parent :: LANDS Acer palmatum 'Atropurpureum' - 9c682feb 0",
+          "category": "wall",
+          "face_count": 1714
+        },
+        {
+          "group_name": "By Parent :: LANDS Acer palmatum 'Atropurpureum' - 9c682feb 10 D3 S0",
+          "category": "wall",
+          "face_count": 2688
+        },
+        {
+          "group_name": "By Parent :: LANDS Acer palmatum 'Atropurpureum' - 9c682feb 9 D3 S0",
+          "category": "wall",
+          "face_count": 2688
+        },
+        {
+          "group_name": "By Parent :: LANDS Acer palmatum 'Atropurpureum' - 9c682feb BILLBOARD 0 S0",
+          "category": "wall",
+          "face_count": 1
+        },
+        {
+          "group_name": "By Parent :: LANDS Acer palmatum 'Atropurpureum' - 9c682feb BILLBOARD 1 S0",
+          "category": "wall",
+          "face_count": 1
+        },
+        {
+          "group_name": "Default :: Foliage",
+          "category": "wall",
+          "face_count": 8
+        },
+        {
+          "group_name": "Default :: LANDS Color 043",
+          "category": "wall",
+          "face_count": 16
+        },
+        {
+          "group_name": "Default :: LANDS Color 075",
+          "category": "wall",
+          "face_count": 3388
+        },
+        {
+          "group_name": "Default :: Trunk",
+          "category": "wall",
+          "face_count": 24
+        }
+      ],
+      "bbox": {
+        "min": [
+          -21.0,
+          -15.0,
+          0.0
+        ],
+        "max": [
+          21.0,
+          15.0,
+          100.6
+        ],
+        "span": [
+          42.0,
+          30.0,
+          100.6
+        ],
+        "normalized_span_m": [
+          42.0,
+          30.0,
+          100.6
+        ]
+      },
+      "z_ground_offset_m": -0.6,
+      "slivers_removed": 7816,
+      "outer_area_by_role": {
+        "frame": 0.0,
+        "glazing": 6960.26,
+        "roof": 0.0,
+        "shading": 0.0,
+        "spandrel": 2369.25,
+        "wall": 139.19
+      },
+      "total_envelope_area_m2": 9439.03,
+      "total_floors": 28,
+      "wwr": 0.737,
+      "ottv_total_wm2": 22.25,
+      "ottv_by_orientation": {
+        "U": {
+          "ottv_wm2": 16.71,
+          "area_m2": 2290.89
+        },
+        "TL": {
+          "ottv_wm2": 3.91,
+          "area_m2": 14.9
+        },
+        "T": {
+          "ottv_wm2": 20.28,
+          "area_m2": 2397.66
+        },
+        "TGR": {
+          "ottv_wm2": 3.91,
+          "area_m2": 22.15
+        },
+        "S": {
+          "ottv_wm2": 15.26,
+          "area_m2": 2292.78
+        },
+        "BD": {
+          "ottv_wm2": 3.91,
+          "area_m2": 13.65
+        },
+        "B": {
+          "ottv_wm2": 36.76,
+          "area_m2": 2390.82
+        },
+        "BL": {
+          "ottv_wm2": 3.91,
+          "area_m2": 16.18
+        }
+      }
+    },
+    "Honeybee_MultiZone_Office_3F.hbjson": {
+      "filename": "Honeybee_MultiZone_Office_3F.hbjson",
+      "group_count": 3,
+      "groups": [
+        {
+          "group_name": "HB_Opaque_Walls",
+          "category": "wall",
+          "face_count": 68
+        },
+        {
+          "group_name": "HB_Roof_Floor",
+          "category": "roof",
+          "face_count": 10
+        },
+        {
+          "group_name": "HB_Vision_Glazing",
+          "category": "glazing",
+          "face_count": 8
+        }
+      ],
+      "bbox": {
+        "min": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "max": [
+          10.0,
+          10.0,
+          9.0
+        ],
+        "span": [
+          10.0,
+          10.0,
+          9.0
+        ],
+        "normalized_span_m": [
+          10.0,
+          10.0,
+          9.0
+        ]
+      },
+      "z_ground_offset_m": 0.0,
+      "slivers_removed": 0,
+      "outer_area_by_role": {
+        "glazing": 48.0,
+        "roof": 0.0,
+        "wall": 192.0
+      },
+      "total_envelope_area_m2": 240.0,
+      "total_floors": 3,
+      "wwr": 0.2,
+      "ottv_total_wm2": 10.4,
+      "ottv_by_orientation": {
+        "U": {
+          "ottv_wm2": 10.2,
+          "area_m2": 60.0
+        },
+        "TL": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        },
+        "T": {
+          "ottv_wm2": 9.38,
+          "area_m2": 60.0
+        },
+        "TGR": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        },
+        "S": {
+          "ottv_wm2": 6.6,
+          "area_m2": 60.0
+        },
+        "BD": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        },
+        "B": {
+          "ottv_wm2": 15.4,
+          "area_m2": 60.0
+        },
+        "BL": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        }
+      }
+    },
+    "Khronos_Glass_Transmission.glb": {
+      "filename": "Khronos_Glass_Transmission.glb",
+      "group_count": 22,
+      "groups": [
+        {
+          "group_name": "Cloth Backdrop 01 :: Cloth Backdrop",
+          "category": "wall",
+          "face_count": 26710
+        },
+        {
+          "group_name": "Sphere :: RedTransTexture",
+          "category": "wall",
+          "face_count": 3540
+        },
+        {
+          "group_name": "Sphere_1 :: YellowTrans",
+          "category": "wall",
+          "face_count": 3540
+        },
+        {
+          "group_name": "Sphere_10 :: GreenMaskMetal",
+          "category": "wall",
+          "face_count": 3540
+        },
+        {
+          "group_name": "Sphere_11 :: BlueTransWithMask",
+          "category": "wall",
+          "face_count": 3540
+        },
+        {
+          "group_name": "Sphere_2 :: BlueTransWithMask",
+          "category": "wall",
+          "face_count": 3540
+        },
+        {
+          "group_name": "Sphere_3 :: GreenMask",
+          "category": "wall",
+          "face_count": 3540
+        },
+        {
+          "group_name": "Sphere_4 :: RedTransTextureRough",
+          "category": "wall",
+          "face_count": 3540
+        },
+        {
+          "group_name": "Sphere_5 :: YellowTransRough",
+          "category": "wall",
+          "face_count": 3540
+        },
+        {
+          "group_name": "Sphere_6 :: BlueTransWithMask",
+          "category": "wall",
+          "face_count": 3540
+        },
+        {
+          "group_name": "Sphere_7 :: GreenMaskRough",
+          "category": "wall",
+          "face_count": 3540
+        },
+        {
+          "group_name": "Sphere_8 :: RedTransTextureMetal",
+          "category": "wall",
+          "face_count": 3540
+        },
+        {
+          "group_name": "Sphere_9 :: YellowTransMetal",
+          "category": "wall",
+          "face_count": 3540
+        },
+        {
+          "group_name": "X1_Label_Coated :: LabelMaterial",
+          "category": "wall",
+          "face_count": 2
+        },
+        {
+          "group_name": "X1_Label_Coated_1 :: LabelMaterial",
+          "category": "wall",
+          "face_count": 2
+        },
+        {
+          "group_name": "X2_Label_CoatingOnly :: LabelMaterial",
+          "category": "wall",
+          "face_count": 2
+        },
+        {
+          "group_name": "X2_Label_CoatingOnly_1 :: LabelMaterial",
+          "category": "wall",
+          "face_count": 2
+        },
+        {
+          "group_name": "X2_Label_CoatingOnly_2 :: LabelMaterial",
+          "category": "wall",
+          "face_count": 2
+        },
+        {
+          "group_name": "Y0_Label_SimpleCoating :: LabelMaterial",
+          "category": "wall",
+          "face_count": 2
+        },
+        {
+          "group_name": "Y3_Label_BaseNormals :: LabelMaterial",
+          "category": "wall",
+          "face_count": 2
+        },
+        {
+          "group_name": "Y3_Label_BaseNormals_1 :: LabelMaterial",
+          "category": "wall",
+          "face_count": 2
+        },
+        {
+          "group_name": "Y5_Label_SharedNormals :: LabelMaterial",
+          "category": "wall",
+          "face_count": 2
+        }
+      ],
+      "bbox": {
+        "min": [
+          -0.9764,
+          -1.368,
+          0.0
+        ],
+        "max": [
+          0.8262,
+          0.521,
+          1.0205
+        ],
+        "span": [
+          1.8026,
+          1.889,
+          1.0205
+        ],
+        "normalized_span_m": [
+          1.8,
+          1.89,
+          1.02
+        ]
+      },
+      "z_ground_offset_m": -0.4,
+      "slivers_removed": 0,
+      "outer_area_by_role": {
+        "wall": 0.15
+      },
+      "total_envelope_area_m2": 0.15,
+      "total_floors": 1,
+      "wwr": 0.35,
+      "ottv_total_wm2": 8.62,
+      "ottv_by_orientation": {
+        "U": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        },
+        "TL": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        },
+        "T": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        },
+        "TGR": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        },
+        "S": {
+          "ottv_wm2": 8.62,
+          "area_m2": 0.15
+        },
+        "BD": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        },
+        "B": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        },
+        "BL": {
+          "ottv_wm2": 0.0,
+          "area_m2": 0.0
+        }
+      }
+    },
+    "tes objek archicad.3dm": {
+      "filename": "tes objek archicad.3dm",
+      "group_count": 3,
+      "groups": [
+        {
+          "group_name": "Finish - Wall :: Glass - Clear Fast",
+          "category": "glazing",
+          "face_count": 3934
+        },
+        {
+          "group_name": "Finish - Wall :: Insulation - Fiberglass",
+          "category": "spandrel",
+          "face_count": 2640
+        },
+        {
+          "group_name": "Finish - Wall :: Metal - Aluminium",
+          "category": "frame",
+          "face_count": 78577
+        }
+      ],
+      "bbox": {
+        "min": [
+          -1.1768,
+          -10.7509,
+          0.0
+        ],
+        "max": [
+          22.0035,
+          16.9675,
+          40.5
+        ],
+        "span": [
+          23.1803,
+          27.7184,
+          40.5
+        ],
+        "normalized_span_m": [
+          23.18,
+          27.72,
+          40.5
+        ]
+      },
+      "z_ground_offset_m": -1.05,
+      "slivers_removed": 2510,
+      "outer_area_by_role": {
+        "frame": 0.0,
+        "glazing": 1800.42,
+        "spandrel": 81.73
+      },
+      "total_envelope_area_m2": 1881.99,
+      "total_floors": 12,
+      "wwr": 0.957,
+      "ottv_total_wm2": 24.44,
+      "ottv_by_orientation": {
+        "U": {
+          "ottv_wm2": 16.07,
+          "area_m2": 554.26
+        },
+        "TL": {
+          "ottv_wm2": 3.91,
+          "area_m2": 2.8
+        },
+        "T": {
+          "ottv_wm2": 24.67,
+          "area_m2": 381.15
+        },
+        "TGR": {
+          "ottv_wm2": 3.91,
+          "area_m2": 4.97
+        },
+        "S": {
+          "ottv_wm2": 17.72,
+          "area_m2": 559.52
+        },
+        "BD": {
+          "ottv_wm2": 3.91,
+          "area_m2": 2.85
+        },
+        "B": {
+          "ottv_wm2": 47.69,
+          "area_m2": 371.5
+        },
+        "BL": {
+          "ottv_wm2": 3.91,
+          "area_m2": 4.92
+        }
+      }
+    }
+  }
+}

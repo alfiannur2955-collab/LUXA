@@ -13,7 +13,7 @@ BACKEND_DIR = os.path.join(PROJECT_ROOT, "backend")
 FRONTEND_DIR = os.path.join(PROJECT_ROOT, "frontend")
 
 PYTHON_EXE = os.path.join(BACKEND_DIR, ".venv", "Scripts", "python.exe")
-NODE_EXE = r"E:\APPS\ARCHICAD\ARCHICAD 30\node.exe"
+NODE_EXE = os.environ.get("NODE_EXE", "node")
 VITE_JS = os.path.join(FRONTEND_DIR, "node_modules", "vite", "bin", "vite.js")
 
 
