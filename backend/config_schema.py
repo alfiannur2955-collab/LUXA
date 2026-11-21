@@ -172,6 +172,7 @@ class ProjectConfig(BaseModel):
     roles: RolesConfig = Field(default_factory=RolesConfig)
     settings: SettingsConfig = Field(default_factory=SettingsConfig)
     advanced: AdvancedConfig = Field(default_factory=AdvancedConfig)
+    saved_views: List[Dict[str, Any]] = Field(default_factory=list)
 
     def custom_material_dicts(self) -> List[Dict[str, Any]]:
         return [cm.to_catalog_dict() for cm in self.settings.custom_materials]
@@ -462,6 +463,7 @@ def migrate_v1(raw: Dict[str, Any]) -> ProjectConfig:
         roles=RolesConfig.model_validate(roles_dict),
         settings=SettingsConfig.model_validate(settings_dict),
         advanced=AdvancedConfig.model_validate(advanced_dict),
+        saved_views=list(raw.get("saved_views") or []),
     )
 
 
