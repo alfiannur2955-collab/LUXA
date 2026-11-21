@@ -1,30 +1,34 @@
 /**
- * LUXA 3D Viewer (Fase 4a):
- * - PerspectiveCamera + OrbitControls
- * - Supports Klasifikasi mode (Konfirmasi / Inspeksi / Hasil) and Heatmap per arah mode (Hasil)
- * - Reads live CSS tokens from theme.css (light & dark themes)
- * - Reusable singleton WebGLRenderer mounted across screen transitions to avoid context leaks
+ * LUXA 3D Viewer (Fase 4a + 4b-1):
+ * - Integrates CameraRig (4 projections: Persp, 2 titik, Akso, Tampak + 8 directions + Atas)
+ * - Integrates live AxisGizmo (X/Y/Z bottom-right)
+ * - Supports Klasifikasi mode and Heatmap per arah mode reading live CSS tokens
+ * - Exposes offscreen high-res render hook for Capture PNG (1x / 2x / 4x)
  */
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { AxisGizmo } from './axes.js';
+import { CameraRig, toThreeCoords } from './cameras.js';
 import {
   makeClassificationMaterial,
   makeHeatmapMaterial,
   readThemeTokens,
 } from './modes.js';
 
-// Map backend Z-up (x=East, y=North, z=Up) -> Three.js Y-up (x=East, y=Up, z=-North)
-function toThreeCoords(x, y, z) {
-  return [Number(x) || 0, Number(z) || 0, -(Number(y) || 0)];
+function _coordsArr(x, y, z) {
+  const v = toThreeCoords(x, y, z);
+  return [v.x, v.y, v.z];
 }
 
 class LuxaViewer {
   constructor() {
     this.container = null;
+    this.overlayHost = null;
     this.renderer = null;
     this.scene = null;
-    this.camera = null;
+    this.rig = new CameraRig();
+    this.gizmo = new AxisGizmo();
     this.controls = null;
     this.modelRoot = null;
     this.groundGroup = null;
@@ -41,14 +45,16 @@ class LuxaViewer {
     if (this.renderer) return;
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(42, 16 / 10, 0.1, 4000);
-    this.camera.position.set(28, 22, 28);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: false });
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      preserveDrawingBuffer: true,
+    });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls = new OrbitControls(this.rig.getActiveCamera(), this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.maxDistance = 1600;
@@ -82,14 +88,17 @@ class LuxaViewer {
       this._handleClick(e);
     });
 
-    const tick = () => {
+    const tick = (now) => {
       this.rafId = window.requestAnimationFrame(tick);
       if (this.container && this.container.isConnected) {
+        this.rig.tick(now);
         this.controls.update();
-        this.renderer.render(this.scene, this.camera);
+        const cam = this.rig.getActiveCamera();
+        this.renderer.render(this.scene, cam);
+        this.gizmo.update(cam);
       }
     };
-    tick();
+    tick(performance.now());
   }
 
   _handleClick(event) {
@@ -100,19 +109,21 @@ class LuxaViewer {
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     );
-    this.raycaster.setFromCamera(ndc, this.camera);
+    this.raycaster.setFromCamera(ndc, this.rig.getActiveCamera());
     const hits = this.raycaster.intersectObjects(this.modelRoot.children, true);
     if (hits.length > 0) {
       const hitMeta = hits[0].object?.userData || {};
-      this.onPickGroup(hitMeta);
+      this.onPickGroup(hitMeta, event);
     } else {
-      this.onPickGroup(null);
+      this.onPickGroup(null, event);
     }
   }
 
-  mount(containerEl, { onPickGroup } = {}) {
+  mount(containerEl, { onPickGroup, overlayHost = null, showGizmo = true } = {}) {
     this._initThree();
     this.onPickGroup = onPickGroup || null;
+    this.overlayHost = overlayHost || containerEl.parentElement;
+
     if (this.container !== containerEl) {
       if (this.resizeObserver) {
         this.resizeObserver.disconnect();
@@ -124,15 +135,88 @@ class LuxaViewer {
       this.resizeObserver.observe(containerEl);
       this._resize();
     }
+
+    if (showGizmo && this.overlayHost) {
+      this.gizmo.mount(this.overlayHost);
+    }
   }
 
   _resize() {
-    if (!this.container || !this.renderer || !this.camera) return;
+    if (!this.container || !this.renderer) return;
     const w = Math.max(1, this.container.clientWidth);
     const h = Math.max(1, this.container.clientHeight);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.rig.resize(w, h);
     this.renderer.setSize(w, h, false);
+  }
+
+  // Camera APIs used by shortcuts, bottom pills, pie menu, and Tampilan panel
+  setProjection(projection, opts = {}) {
+    this._initThree();
+    this.rig.setProjection(projection, this.controls, opts);
+  }
+
+  lookAtDirection(direction, opts = {}) {
+    this._initThree();
+    this.rig.lookAtDirection(direction, this.controls, opts);
+  }
+
+  fitModel(bbox = null) {
+    this._initThree();
+    if (bbox) this.rig.setBBox(bbox);
+    this.rig.fitToModel(this.controls);
+  }
+
+  exportCameraState() {
+    this._initThree();
+    return this.rig.exportState(this.controls);
+  }
+
+  applyCameraState(camState, opts = {}) {
+    this._initThree();
+    this.rig.applySavedState(camState, this.controls, opts);
+  }
+
+  /**
+   * Renders the current scene into a crisp offscreen data URL at `scale` (1, 2, or 4).
+   * Restores the live viewport size immediately afterward.
+   */
+  renderOffscreenSnapshot(scale = 2) {
+    this._initThree();
+    if (!this.container || !this.renderer) return null;
+    const baseW = Math.max(320, this.container.clientWidth || 1280);
+    const baseH = Math.max(240, this.container.clientHeight || 720);
+    const maxTex = this.renderer.capabilities?.maxTextureSize || 4096;
+    const safeMax = Math.min(maxTex, 8192);
+    const desiredW = Math.round(baseW * scale);
+    const desiredH = Math.round(baseH * scale);
+    const clampRatio = Math.min(1, safeMax / Math.max(desiredW, desiredH));
+    const targetW = Math.max(1, Math.round(desiredW * clampRatio));
+    const targetH = Math.max(1, Math.round(desiredH * clampRatio));
+
+    const prevPixelRatio = this.renderer.getPixelRatio();
+    const cam = this.rig.getActiveCamera();
+
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(targetW, targetH, false);
+    this.rig.resize(targetW, targetH);
+    this.renderer.render(this.scene, cam);
+
+    // Copy WebGL canvas before restoring size
+    const snapshotCanvas = document.createElement('canvas');
+    snapshotCanvas.width = targetW;
+    snapshotCanvas.height = targetH;
+    const ctx = snapshotCanvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(this.renderer.domElement, 0, 0, targetW, targetH);
+    }
+
+    // Restore live viewport
+    this.renderer.setPixelRatio(prevPixelRatio);
+    this.rig.resize(baseW, baseH);
+    this.renderer.setSize(baseW, baseH, false);
+    this.renderer.render(this.scene, cam);
+
+    return { canvas: snapshotCanvas, width: targetW, height: targetH };
   }
 
   _clearGroup(group) {
@@ -175,25 +259,6 @@ class LuxaViewer {
     this.groundGroup.add(grid);
   }
 
-  _fitCamera(bbox) {
-    if (!bbox || !this.camera || !this.controls) return;
-    const center = bbox.center || [0, 0, 5];
-    const span = bbox.span || [20, 20, 20];
-    const maxDim = Math.max(span[0] || 10, span[1] || 10, span[2] || 10, 5);
-    const [cx, cy, cz] = toThreeCoords(center[0], center[1], center[2]);
-    this.controls.target.set(cx, cy, cz);
-    const dist = maxDim * 1.75;
-    this.camera.position.set(cx + dist * 0.68, cy + dist * 0.48, cz + dist * 0.72);
-    this.camera.near = Math.max(0.05, maxDim * 0.005);
-    this.camera.far = Math.max(2000, maxDim * 30);
-    this.camera.updateProjectionMatrix();
-    this.controls.update();
-  }
-
-  fitModel(bbox) {
-    this._fitCamera(bbox);
-  }
-
   /**
    * Synchronizes 3D scene with current state (inspect preview or analyzed panels).
    */
@@ -203,6 +268,10 @@ class LuxaViewer {
     const useHeatmap = state.viewerMode === 'heatmap' && Boolean(state.analysisData);
     const bbox = state.analysisData?.summary?.bounding_box || state.inspectData?.bounding_box || null;
     const zCut = Number(state.config?.model?.z_ground_cutoff_m || 0);
+    const northDeg = Number(state.config?.settings?.north_angle_deg || 0);
+
+    this.rig.setBBox(bbox);
+    this.rig.setNorthAngle(northDeg);
 
     const modelKey = `${state.modelId || 'none'}|${bbox?.max_span || 0}`;
     const renderKey = JSON.stringify({
@@ -236,7 +305,7 @@ class LuxaViewer {
     }
 
     if (bbox && modelKey !== this.lastModelKey) {
-      this._fitCamera(bbox);
+      this.rig.setProjection(state.cameraProjection || 'perspective', this.controls, { animate: false });
       this.lastModelKey = modelKey;
     }
   }
@@ -251,13 +320,12 @@ class LuxaViewer {
       if (!pm.vertices?.length || !pm.tris?.length) continue;
       const gName = pm.group_name;
       const cat = overrides[gName] || pm.category || 'wall';
-      const isDisabled = disabled.has(gName);
-      if (isDisabled) continue;
+      if (disabled.has(gName)) continue;
 
       const positions = new Float32Array(pm.vertices.length * 3);
       for (let i = 0; i < pm.vertices.length; i += 1) {
         const v = pm.vertices[i];
-        const [tx, ty, tz] = toThreeCoords(v[0], v[1], v[2]);
+        const [tx, ty, tz] = _coordsArr(v[0], v[1], v[2]);
         positions[i * 3] = tx;
         positions[i * 3 + 1] = ty;
         positions[i * 3 + 2] = tz;
@@ -292,7 +360,6 @@ class LuxaViewer {
       orientOttv[row.code] = Number(row.ottv_orientation_wm2 || 0);
     }
 
-    // Batch active panels by orientation_code for crisp, fast WebGL rendering
     const buckets = new Map();
     for (const p of analysis.panels || []) {
       if (!p.active || !Array.isArray(p.vertices) || p.vertices.length < 3) continue;
@@ -305,12 +372,12 @@ class LuxaViewer {
       const coords = [];
       for (const p of panels) {
         const vs = p.vertices;
-        const p0 = toThreeCoords(vs[0][0], vs[0][1], vs[0][2]);
-        const p1 = toThreeCoords(vs[1][0], vs[1][1], vs[1][2]);
-        const p2 = toThreeCoords(vs[2][0], vs[2][1], vs[2][2]);
+        const p0 = _coordsArr(vs[0][0], vs[0][1], vs[0][2]);
+        const p1 = _coordsArr(vs[1][0], vs[1][1], vs[1][2]);
+        const p2 = _coordsArr(vs[2][0], vs[2][1], vs[2][2]);
         coords.push(...p0, ...p1, ...p2);
         if (vs.length >= 4) {
-          const p3 = toThreeCoords(vs[3][0], vs[3][1], vs[3][2]);
+          const p3 = _coordsArr(vs[3][0], vs[3][1], vs[3][2]);
           coords.push(...p0, ...p2, ...p3);
         }
       }
@@ -329,7 +396,6 @@ class LuxaViewer {
       this.modelRoot.add(mesh);
     }
 
-    // Subtle shading / roof context meshes
     this._renderContextElements(analysis.shading_elements, 'shading', tokens, Boolean(selectedOrientation));
     this._renderContextElements(analysis.roof_elements, 'roof', tokens, true);
   }
@@ -344,12 +410,12 @@ class LuxaViewer {
       }
       const b = buckets.get(key);
       const vs = p.vertices;
-      const p0 = toThreeCoords(vs[0][0], vs[0][1], vs[0][2]);
-      const p1 = toThreeCoords(vs[1][0], vs[1][1], vs[1][2]);
-      const p2 = toThreeCoords(vs[2][0], vs[2][1], vs[2][2]);
+      const p0 = _coordsArr(vs[0][0], vs[0][1], vs[0][2]);
+      const p1 = _coordsArr(vs[1][0], vs[1][1], vs[1][2]);
+      const p2 = _coordsArr(vs[2][0], vs[2][1], vs[2][2]);
       b.coords.push(...p0, ...p1, ...p2);
       if (vs.length >= 4) {
-        const p3 = toThreeCoords(vs[3][0], vs[3][1], vs[3][2]);
+        const p3 = _coordsArr(vs[3][0], vs[3][1], vs[3][2]);
         b.coords.push(...p0, ...p2, ...p3);
       }
     }
@@ -382,16 +448,16 @@ class LuxaViewer {
         const v2 = el.vertices[f[2]];
         if (!v0 || !v1 || !v2) continue;
         coords.push(
-          ...toThreeCoords(v0[0], v0[1], v0[2]),
-          ...toThreeCoords(v1[0], v1[1], v1[2]),
-          ...toThreeCoords(v2[0], v2[1], v2[2]),
+          ..._coordsArr(v0[0], v0[1], v0[2]),
+          ..._coordsArr(v1[0], v1[1], v1[2]),
+          ..._coordsArr(v2[0], v2[1], v2[2]),
         );
         if (f.length >= 4 && f[3] !== f[2] && el.vertices[f[3]]) {
           const v3 = el.vertices[f[3]];
           coords.push(
-            ...toThreeCoords(v0[0], v0[1], v0[2]),
-            ...toThreeCoords(v2[0], v2[1], v2[2]),
-            ...toThreeCoords(v3[0], v3[1], v3[2]),
+            ..._coordsArr(v0[0], v0[1], v0[2]),
+            ..._coordsArr(v2[0], v2[1], v2[2]),
+            ..._coordsArr(v3[0], v3[1], v3[2]),
           );
         }
       }

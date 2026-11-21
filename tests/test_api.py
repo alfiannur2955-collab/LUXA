@@ -365,3 +365,38 @@ def test_legacy_endpoints_and_globals_removed(isolated_client):
     ):
         resp = client.request(method, path)
         assert resp.status_code in (404, 405), f"{method} {path} should be removed (404/405), got {resp.status_code}"
+
+
+def test_saved_views_roundtrip_in_project_config(isolated_client):
+    client, _ = isolated_client
+    hb_path = os.path.join(FIXTURES_DIR, "Honeybee_MultiZone_Office_3F.hbjson")
+    with open(hb_path, "rb") as f:
+        model_id = client.post(
+            "/api/models",
+            files={"file": ("Honeybee_MultiZone_Office_3F.hbjson", f, "application/json")},
+        ).json()["model_id"]
+
+    sample_view = {
+        "id": "view_test_1",
+        "name": "Barat · 2 titik",
+        "projection": "two_point",
+        "direction": "B",
+        "camera": {
+            "projection": "two_point",
+            "direction": "B",
+            "position": [-28.0, 5.0, 0.0],
+            "target": [0.0, 5.0, 0.0],
+            "up": [0.0, 1.0, 0.0],
+            "orthoHalfHeight": 18.0,
+            "twoPointShiftY": -0.1,
+        },
+    }
+    cfg = ProjectConfig(saved_views=[sample_view])
+    put_resp = client.put(f"/api/models/{model_id}/config", json=cfg.model_dump(mode="json"))
+    assert put_resp.status_code == 200
+    assert put_resp.json()["config"]["saved_views"] == [sample_view]
+
+    get_resp = client.get(f"/api/models/{model_id}/config")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["config"]["saved_views"] == [sample_view]
+

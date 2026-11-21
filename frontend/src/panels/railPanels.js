@@ -214,43 +214,161 @@ export function createRailPanelBuilders(handlers) {
     display: {
       title: 'Tampilan',
       renderBody(container, state) {
+        // Section 1: Kamera (mirrors mockup 6-panel-tampilan.html)
+        const camSec = document.createElement('div');
+        camSec.className = 'psec';
+        camSec.style.borderTop = '0';
+        camSec.style.paddingTop = '0';
+
+        const camHead = document.createElement('h3');
+        camHead.innerHTML = `${icon('eye', 14)}<span>Kamera</span>`;
+        camSec.appendChild(camHead);
+
+        const projSeg = document.createElement('div');
+        projSeg.className = 'seg';
+        projSeg.setAttribute('role', 'radiogroup');
+        projSeg.setAttribute('aria-label', 'Proyeksi kamera');
+
+        for (const [id, label, key] of [
+          ['perspective', 'Persp', '1'],
+          ['two_point', '2 titik', '2'],
+          ['axonometric', 'Akso', '3'],
+          ['elevation', 'Tampak', '4'],
+        ]) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.setAttribute('role', 'radio');
+          const isOn = state.cameraProjection === id;
+          btn.setAttribute('aria-checked', isOn ? 'true' : 'false');
+          if (isOn) btn.classList.add('on');
+          btn.title = `Pintasan ${key}`;
+          btn.textContent = label;
+          btn.addEventListener('click', () => handlers.onSetProjection(id));
+          projSeg.appendChild(btn);
+        }
+        camSec.appendChild(projSeg);
+
+        // 3x3 direction grid + Arah utara
+        const dirRow = document.createElement('div');
+        dirRow.style.display = 'grid';
+        dirRow.style.gridTemplateColumns = '132px minmax(0, 1fr)';
+        dirRow.style.gap = '12px';
+        dirRow.style.alignItems = 'center';
+
+        const dirGrid = document.createElement('div');
+        dirGrid.className = 'cam-dir-grid';
+        dirGrid.setAttribute('role', 'group');
+        dirGrid.setAttribute('aria-label', 'Arah tampak');
+
+        const gridCells = [
+          ['BL', 'Barat Laut'],
+          ['U', 'Utara'],
+          ['TL', 'Timur Laut'],
+          ['B', 'Barat'],
+          ['Atas', 'Atas'],
+          ['T', 'Timur'],
+          ['BD', 'Barat Daya'],
+          ['S', 'Selatan'],
+          ['TG', 'Tenggara'],
+        ];
+        for (const [code, fullName] of gridCells) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          const isCur = state.cameraDirection === code;
+          b.className = `dir-menu-btn${isCur ? ' on' : ''}`;
+          b.setAttribute('aria-label', `Tampak ${fullName}`);
+          b.setAttribute('aria-pressed', isCur ? 'true' : 'false');
+          b.textContent = code;
+          b.addEventListener('click', () => handlers.onSelectDirection(code));
+          dirGrid.appendChild(b);
+        }
+
+        const northCol = document.createElement('div');
+        northCol.style.display = 'grid';
+        northCol.style.gap = '6px';
+
+        const northLbl = document.createElement('label');
+        northLbl.className = 'lbl';
+        northLbl.htmlFor = 'panel-north-angle';
+        northLbl.textContent = 'Arah utara';
+
+        const northRow = document.createElement('div');
+        northRow.style.display = 'flex';
+        northRow.style.gap = '6px';
+        northRow.style.alignItems = 'center';
+
+        const northInp = document.createElement('input');
+        northInp.id = 'panel-north-angle';
+        northInp.type = 'number';
+        northInp.min = '0';
+        northInp.max = '359';
+        northInp.className = 'field-input num';
+        northInp.style.width = '68px';
+        northInp.value = String(state.config?.settings?.north_angle_deg || 0);
+        northInp.addEventListener('change', () => {
+          const deg = ((Number(northInp.value) || 0) % 360 + 360) % 360;
+          handlers.onChangeNorth(deg);
+        });
+
+        const degUnit = document.createElement('span');
+        degUnit.className = 'muted';
+        degUnit.textContent = 'derajat';
+        northRow.append(northInp, degUnit);
+
+        const pieHint = document.createElement('p');
+        pieHint.className = 'lbl';
+        pieHint.style.margin = '0';
+        pieHint.style.fontWeight = '500';
+        pieHint.innerHTML = 'Tahan <kbd>V</kbd> untuk pie 8 arah. Tekan <kbd>F</kbd> untuk pas ke model.';
+
+        northCol.append(northLbl, northRow, pieHint);
+        dirRow.append(dirGrid, northCol);
+        camSec.appendChild(dirRow);
+
+        const fitBtn = document.createElement('button');
+        fitBtn.type = 'button';
+        fitBtn.className = 'ghost ghost-sm';
+        fitBtn.textContent = 'Pas ke model (F)';
+        fitBtn.addEventListener('click', () => handlers.onFitCamera());
+        camSec.appendChild(fitBtn);
+
+        container.appendChild(camSec);
+
+        // Section 2: Mode warna & Tema
+        const modeSec = document.createElement('div');
+        modeSec.className = 'psec';
+        const modeHead = document.createElement('h3');
+        modeHead.textContent = 'Mode warna & tema';
+        modeSec.appendChild(modeHead);
+
         const modeWrap = document.createElement('div');
-        modeWrap.style.display = 'grid';
-        modeWrap.style.gridTemplateColumns = '1fr 1fr';
-        modeWrap.style.gap = '6px';
+        modeWrap.className = 'seg';
 
         const bCls = document.createElement('button');
         bCls.type = 'button';
-        bCls.className = state.viewerMode === 'classification' ? 'cta' : 'ghost';
-        bCls.style.height = '38px';
+        if (state.viewerMode === 'classification') bCls.classList.add('on');
         bCls.textContent = 'Klasifikasi';
         bCls.addEventListener('click', () => handlers.onChangeViewerMode('classification'));
 
         const bHeat = document.createElement('button');
         bHeat.type = 'button';
-        bHeat.className = state.viewerMode === 'heatmap' ? 'cta' : 'ghost';
-        bHeat.style.height = '38px';
+        if (state.viewerMode === 'heatmap') bHeat.classList.add('on');
         bHeat.disabled = !state.analysisData;
         bHeat.title = state.analysisData ? '' : 'Tersedia setelah OTTV dihitung';
         bHeat.textContent = 'Heatmap';
         bHeat.addEventListener('click', () => handlers.onChangeViewerMode('heatmap'));
 
         modeWrap.append(bCls, bHeat);
-        container.appendChild(makeField('Mode warna viewer', modeWrap));
-
-        const fitBtn = document.createElement('button');
-        fitBtn.type = 'button';
-        fitBtn.className = 'ghost';
-        fitBtn.textContent = 'Pas kamera ke model';
-        fitBtn.addEventListener('click', () => handlers.onFitCamera());
-        container.appendChild(fitBtn);
+        modeSec.appendChild(modeWrap);
 
         const themeBtn = document.createElement('button');
         themeBtn.type = 'button';
-        themeBtn.className = 'ghost';
+        themeBtn.className = 'ghost ghost-sm';
         themeBtn.textContent = state.theme === 'dark' ? 'Ganti ke tema terang' : 'Ganti ke tema gelap';
         themeBtn.addEventListener('click', () => handlers.onToggleTheme());
-        container.appendChild(themeBtn);
+        modeSec.appendChild(themeBtn);
+
+        container.appendChild(modeSec);
       },
     },
 

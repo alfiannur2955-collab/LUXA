@@ -62,6 +62,7 @@ export function createDefaultConfig() {
       frame_width_threshold_m: 0.28,
       spandrel_height_threshold_m: 1.15,
     },
+    saved_views: [],
   };
 }
 
@@ -90,6 +91,9 @@ export function mergeConfig(partial) {
       custom_floor_zones: [...(partial.settings?.custom_floor_zones || [])],
     },
     advanced: { ...base.advanced, ...(partial.advanced || {}) },
+    saved_views: Array.isArray(partial.saved_views)
+      ? partial.saved_views.map((v) => ({ ...v, camera: v?.camera ? { ...v.camera } : null }))
+      : [],
   };
 }
 
@@ -124,6 +128,13 @@ const initialState = {
   // UI flags & selections
   acknowledgedFlags: {}, // { [flagId]: { action, provisional } }
   viewerMode: 'classification', // 'classification' | 'heatmap'
+  cameraProjection: 'perspective', // 'perspective' | 'two_point' | 'axonometric' | 'elevation'
+  cameraDirection: 'B', // 'U' | 'TL' | 'T' | 'TG' | 'S' | 'BD' | 'B' | 'BL' | 'Atas'
+  activeViewId: null,
+  captureScale: 2, // 1 | 2 | 4
+  openPopover: null, // null | 'direction' | 'views' | 'capture'
+  commandPaletteOpen: false,
+  shortcutsModalOpen: false,
   selectedGroup: null,
   selectedOrientation: null,
   needsRecompute: false,

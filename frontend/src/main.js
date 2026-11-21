@@ -1,7 +1,8 @@
 /**
- * LUXA by Alf Studio — Frontend Entry Point (Fase 4a).
+ * LUXA by Alf Studio — Frontend Entry Point (Fase 4a + 4b-1).
  * Orchestrates shell (topbar, rail, feature cards), 4-step workflow screens,
- * 3D viewer, project persistence, and backend communication via `engine.js`.
+ * 3D viewer + 4 camera projections + saved views + PNG capture, keyboard shortcuts,
+ * Ctrl K command palette, ? shortcuts card, and backend communication via `engine.js`.
  */
 
 import './theme.css';
@@ -37,9 +38,21 @@ import { renderInspectScreen } from './steps/inspect.js';
 import { renderResultsScreen } from './steps/results.js';
 import { renderErrorScreen, renderLoadingScreen } from './steps/status.js';
 import { renderUploadScreen } from './steps/upload.js';
+import { renderCommandPalette } from './ui/commandPalette.js';
 import { fmtFileSize } from './ui/escapeHtml.js';
+import { installShortcuts } from './ui/shortcuts.js';
+import { renderShortcutsModal } from './ui/shortcutsModal.js';
 import { showToast } from './ui/toast.js';
+import { DIRECTION_NAMES, PROJECTION_LABELS } from './viewer/cameras.js';
+import { captureViewerPng } from './viewer/capture.js';
+import { pieMenu } from './viewer/pieMenu.js';
 import { viewer } from './viewer/viewer.js';
+import {
+  createSavedViewRecord,
+  deleteSavedViewInList,
+  renameSavedViewInList,
+  suggestViewName,
+} from './viewer/views.js';
 
 const rootEl = document.getElementById('app');
 let activeAbortController = null;
@@ -94,7 +107,121 @@ function buildInitialConfirmForInspect(inspectData, existingConfirm = null) {
   return base;
 }
 
-async function runInspectAndOpenConfirm(modelId, filename, { fileSizeBytes = null, config = null, confirm = null, targetStep = 'confirm' } = {}) {
+// ============================================================================
+// Camera, Saved Views & Capture Handlers (Fase 4b-1)
+// ============================================================================
+
+function handleSetProjection(projection) {
+  viewer.setProjection(projection, { direction: getState().cameraDirection });
+  setState({ cameraProjection: projection, activeViewId: null, openPopover: null });
+}
+
+function handleSelectDirection(code) {
+  const s = getState();
+  const forceElev = code === 'Atas';
+  viewer.lookAtDirection(code, { forceElevation: forceElev });
+  const nextProj = forceElev ? 'elevation' : s.cameraProjection;
+  setState({
+    cameraDirection: code,
+    cameraProjection: nextProj,
+    activeViewId: null,
+  });
+}
+
+function handleFitCamera() {
+  const s = getState();
+  const bbox = s.analysisData?.summary?.bounding_box || s.inspectData?.bounding_box;
+  if (bbox) {
+    viewer.fitModel(bbox);
+    showToast('Kamera disesuaikan ke seluruh model.', 'ok', 2000);
+  }
+}
+
+function handleSaveView() {
+  const s = getState();
+  if (!s.inspectData && !s.analysisData) return;
+  const camState = viewer.exportCameraState();
+  const name = suggestViewName(
+    camState.projection,
+    camState.direction,
+    s.config?.saved_views || [],
+  );
+  const record = createSavedViewRecord({
+    name,
+    cameraState: camState,
+    northAngleDeg: s.config?.settings?.north_angle_deg || 0,
+  });
+  updateConfig((cfg) => {
+    cfg.saved_views = [...(cfg.saved_views || []), record];
+  });
+  setState({ activeViewId: record.id });
+  saveProjectAutosave(getState());
+  showToast(`View tersimpan: ${record.name}`, 'ok', 2600);
+}
+
+function handleApplyView(view) {
+  if (!view?.camera) return;
+  viewer.applyCameraState(view.camera);
+  setState({
+    cameraProjection: view.camera.projection || view.projection || 'perspective',
+    cameraDirection: view.camera.direction || view.direction || 'B',
+    activeViewId: view.id,
+  });
+}
+
+function handleRenameView(viewId, newName) {
+  updateConfig((cfg) => {
+    cfg.saved_views = renameSavedViewInList(cfg.saved_views, viewId, newName);
+  });
+  saveProjectAutosave(getState());
+  showToast(`Nama view diubah menjadi "${newName}".`, 'ok', 2400);
+}
+
+function handleDeleteView(viewId) {
+  const s = getState();
+  updateConfig((cfg) => {
+    cfg.saved_views = deleteSavedViewInList(cfg.saved_views, viewId);
+  });
+  if (s.activeViewId === viewId) {
+    setState({ activeViewId: null });
+  }
+  saveProjectAutosave(getState());
+  showToast('View tersimpan dihapus.', 'ok', 2200);
+}
+
+async function handleCapturePng(scale = null) {
+  const s = getState();
+  const effScale = scale || s.captureScale || 2;
+  try {
+    const res = await captureViewerPng(s, { scale: effScale });
+    showToast(`Capture ${res.scale}x (${res.width} × ${res.height} px) diunduh.`, 'ok', 3000);
+  } catch (err) {
+    showToast(err.message || 'Gagal melakukan capture gambar.', 'fail');
+  }
+}
+
+const vbarHandlers = {
+  onSetProjection: handleSetProjection,
+  onSelectDirection: handleSelectDirection,
+  onTogglePopover: (pop) => setState({ openPopover: pop }),
+  onSaveView: handleSaveView,
+  onApplyView: handleApplyView,
+  onRenameView: handleRenameView,
+  onDeleteView: handleDeleteView,
+  onSetCaptureScale: (sc) => setState({ captureScale: sc }),
+  onCapturePng: handleCapturePng,
+  onRerender: () => setState({}),
+};
+
+// ============================================================================
+// Model Lifecycle Handlers
+// ============================================================================
+
+async function runInspectAndOpenConfirm(
+  modelId,
+  filename,
+  { fileSizeBytes = null, config = null, confirm = null, targetStep = 'confirm' } = {},
+) {
   const prevStep = getState().step === 'loading' ? 'upload' : getState().step;
   const ctrl = new AbortController();
   activeAbortController = ctrl;
@@ -104,6 +231,7 @@ async function runInspectAndOpenConfirm(modelId, filename, { fileSizeBytes = nul
     previousStep: prevStep,
     step: 'loading',
     activeRailCard: null,
+    openPopover: null,
     loading: {
       title: `Memproses ${filename}`,
       subtitle: sizeText,
@@ -175,6 +303,7 @@ async function runInspectAndOpenConfirm(modelId, filename, { fileSizeBytes = nul
       acknowledgedFlags: {},
       selectedGroup: null,
       selectedOrientation: null,
+      activeViewId: null,
       viewerMode: 'classification',
       needsRecompute: false,
       step: targetStep,
@@ -301,7 +430,13 @@ async function handleOpenProjectFile(file) {
         confirm: parsed.confirm,
         targetStep: 'confirm',
       });
-      showToast('Proyek .ottv.json berhasil dimuat.', 'ok');
+      const nViews = parsed.config?.saved_views?.length || 0;
+      showToast(
+        nViews > 0
+          ? `Proyek .ottv.json dimuat (${nViews} view tersimpan).`
+          : 'Proyek .ottv.json berhasil dimuat.',
+        'ok',
+      );
     } else {
       setState({
         config: parsed.config,
@@ -341,6 +476,7 @@ async function handleCalculateOttv() {
     previousStep: prevStep,
     step: 'loading',
     activeRailCard: null,
+    openPopover: null,
     loading: {
       title: `Menghitung OTTV ${s.filename || ''}`,
       subtitle: 'Menyimpan konfigurasi dan menjalankan raycast peneduh SNI 6389:2020',
@@ -354,7 +490,6 @@ async function handleCalculateOttv() {
   });
 
   try {
-    // Spec §2: Config is written to server ONLY on Hitung, never silently on re-inspect.
     await engine.saveConfig(s.modelId, configToRun, { signal: ctrl.signal });
 
     setState({
@@ -433,9 +568,16 @@ async function handleExportFormat(fmt) {
   }
 }
 
+function toggleTheme() {
+  const next = getState().theme === 'dark' ? 'light' : 'dark';
+  saveTheme(next);
+  applyThemeToDom(next);
+  setState({ theme: next });
+}
+
 const panelBuilders = createRailPanelBuilders({
-  onGoToUpload: () => setState({ step: 'upload', activeRailCard: null }),
-  onNavigateStep: (step) => setState({ step, activeRailCard: null }),
+  onGoToUpload: () => setState({ step: 'upload', activeRailCard: null, openPopover: null }),
+  onNavigateStep: (step) => setState({ step, activeRailCard: null, openPopover: null }),
   onChangeRoleMaterial: (fieldKey, materialId) => {
     updateConfig((cfg) => {
       cfg.settings[fieldKey] = materialId;
@@ -471,13 +613,11 @@ const panelBuilders = createRailPanelBuilders({
     setState({ needsRecompute: Boolean(getState().analysisData) });
     saveProjectAutosave(getState());
   },
+  onSetProjection: handleSetProjection,
+  onSelectDirection: handleSelectDirection,
   onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
-  onFitCamera: () => {
-    const s = getState();
-    const bbox = s.analysisData?.summary?.bounding_box || s.inspectData?.bounding_box;
-    if (bbox) viewer.fitModel(bbox);
-  },
-  onToggleTheme: () => toggleTheme(),
+  onFitCamera: handleFitCamera,
+  onToggleTheme: toggleTheme,
   onRecompute: () => handleCalculateOttv(),
   onDownloadExcel: () => handleExportFormat('template_prodi'),
   onDownloadFormat: (fmt) => handleExportFormat(fmt),
@@ -486,19 +626,6 @@ const panelBuilders = createRailPanelBuilders({
     showToast('File proyek (.ottv.json) diunduh.', 'ok');
   },
 });
-
-function toggleTheme() {
-  const next = getState().theme === 'dark' ? 'light' : 'dark';
-  saveTheme(next);
-  applyThemeToDom(next);
-  setState({ theme: next });
-}
-
-function openQuickCommandToast() {
-  const s = getState();
-  setState({ activeRailCard: s.activeRailCard ? null : 'model' });
-  showToast('Palet perintah lengkap (Ctrl K) akan hadir di tahap 4b. Kartu fitur dibuka.', 'ok', 3500);
-}
 
 function renderApp(state) {
   if (!rootEl) return;
@@ -509,9 +636,10 @@ function renderApp(state) {
 
   frag.appendChild(
     renderTopbar(state, {
-      onHome: () => setState({ step: 'upload', activeRailCard: null }),
-      onNavigateStep: (target) => setState({ step: target, activeRailCard: null }),
-      onOpenCommandPalette: openQuickCommandToast,
+      onHome: () => setState({ step: 'upload', activeRailCard: null, openPopover: null }),
+      onNavigateStep: (target) => setState({ step: target, activeRailCard: null, openPopover: null }),
+      onOpenCommandPalette: () =>
+        setState({ commandPaletteOpen: true, shortcutsModalOpen: false, openPopover: null }),
       onToggleTheme: toggleTheme,
       onToggleAdvanced: () => setState({ advancedMode: !state.advancedMode }),
     }),
@@ -520,7 +648,10 @@ function renderApp(state) {
   frag.appendChild(
     renderRail(state, {
       onToggleCard: (cardId) =>
-        setState({ activeRailCard: state.activeRailCard === cardId ? null : cardId }),
+        setState({
+          activeRailCard: state.activeRailCard === cardId ? null : cardId,
+          openPopover: null,
+        }),
     }),
   );
 
@@ -611,13 +742,14 @@ function renderApp(state) {
         },
         onProceedToInspect: async () => {
           await refreshInspectReadOnly();
-          setState({ step: 'inspect', viewerMode: 'classification' });
+          setState({ step: 'inspect', viewerMode: 'classification', openPopover: null });
         },
       }),
     );
   } else if (state.step === 'inspect') {
     frag.appendChild(
       renderInspectScreen(state, {
+        vbarHandlers,
         onSelectGroup: (groupName) => setState({ selectedGroup: groupName }),
         onChangeGroupCategory: async (groupName, newCat) => {
           updateConfig((cfg) => {
@@ -631,9 +763,7 @@ function renderApp(state) {
             setState({ selectedGroup: target });
             showToast(`Menyorot grup "${target}" di viewer.`, 'ok', 2600);
           } else {
-            const bbox = getState().inspectData?.bounding_box;
-            if (bbox) viewer.fitModel(bbox);
-            showToast('Kamera disesuaikan ke seluruh model.', 'ok', 2400);
+            handleFitCamera();
           }
         },
         onAcknowledgeFlag: (flag, action) => {
@@ -645,17 +775,23 @@ function renderApp(state) {
             },
           });
         },
-        onBackToConfirm: () => setState({ step: 'confirm' }),
-        onOpenMaterialPanel: () => setState({ activeRailCard: 'material' }),
-        onGoToResults: () => setState({ step: 'results', viewerMode: 'heatmap' }),
+        onBackToConfirm: () => setState({ step: 'confirm', openPopover: null }),
+        onOpenMaterialPanel: () => setState({ activeRailCard: 'material', openPopover: null }),
+        onGoToResults: () => setState({ step: 'results', viewerMode: 'heatmap', openPopover: null }),
         onCalculateOttv: () => handleCalculateOttv(),
       }),
     );
   } else if (state.step === 'results') {
     frag.appendChild(
       renderResultsScreen(state, {
+        vbarHandlers,
         onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
-        onSelectOrientation: (code) => setState({ selectedOrientation: code }),
+        onSelectOrientation: (code) => {
+          setState({ selectedOrientation: code });
+          if (code) {
+            handleSelectDirection(code);
+          }
+        },
         onRecompute: () => handleCalculateOttv(),
         onDownloadExcel: () => handleExportFormat('template_prodi'),
         onDownloadProject: () => {
@@ -689,21 +825,76 @@ function renderApp(state) {
     }),
   );
 
+  const cmdEl = renderCommandPalette(state, {
+    onClose: () => setState({ commandPaletteOpen: false }),
+    onSetProjection: (p) => {
+      handleSetProjection(p);
+      showToast(`Proyeksi: ${PROJECTION_LABELS[p] || p}`, 'ok', 1800);
+    },
+    onSelectDirection: (c) => {
+      handleSelectDirection(c);
+      showToast(`Arah pandang: ${DIRECTION_NAMES[c] || c}`, 'ok', 1800);
+    },
+    onFitCamera: handleFitCamera,
+    onSaveView: handleSaveView,
+    onApplyView: handleApplyView,
+    onCapturePng: handleCapturePng,
+    onSelectGroup: (g) => {
+      setState({ selectedGroup: g });
+      showToast(`Menyorot grup "${g}"`, 'ok', 2000);
+    },
+    onOpenPanel: (panelId) => setState({ activeRailCard: panelId }),
+    onToggleTheme: toggleTheme,
+    onOpenShortcuts: () => setState({ shortcutsModalOpen: true }),
+    onDownloadExcel: () => handleExportFormat('template_prodi'),
+    onDownloadProject: () => downloadProjectFile(getState()),
+  });
+  if (cmdEl) frag.appendChild(cmdEl);
+
+  const shortcutsEl = renderShortcutsModal(state, {
+    onClose: () => setState({ shortcutsModalOpen: false }),
+  });
+  if (shortcutsEl) frag.appendChild(shortcutsEl);
+
   rootEl.innerHTML = '';
   rootEl.appendChild(frag);
 }
 
-// Keyboard shortcuts: Escape closes active rail card, Ctrl+K opens command trigger
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && getState().activeRailCard) {
-    e.preventDefault();
-    setState({ activeRailCard: null });
-    return;
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-    e.preventDefault();
-    openQuickCommandToast();
-  }
+installShortcuts({
+  getState,
+  pieMenu,
+  handlers: {
+    onToggleCommandPalette: () =>
+      setState((s) => ({
+        ...s,
+        commandPaletteOpen: !s.commandPaletteOpen,
+        shortcutsModalOpen: false,
+        openPopover: null,
+      })),
+    onCloseCommandPalette: () => setState({ commandPaletteOpen: false }),
+    onToggleShortcuts: () =>
+      setState((s) => ({
+        ...s,
+        shortcutsModalOpen: !s.shortcutsModalOpen,
+        commandPaletteOpen: false,
+      })),
+    onCloseShortcuts: () => setState({ shortcutsModalOpen: false }),
+    onClosePopover: () => setState({ openPopover: null }),
+    onCloseRailCard: () => setState({ activeRailCard: null }),
+    onSetProjection: (p) => {
+      handleSetProjection(p);
+      showToast(`Proyeksi: ${PROJECTION_LABELS[p] || p}`, 'ok', 1800);
+    },
+    onSelectDirection: (c) => {
+      handleSelectDirection(c);
+      showToast(`Arah pandang: ${DIRECTION_NAMES[c] || c}`, 'ok', 1800);
+    },
+    onFitCamera: handleFitCamera,
+    onSaveView: handleSaveView,
+    onCapturePng: handleCapturePng,
+    onToggleSunPlayback: () =>
+      showToast('Animasi putar matahari satu hari akan hadir di tahap 4b-2.', 'ok', 2400),
+  },
 });
 
 async function bootstrap() {

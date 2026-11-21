@@ -42,3 +42,33 @@ Dokumen ini mencatat perubahan arsitektur antarmuka dan pendukung backend pada F
 - `pytest tests/` lulus seluruhnya (termasuk 7 tes baru di `tests/test_sanity_flags.py` dan seluruh 126 tes dari Fase 1–3).
 - Build produksi Vite (`vite build`) lulus tanpa galat.
 - Audit statis memastikan nol `fetch('/api/` di luar `frontend/src/engine.js`, nol `OTTVista`, nol `Peran`, nol `inspect3dmFileClientSide`, dan nol hex warna keras di komponen UI.
+
+---
+
+## Fase 4b-1 — Perbaikan Review 4a (P1–P3), Kamera 4 Proyeksi, View Tersimpan, Capture, & Pintasan (`fase-4b1-kamera`)
+
+### 1. Perbaikan Review Fase 4a (P1–P3)
+- **P1 (`backend/run_studio_servers.py`, `start_studio.bat`)**: `run_studio_servers.py` kini mendeteksi Node.js otomatis lewat `NODE_EXE`, `shutil.which("node")`, `%ProgramFiles%\nodejs`, `%ProgramFiles(x86)%\nodejs`, `%LOCALAPPDATA%\Programs\nodejs`, `%NVM_SYMLINK%`, dan `%APPDATA%\nvm\*`. Bila Node.js tidak ditemukan, ditampilkan pesan bahasa Indonesia yang jelas cara memasang Node LTS dan backend LUXA tetap berjalan di `http://127.0.0.1:8000` (menyajikan build `frontend/dist`). Judul jendela dan banner `start_studio.bat` diperbarui menjadi **LUXA by Alf Studio (SNI 6389:2020)** dengan path relatif `%~dp0`.
+- **P2 (`frontend/src/steps/inspect.js`, `theme.css`)**: Nama grup pada tabel *Grup terdeteksi* diubah menjadi tombol `<button type="button">` (`aria-pressed`, baris `aria-selected`) sehingga sepenuhnya dapat dipilih menggunakan keyboard (`Tab` + `Enter`/`Spasi`).
+- **P3 (`frontend/src/steps/upload.js`)**: Label kartu contoh menara curtain wall dihapus angka lantainya menjadi `Fasad_Curtain_Wall_Baru.3dm` agar tidak bentrok dengan taksiran lantai engine.
+
+### 2. Kamera 4 Proyeksi, Tampak 8 Arah + Atas, & Gizmo Sumbu
+- **`frontend/src/viewer/cameras.js`**: Mengimplementasikan `CameraRig` dengan 4 proyeksi:
+  1. **Perspektif** (`1`): `PerspectiveCamera` dengan orbit bebas.
+  2. **Perspektif 2 titik** (`2`): `PerspectiveCamera` dengan pitch dikunci horizontal (`minPolarAngle = maxPolarAngle = π/2`) dan pergeseran vertikal via `camera.setViewOffset` sehingga garis vertikal bangunan tetap tegak.
+  3. **Aksonometri** (`3`): `OrthographicCamera` pada sudut isometrik (~35,264°) dari kuadran aktif.
+  4. **Tampak** (`4`): `OrthographicCamera` tegak lurus fasad pada salah satu dari 8 arah (`U`, `TL`, `T`, `TG`, `S`, `BD`, `B`, `BL`) atau `Atas` (denah) mengikuti `north_angle_deg`.
+  - Transisi kamera halus 200 ms dan langsung tanpa animasi di bawah `prefers-reduced-motion`.
+- **`frontend/src/viewer/axes.js`**: Gizmo sumbu X (`--fail`), Y (`--ok`), Z (`--data-glazing`) yang berputar sinkron dengan kamera 3D di pojok kanan bawah viewer.
+
+### 3. View Tersimpan (`.ottv.json`) & Capture PNG 1x/2x/4x
+- **`backend/config_schema.py` & `tests/test_api.py`**: Menambahkan `saved_views` ke `ProjectConfig` v2 + `migrate_v1` beserta tes round-trip `test_saved_views_roundtrip_in_project_config`.
+- **`frontend/src/viewer/views.js`**: Tambah, pilih, ganti nama (*inline*), dan hapus view tersimpan yang otomatis ikut tersimpan di `.ottv.json` dan `localStorage`.
+- **`frontend/src/viewer/capture.js`**: Render *offscreen* resolusi `1x` / `2x` / `4x` (dibatasi aman terhadap `maxTextureSize` GPU), digabung dengan latar tema aktif dan cap LUXA (logo lengkap + nama model, nama view, OTTV bila ada, dan tanggal) lalu diunduh sebagai `<model>_<view>_<tanggal>.png`.
+
+### 4. Pil Bawah Viewer, Pie Menu Tahan `V`, Panel Tampilan Kamera, Palet `Ctrl K`, & Daftar Pintasan `?`
+- **`frontend/src/viewer/vbar.js`**: Pil bawah kiri (4 proyeksi + pemilih 8 arah & Atas dengan navigasi panah keyboard) dan pil bawah kanan (dropdown view tersimpan, tombol *Simpan*, tombol *Capture* dengan pemilih `1x`/`2x`/`4x`).
+- **`frontend/src/viewer/pieMenu.js`**: Pie menu radial 8 arah + *Atas* saat menahan tombol `V` (arahkan mouse atau panah, lepas `V` untuk memilih, `Esc` untuk batal).
+- **`frontend/src/panels/railPanels.js`**: Panel **Tampilan** bagian **Kamera** (4 proyeksi, kisi 3×3 8 arah + *Atas*, masukan sudut utara, tombol *Pas ke model*).
+- **`frontend/src/ui/shortcuts.js`, `commandPalette.js`, `shortcutsModal.js`**: Seluruh pintasan §6 (`1 2 3 4`, tahan `V`, `F`, `S`, `C`, `Spasi`, `Esc`, `Ctrl K`, `?`) yang otomatis nonaktif saat fokus di kolom input; palet perintah `Ctrl K` mencari aksi, tampak, view tersimpan, dan grup; kartu daftar pintasan `?`.
+

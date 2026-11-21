@@ -29,6 +29,12 @@ export function icon(name, size = 18) {
     compass: '<circle cx="12" cy="12" r="8.5"/><path d="M15 9l-2 4-4 2 2-4z"/>',
     thermometer: '<path d="M10 14.5V5a2 2 0 014 0v9.5a4 4 0 11-4 0z"/><path d="M12 9v7"/>',
     xray: '<rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 2.5"/><path d="M9 15l6-6"/>',
+    camera: '<path d="M4 8h3l1.5-2h7L17 8h3v11H4z"/><circle cx="12" cy="13.2" r="3.4"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    chevronDown: '<path d="M7 10l5 5 5-5"/>',
+    edit: '<path d="M15.5 5.5l3 3L9 18H6v-3z"/>',
+    trash: '<path d="M5 7h14M9 7V5h6v2M8 7l1 12h6l1-12"/>',
+    keyboard: '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M7 14h10"/>',
   };
   const body = paths[name] || '';
   return `<svg ${SVG_ATTRS} ${wh}>${body}</svg>`;

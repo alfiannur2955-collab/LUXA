@@ -9,6 +9,7 @@ import { collectAcceptedProvisionalFlags, evaluateConfirmGate } from '../state.j
 import { fmtId } from '../ui/escapeHtml.js';
 import { compassDialSvg, icon } from '../ui/icons.js';
 import { CATEGORY_LABELS, categorySwatchStyle } from '../viewer/modes.js';
+import { renderViewerBottomBar } from '../viewer/vbar.js';
 import { viewer } from '../viewer/viewer.js';
 
 const ROLE_OPTIONS = [
@@ -90,9 +91,9 @@ export function renderInspectScreen(state, handlers) {
   compass.innerHTML = compassDialSvg(northDeg);
   viewerSec.appendChild(compass);
 
-  // Legend
+  // Legend (lifted cleanly above bottom pills)
   const legend = document.createElement('div');
-  legend.className = 'legend num';
+  legend.className = 'legend legend-lifted num';
   const legendParts = [
     `<span class="legend-item"><i class="swatch" style="background:var(--data-glazing);"></i>Kaca ${fmtId(glazingArea, 1)} m²</span>`,
     `<span class="legend-item"><i class="swatch" style="background:var(--data-wall);"></i>Dinding ${fmtId(wallArea, 1)} m²</span>`,
@@ -109,6 +110,10 @@ export function renderInspectScreen(state, handlers) {
   }
   legend.innerHTML = legendParts.join('');
   viewerSec.appendChild(legend);
+
+  if (handlers.vbarHandlers) {
+    viewerSec.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
+  }
 
   // Right Top: Grup terdeteksi
   const groupsCard = document.createElement('section');
@@ -158,23 +163,24 @@ export function renderInspectScreen(state, handlers) {
   for (const g of groups) {
     renderedNames.add(g.group_name);
     const effCat = overrides[g.group_name] || g.category || 'wall';
+    const isSelected = state.selectedGroup === g.group_name;
     const tr = document.createElement('tr');
-    if (state.selectedGroup === g.group_name) {
+    if (isSelected) {
       tr.classList.add('is-selected');
     }
-    tr.style.cursor = 'pointer';
-    tr.addEventListener('click', (e) => {
-      if (e.target.tagName === 'SELECT') return;
-      handlers.onSelectGroup(state.selectedGroup === g.group_name ? null : g.group_name);
-    });
+    tr.setAttribute('aria-selected', isSelected ? 'true' : 'false');
 
     const tdName = document.createElement('td');
-    tdName.style.maxWidth = '115px';
-    tdName.style.overflow = 'hidden';
-    tdName.style.textOverflow = 'ellipsis';
-    tdName.style.whiteSpace = 'nowrap';
-    tdName.title = g.group_name;
-    tdName.textContent = g.group_name;
+    const nameBtn = document.createElement('button');
+    nameBtn.type = 'button';
+    nameBtn.className = 'group-pick-btn';
+    nameBtn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+    nameBtn.title = g.group_name;
+    nameBtn.textContent = g.group_name;
+    nameBtn.addEventListener('click', () => {
+      handlers.onSelectGroup(isSelected ? null : g.group_name);
+    });
+    tdName.appendChild(nameBtn);
 
     const tdRole = document.createElement('td');
     const roleWrap = document.createElement('div');

@@ -555,17 +555,64 @@ Nama produk berganti dari OTTVista ke LUXA (by Alf Studio). Baca ulang docs/FASE
 Commit terpisah: 'fase-4a: identitas LUXA'.
 ```
 
+### Review Fase 4a (22 Nov 2026)
+
+Branch `fase-4a-kerangka` (7 commit, terakhir `2df9336`), diperiksa di salinan terpisah. Hasilnya **lolos dengan catatan**: boleh di-merge ke `main`, dan perbaikan di bawah dikerjakan di awal 4b-1.
+
+**Yang sudah beres**
+
+- pytest 133/133 hijau (7 tes baru untuk `build_sanity_flags`); `vite build` berhasil.
+- Tidak ada `fetch('/api/` di luar `engine.js`, tidak ada hex di komponen, teks dari file model lewat `textContent` (`innerHTML` hanya untuk ikon dan label tetap), `localStorage` dibungkus `try/catch`.
+- Layar Unggah di 1440 × 900 sesuai mockup: logo + "by Alf Studio", rel ikon, kartu contoh, disclaimer dengan kalimat server (bukan klaim browser), latar cahaya hangat.
+- Daftar Kejanggalan diuji lewat API pada model nyata dan hasilnya sesuai rancangan:
+  - `Facade only to Alfian.3dm`: muka tanah (z0 −3,58 m), tanpa render mesh, bidang tersaring, tanpa atap.
+  - `Facade only to Alfian.ifc`: tanpa pertanyaan muka tanah (z0 = 0).
+  - buildingSMART IFC4.3: tanpa kaca + luas fasad tidak wajar.
+  - Duplex: luas fasad tidak wajar.
+- Gerbang Konfirmasi (`evaluateConfirmGate`) memeriksa satuan, muka tanah, isi model, dan tanpa kaca.
+
+**Belum bisa diuji**: klik tampilan Konfirmasi, Inspeksi, Hasil, dan tema gelap. Backend di laptop Alfian masih proses lama saat uji pertama, lalu frontend tidak bisa dinyalakan lewat `start_studio.bat` (lihat P1). Uji klik dilakukan bersamaan dengan review 4b-1.
+
+**Perbaikan (kerjakan di awal 4b-1)**
+
+| # | Temuan | Perbaikan |
+| --- | --- | --- |
+| P1 | `start_studio.bat` gagal menyalakan frontend: `FileNotFoundError` karena `node` tidak ada di PATH Windows. Judulnya juga masih "OTTV 3D Parametric Studio v3.0 · 5-Stage". | `run_studio_servers.py` mencari Node dengan `shutil.which('node')`, lalu lokasi umum (`%ProgramFiles%\nodejs`, `%APPDATA%\nvm`), dan variabel `NODE_EXE`. Bila tidak ketemu, tampilkan pesan Indonesia yang jelas (cara memasang Node LTS) dan biarkan backend tetap jalan. Judul jendela dan teks jadi LUXA. |
+| P2 | Baris tabel "Grup terdeteksi" hanya bisa diklik dengan mouse (`tr` dengan click handler). | Jadikan nama grup sebuah `<button>` di dalam sel, atau beri baris `tabindex=0` + Enter/Spasi + `aria-selected`. |
+| P3 | Kartu contoh menulis "Fasad\_Curtain\_Wall\_Baru.3dm (24 lantai)", sedangkan engine menaksir 25 lantai. | Hapus angka lantai dari label, atau ambil dari data. Nama file contoh ini model milik Alfian: tetap dipakai sampai Alfian memutuskan sebelum publish. |
+
 ```text
 PROMPT FASE 4b-1 (kamera dan view):
-Branch fase-4b1-kamera dari main setelah 4a di-merge. Baca ulang docs/FASE4_UI_SPEC.md bagian 4.1, 4.7, 4.8, 5, 6 dan mockup 4, 6, 7.
+Merge fase-4a-kerangka ke main dulu. Branch fase-4b1-kamera dari main. Baca docs/RENCANA.md bagian 'Review Fase 4a' dan kerjakan P1, P2, P3 lebih dulu (commit 'fase-4b1: perbaikan review 4a'). Setelah itu baca ulang docs/FASE4_UI_SPEC.md bagian 4.1, 4.7, 4.8, 5, 6 dan mockup 4, 6, 7.
 Kerjakan baris '4b-1' tabel bagian 10: 4 proyeksi (termasuk perspektif 2 titik dengan garis vertikal tegak), tampak 8 arah + Atas, pie menu tahan V, pil bawah kiri dan kanan, view tersimpan (tambah, ganti nama, hapus, ikut .ottv.json), capture PNG 1x/2x/4x dengan cap, gizmo sumbu, semua pintasan bagian 6, palet Ctrl K, daftar pintasan '?', panel Tampilan bagian Kamera.
 Pintasan tidak aktif saat fokus di input. Semua bisa dipakai dengan keyboard.
 Catat di docs/CHANGELOG-fase4.md. Commit per fitur.
 ```
 
+### Review Fase 4b-1 (22 Nov 2026)
+
+Branch `fase-4b1-kamera` (7 commit, terakhir `6e013fc`). Kali ini uji klik dilakukan sungguhan: aplikasi dijalankan di mesin uji dengan browser tanpa layar, contoh "Kotak 4 lantai" dibawa dari Unggah sampai Hasil. Tangkapan layarnya ada di `corpus/_review_4b1/` (folder di-.gitignore). Hasilnya **lolos dengan catatan**: boleh di-merge, dan perbaikan R1 sampai R5 dikerjakan di awal 4b-2.
+
+**Yang sudah beres**
+
+- pytest 134/134 hijau (tes baru round-trip `saved_views`), `vite build` berhasil.
+- P1 sampai P3 dari review 4a selesai: peluncur mencari Node.js dan memberi pesan Indonesia, judul jadi LUXA; nama grup jadi tombol; label "24 lantai" dihapus.
+- Alur Unggah, Konfirmasi (kartu kaca, gerbang "Pilih isi model dulu"), Inspeksi, dan Hasil berjalan. OTTV contoh kotak 20,43 W/m², per arah U 18,57 / T 21,08 / S 14,76 / B 24,80, sama dengan hitungan analitis.
+- Pintasan 1 sampai 4 mengganti proyeksi dengan toast; pie menu tahan V muncul dengan 8 arah + Atas; Ctrl K membuka palet berisi proyeksi, tampak, capture, grup, panel, tema; tombol ? membuka daftar pintasan; sakelar tema gelap bekerja; gizmo sumbu berputar mengikuti kamera.
+
+**Perbaikan (kerjakan di awal 4b-2)**
+
+| # | Temuan | Perbaikan |
+| --- | --- | --- |
+| R1 (bug) | RTTV selalu tertulis "tidak dihitung, tidak ada atap". `steps/results.js` memeriksa `rttv.has_roof`, padahal engine mengirim `rttv.applicable`. Contoh kotak seharusnya RTTV 4,64 W/m² (atap 600 m²). | Pakai `rttv.applicable`, tampilkan RTTV + status batas 10 W/m². Tambahkan tes frontend atau tes API yang memastikan field yang dibaca UI ada di respons. |
+| R2 | Tema gelap: model di viewer hampir tak terlihat (heatmap `heat-0` gelap `#3a3122` di atas latar viewer gelap). Di tema terang, fasad yang warnanya sama juga terlihat datar. | Tambahkan garis tepi elemen (`EdgesGeometry`, warna `line-strong`, tipis) di semua mode, dan pastikan beda terang antara latar viewer dan `heat-0` minimal 1,5:1 di kedua tema. |
+| R3 | Toast ("Proyeksi: Aksonometri") muncul di kanan bawah dan menutupi tombol Unduh di kolom samping. | Pindahkan toast ke tengah bawah viewer, di atas pil bawah. |
+| R4 | Kartu Konfirmasi menulis "Sekitar 5 lantai dengan tinggi 3,6 m" untuk contoh yang namanya "Kotak 4 lantai" (tinggi lantai sebenarnya 4 m). | Ambil jumlah lantai dari deteksi pita lantai engine bila ada (`floor_detection_method`, `estimated_floors`), sebutkan tinggi lantai hasil deteksi, dan bila hanya tebakan tinggi/3,6 tulis "perkiraan" dengan tombol Ubah. |
+| R5 | Kamera awal terlalu dekat: model terpotong di tepi dan tertutup Kartu Konfirmasi. | "Pas ke model" memperhitungkan panel yang menutupi viewer (kartu kaca, pil, kolom) dan memberi margin 10%. |
+
 ```text
 PROMPT FASE 4b-2 (analisis di viewer):
-Branch fase-4b2-analisis dari main setelah 4b-1 di-merge. Baca docs/FASE4_UI_SPEC.md bagian 4.2 sampai 4.6, 7 butir 2-4, dan mockup 3, 4, 6.
+Commit dulu docs/RENCANA.md bila ada perubahan. Merge fase-4b1-kamera ke main, lalu branch fase-4b2-analisis dari main. Baca docs/RENCANA.md bagian 'Review Fase 4b-1' dan kerjakan R1 sampai R5 lebih dulu (commit 'fase-4b2: perbaikan review 4b-1'). Setelah itu baca docs/FASE4_UI_SPEC.md bagian 4.2 sampai 4.6, 7 butir 2-4, dan mockup 3, 4, 6.
 Kerjakan baris '4b-2' tabel bagian 10: seleksi panel (klik, Shift+klik, klik area kosong melepas), label nilai HTML kaca di titik klik, kartu Bidang terpilih, sakelar Heatmap per arah / per panel, mode Orientasi, Kejanggalan, X-ray, kubah matahari dengan skala 50-200% dan Pas ke model, kompas utara yang bisa diputar + chip Hitung ulang, filter paparan matahari + endpoint GET /api/analyses/{id}/exposure + animasi satu hari, pil rumus yang bisa digeser dan dibuka.
 Uji dengan corpus/real/Facade only to Alfian.3dm: panel kaca Barat 56,44 W/m2 kontribusi, porsi panas kaca Barat sekitar 32%, filter 23 Sep 13.00 menyalakan Barat dan tidak menyalakan Selatan.
 Catat di docs/CHANGELOG-fase4.md. Commit per fitur.
