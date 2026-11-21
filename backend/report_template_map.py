@@ -24,9 +24,10 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, List, Optional, Tuple
 
-from materials_and_epw import SC_TO_SHGC_RATIO, get_material_by_id, get_material_shgc, migrate_material_id
+from materials_and_epw import get_material_by_id, migrate_material_id
 from sni_tables import resolve_template_prodi_city
 from template_filler import fill_xlsx_template
+from template_method import TemplateShadingRegistry, compute_template_shgc_and_sck
 
 
 DEFAULT_TEMPLATE_PATH: str = os.path.abspath(
@@ -159,6 +160,23 @@ def _merge_segments_to_limit(
     if len(cur) <= max_rows:
         return cur, True
 
+    # Pass 1b: lossless grouping across floors by exact identical (ew_code, fen_code)
+    # Since template sums heat across all 25 rows linearly, grouping identical (EW, F)
+    # introduces ZERO OTTV error!
+    grouped_by_pair: Dict[Tuple[str, str], Dict[str, Any]] = {}
+    pair_order: List[Tuple[str, str]] = []
+    for seg in cur:
+        pk = (seg["ew_code"], seg["fen_code"])
+        if pk not in grouped_by_pair:
+            grouped_by_pair[pk] = dict(seg)
+            pair_order.append(pk)
+        else:
+            grouped_by_pair[pk] = _combine(grouped_by_pair[pk], seg)
+    cur = [grouped_by_pair[pk] for pk in pair_order]
+
+    if len(cur) <= max_rows:
+        return cur, True
+
     # Pass 2: greedily merge adjacent pair with smallest combined facade area until <= max_rows
     while len(cur) > max_rows:
         best_i = min(range(len(cur) - 1), key=lambda i: cur[i]["facade_area_m2"] + cur[i + 1]["facade_area_m2"])
@@ -222,42 +240,9 @@ def build_template_prodi_cell_map(
     )
     _register_wall(default_tpl_wall)
 
-    sh_entries: List[Tuple[str, float, float, int]] = []  # (code, P1, H, tilt)
-    sv_entries: List[Tuple[str, float, float, int]] = []  # (code, P2, W, tilt)
-    se_entries: List[Tuple[str, float, float, float, float, int]] = []  # (code, P1, H, P2, W, tilt)
-    shade_key_to_code: Dict[Tuple[str, float, float, int], str] = {}
-
-    def _register_shading(r1: float, r2: float, phi1_deg: float) -> Tuple[str, str]:
-        r1_q = round(max(0.0, float(r1)), 2)
-        r2_q = round(max(0.0, float(r2)), 2)
-        tilt_q = _snap_angle_to_10(phi1_deg)
-        has_h = r1_q >= 0.05
-        has_v = r2_q >= 0.05
-        if not has_h and not has_v:
-            return "", ""
-        if has_h and has_v:
-            key = ("SE", r1_q, r2_q, min(40, tilt_q))
-            if key not in shade_key_to_code and len(se_entries) < 25:
-                code = f"SE{len(se_entries) + 1}"
-                h_ref, w_ref = 1.5, 1.5
-                se_entries.append((code, round(r1_q * h_ref, 3), h_ref, round(r2_q * w_ref, 3), w_ref, min(40, tilt_q)))
-                shade_key_to_code[key] = code
-            return "yes", shade_key_to_code.get(key, "SE1")
-        if has_h:
-            key = ("SH", r1_q, 0.0, tilt_q)
-            if key not in shade_key_to_code and len(sh_entries) < 25:
-                code = f"SH{len(sh_entries) + 1}"
-                h_ref = 1.5
-                sh_entries.append((code, round(r1_q * h_ref, 3), h_ref, tilt_q))
-                shade_key_to_code[key] = code
-            return "yes", shade_key_to_code.get(key, "SH1")
-        key = ("SV", 0.0, r2_q, tilt_q)
-        if key not in shade_key_to_code and len(sv_entries) < 20:
-            code = f"SV{len(sv_entries) + 1}"
-            w_ref = 1.5
-            sv_entries.append((code, round(r2_q * w_ref, 3), w_ref, tilt_q))
-            shade_key_to_code[key] = code
-        return "yes", shade_key_to_code.get(key, "SV1")
+    # Reuse exact TemplateShadingRegistry from ottv_engine when available so shading codes
+    # written to Mat!F32:G56 and Mat!C64..G174 are 100% identical to engine BO scef lookups.
+    shade_reg = TemplateShadingRegistry.from_dict(analysis.get("template_shading_registry"))
 
     fen_key_to_code: Dict[Tuple[str, float, float, str, str], str] = {}
     fen_list: List[Dict[str, Any]] = []
@@ -270,15 +255,20 @@ def build_template_prodi_cell_map(
         r1: float,
         r2: float,
         phi1: float,
+        shgc_override: Optional[float] = None,
+        shade_yn_override: Optional[str] = None,
+        shade_code_override: Optional[str] = None,
     ) -> str:
         cat_mat = get_material_by_id(mat_id) if mat_id else None
-        # Keep exact SCk = SHGC / 0.86 consistency with template formula `UTARA!T32 = D32/0.86`
-        if cat_mat and cat_mat.get("sc") is not None and abs(float(cat_mat["sc"]) - sc_k) < 1e-3:
-            shgc_val = round(float(cat_mat["sc"]) * SC_TO_SHGC_RATIO, 4)
+        if shgc_override is not None and float(shgc_override) > 0:
+            shgc_val = round(float(shgc_override), 4)
         else:
-            shgc_val = round(float(sc_k) * SC_TO_SHGC_RATIO, 4) if sc_k > 0 else get_material_shgc(cat_mat)
-        u_q = round(float(u_f), 3)
-        sh_yn, sh_code = _register_shading(r1, r2, phi1)
+            shgc_val, _ = compute_template_shgc_and_sck(cat_mat, fallback_sc=sc_k)
+        u_q = round(float(u_f), 4)
+        if shade_yn_override is not None and shade_code_override is not None:
+            sh_yn, sh_code = str(shade_yn_override), str(shade_code_override)
+        else:
+            sh_yn, sh_code = shade_reg.register(r1, r2, phi1)
         clean_name = (mat_name or "Kaca Standar")[:48]
         fkey = (clean_name, shgc_val, u_q, sh_yn, sh_code)
         if fkey in fen_key_to_code:
@@ -337,6 +327,9 @@ def build_template_prodi_cell_map(
                 r1=float(p.get("r1_horizontal") or 0.0),
                 r2=float(p.get("r2_vertical") or 0.0),
                 phi1=float(p.get("phi1_tilt_deg") or 0.0),
+                shgc_override=p.get("shgc_glass"),
+                shade_yn_override=p.get("template_shade_yn"),
+                shade_code_override=p.get("template_shade_code"),
             )
             bucket["glz_areas"][fcode] = bucket["glz_areas"].get(fcode, 0.0) + area
         else:
@@ -350,6 +343,9 @@ def build_template_prodi_cell_map(
                 r1=float(p.get("r1_horizontal") or 0.0),
                 r2=float(p.get("r2_vertical") or 0.0),
                 phi1=float(p.get("phi1_tilt_deg") or 0.0),
+                shgc_override=p.get("shgc_glass"),
+                shade_yn_override=p.get("template_shade_yn"),
+                shade_code_override=p.get("template_shade_code"),
             )
             bucket["comp_entries"].append((ew, fcode, area, area * wwr_p))
 
@@ -392,6 +388,9 @@ def build_template_prodi_cell_map(
             mat_cells[f"G{r}"] = ""
 
     # Shading tables: SH1..SH25 (C64:E88), SV1..SV20 (C106:E125), SE1..SE25 (C150:G174)
+    sh_entries = shade_reg.sh_entries
+    sv_entries = shade_reg.sv_entries
+    se_entries = shade_reg.se_entries
     for i in range(25):
         r = 64 + i
         if i < len(sh_entries):
@@ -553,15 +552,17 @@ def build_template_prodi_cell_map(
             r = 65 + i
             if i < len(final_segs):
                 seg = final_segs[i]
-                c_h = round(max(0.1, float(seg["mean_height_m"])), 4)
+                c_h = round(max(0.1, float(seg["mean_height_m"])), 6)
                 i_fl = max(1, int(seg["floor_count"]))
-                d_len = round(float(seg["facade_area_m2"]) / (c_h * i_fl), 4)
+                d_len = round(float(seg["facade_area_m2"]) / (c_h * i_fl), 6)
                 # Clamp H <= C * D to prevent #N/A in UTARA!V104
-                h_glz = min(round(float(seg["glazing_area_m2"]) / i_fl, 4), round(c_h * d_len, 4))
+                h_glz = min(round(float(seg["glazing_area_m2"]) / i_fl, 6), round(c_h * d_len, 6))
                 ori_cells[f"C{r}"] = c_h
                 ori_cells[f"D{r}"] = d_len
                 ori_cells[f"F{r}"] = seg["ew_code"]
-                ori_cells[f"G{r}"] = seg["fen_code"]
+                # Template rows 66..89 (AA66:AA89) omit IF(G="none",...), causing #N/A for "none".
+                # Leaving G empty (<c r="G{r}"/>) satisfies BOTH G="" and G=0 cleanly in Excel & Calc!
+                ori_cells[f"G{r}"] = "" if seg["fen_code"] == "none" else seg["fen_code"]
                 ori_cells[f"H{r}"] = h_glz if seg["fen_code"] != "none" else 0.0
                 ori_cells[f"I{r}"] = i_fl
             else:

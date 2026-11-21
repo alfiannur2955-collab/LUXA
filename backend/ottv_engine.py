@@ -50,6 +50,10 @@ from sni_tables import (
     lookup_sceff,
     lookup_sceff_detailed,
 )
+from template_method import (
+    TemplateShadingRegistry,
+    compute_template_shgc_and_sck,
+)
 from universal_pipeline import (
     RawGroupMesh,
     Stage1GeometryAudit,
@@ -868,6 +872,47 @@ def _groups_to_tris_shared(
     return np.vstack(chunks) if chunks else np.empty((0, 3, 3), dtype=np.float64)
 
 
+def _compute_face_shortest_dims(
+    p0: np.ndarray,
+    p1: np.ndarray,
+    p2: np.ndarray,
+    p3: np.ndarray,
+    is_quad: np.ndarray,
+    normals: np.ndarray,
+) -> np.ndarray:
+    """
+    Computes the shortest in-plane bounding dimension (m) for each triangle/quad face.
+    Used to distinguish genuine upward-facing skylights (min_dim > 0.30 m) from
+    thin top-edge panel thickness faces (`sisi_tebal_panel`, min_dim <= 0.30 m).
+    """
+    n = len(p0)
+    if n == 0:
+        return np.empty(0, dtype=np.float64)
+    # Candidate edges: e01, e12, e20 (tri) or e23 & e30 (quad)
+    e01 = p1 - p0
+    e12 = p2 - p1
+    e23 = np.where(is_quad[:, None], p3 - p2, p0 - p2)
+    e30 = np.where(is_quad[:, None], p0 - p3, np.zeros_like(p0))
+    edges = np.stack([e01, e12, e23, e30], axis=1)  # (N, 4, 3)
+    lens = np.linalg.norm(edges, axis=2)            # (N, 4)
+    best_e_idx = np.argmax(lens, axis=1)
+    longest_e = edges[np.arange(n), best_e_idx]     # (N, 3)
+    longest_len = np.maximum(1e-9, np.linalg.norm(longest_e, axis=1, keepdims=True))
+    u_vec = longest_e / longest_len
+    v_raw = np.cross(normals, u_vec)
+    v_len = np.maximum(1e-9, np.linalg.norm(v_raw, axis=1, keepdims=True))
+    v_vec = v_raw / v_len
+
+    # For triangles, duplicate p2 in slot 3 so min/max across 4 slots is exact
+    p3_eff = np.where(is_quad[:, None], p3, p2)
+    pts = np.stack([p0, p1, p2, p3_eff], axis=1)    # (N, 4, 3)
+    proj_u = np.einsum("nkc,nc->nk", pts, u_vec)
+    proj_v = np.einsum("nkc,nc->nk", pts, v_vec)
+    du = np.max(proj_u, axis=1) - np.min(proj_u, axis=1)
+    dv = np.max(proj_v, axis=1) - np.min(proj_v, axis=1)
+    return np.minimum(du, dv)
+
+
 def resolve_group_outer_skin_faces(
     rg: RawGroupMesh,
     eff_cat: str,
@@ -915,31 +960,59 @@ def resolve_group_outer_skin_faces(
 
     rf_set = restore_set or set()
     non_vert_id = f"non_vertical::{rg.group_name}"
-    filtered_entry: Optional[Dict[str, Any]] = None
+    edge_thick_id = f"sisi_tebal_panel::{rg.group_name}"
+    filtered_entries: List[Dict[str, Any]] = []
 
     if eff_cat == "glazing" or non_vert_id in rf_set:
         if eff_cat == "glazing":
-            horiz_thin = (np.abs(normals_v[:, 2]) > 0.85) & (areas_v < 0.25)
-            if np.any(horiz_thin) and non_vert_id not in rf_set:
-                filtered_entry = {
+            vert_mask = np.ones(len(areas_v), dtype=bool)
+            # Upward-facing glazing faces (nz > 0.50): only real skylights have shortest dim > 0.30 m;
+            # thin panel-edge thickness faces (<= 0.30 m) go to filtered_items as 'sisi_tebal_panel'.
+            up_glz_idx = np.where(normals_v[:, 2] > 0.50)[0]
+            if len(up_glz_idx) > 0 and edge_thick_id not in rf_set:
+                up_min_dims = _compute_face_shortest_dims(
+                    p0_v[up_glz_idx],
+                    p1_v[up_glz_idx],
+                    p2_v[up_glz_idx],
+                    p3_v[up_glz_idx],
+                    is_quad_v[up_glz_idx],
+                    normals_v[up_glz_idx],
+                )
+                thin_up_idx = up_glz_idx[up_min_dims <= 0.30]
+                if len(thin_up_idx) > 0:
+                    thin_up_mask = np.zeros(len(areas_v), dtype=bool)
+                    thin_up_mask[thin_up_idx] = True
+                    filtered_entries.append({
+                        "id": edge_thick_id,
+                        "group": rg.group_name,
+                        "reason": "sisi_tebal_panel",
+                        "reason_label": "Sisi tebal tepi panel kaca menghadap atas (dimensi terpendek <= 0,3 m)",
+                        "face_count": int(len(thin_up_idx)),
+                        "area_m2": round(float(np.sum(areas_v[thin_up_mask])), 4),
+                        "restored": False,
+                    })
+                    vert_mask &= ~thin_up_mask
+
+            # Downward-facing thin bottom caps of solid glass panes (< 0.25 m2, nz < -0.85)
+            horiz_thin_bot = (normals_v[:, 2] < -0.85) & (areas_v < 0.25) & vert_mask
+            if np.any(horiz_thin_bot) and non_vert_id not in rf_set:
+                filtered_entries.append({
                     "id": non_vert_id,
                     "group": rg.group_name,
                     "reason": "horizontal_edge_cap",
-                    "reason_label": "Sisi horizontal tipis tepi kaca (< 0,25 m2)",
-                    "face_count": int(np.sum(horiz_thin)),
-                    "area_m2": round(float(np.sum(areas_v[horiz_thin])), 4),
+                    "reason_label": "Sisi horizontal tipis tepi bawah kaca (< 0,25 m2)",
+                    "face_count": int(np.sum(horiz_thin_bot)),
+                    "area_m2": round(float(np.sum(areas_v[horiz_thin_bot])), 4),
                     "restored": False,
-                }
-                vert_mask = ~horiz_thin
-            else:
-                vert_mask = np.ones(len(areas_v), dtype=bool)
+                })
+                vert_mask &= ~horiz_thin_bot
         else:
             vert_mask = np.ones(len(areas_v), dtype=bool)
     else:
         vert_mask = np.abs(normals_v[:, 2]) <= 0.85
         n_non_vert = int(np.sum(~vert_mask))
         if n_non_vert > 0:
-            filtered_entry = {
+            filtered_entries.append({
                 "id": non_vert_id,
                 "group": rg.group_name,
                 "reason": "non_vertical_cap",
@@ -947,7 +1020,8 @@ def resolve_group_outer_skin_faces(
                 "face_count": n_non_vert,
                 "area_m2": round(float(np.sum(areas_v[~vert_mask])), 4),
                 "restored": False,
-            }
+            })
+    filtered_entry: Optional[Dict[str, Any]] = filtered_entries[0] if filtered_entries else None
     if not np.any(vert_mask):
         return None
 
@@ -1034,6 +1108,7 @@ def resolve_group_outer_skin_faces(
         "outer_faces": outer_count,
         "outer_area_m2": outer_area,
         "filtered_entry": filtered_entry,
+        "filtered_entries": filtered_entries,
     }
 
 
@@ -1655,7 +1730,9 @@ def analyze_building_ottv(
         )
         if ext_res is None:
             continue
-        if ext_res["filtered_entry"] is not None:
+        if ext_res.get("filtered_entries"):
+            runtime_filtered_items.extend(ext_res["filtered_entries"])
+        elif ext_res.get("filtered_entry") is not None:
             runtime_filtered_items.append(ext_res["filtered_entry"])
 
         orig_idx_v = ext_res["orig_idx_v"]
@@ -1771,14 +1848,47 @@ def analyze_building_ottv(
                 eff_panel_mat_id = group_mat_id
                 eff_panel_mat_name = mat_name
 
-            # SNI Pasal 4.4: Skylight glazing faces (upward tilt < 60 deg, nz > 0.50) are routed to RTTV, not vertical wall OTTV
+            # SNI Pasal 4.4: Upward-facing glazing (nz > 0.50) counts as RTTV skylight ONLY if
+            # shortest in-plane dimension > 0.30 m; thinner faces are recorded as 'sisi_tebal_panel'.
             if panel_cat == "glazing" and float(normals_v[i, 2]) > 0.50:
-                if (not group_disabled) and (not is_below_ground) and (not face_non_envelope):
-                    pm_sky = get_material_by_id(eff_panel_mat_id, extra_materials=extra_mats) or glz_mat or {}
-                    a_sky_i = float(areas_v[i])
-                    skylight_area_m2 += a_sky_i
-                    skylight_u_weighted += a_sky_i * float(pm_sky.get("u_value", params.u_fenestration))
-                    skylight_sc_weighted += a_sky_i * float(pm_sky.get("sc", params.sc_glass))
+                min_d_i = float(_compute_face_shortest_dims(
+                    p0_v[i:i + 1],
+                    p1_v[i:i + 1],
+                    p2_v[i:i + 1],
+                    p3_v[i:i + 1],
+                    is_quad_v[i:i + 1],
+                    normals_v[i:i + 1],
+                )[0])
+                if min_d_i > 0.30:
+                    if (not group_disabled) and (not is_below_ground) and (not face_non_envelope):
+                        pm_sky = get_material_by_id(eff_panel_mat_id, extra_materials=extra_mats) or glz_mat or {}
+                        a_sky_i = float(areas_v[i])
+                        skylight_area_m2 += a_sky_i
+                        skylight_u_weighted += a_sky_i * float(pm_sky.get("u_value", params.u_fenestration))
+                        if is_sni_mode and sf_source == "template_prodi":
+                            _, sky_sck = compute_template_shgc_and_sck(pm_sky, fallback_sc=params.sc_glass)
+                            skylight_sc_weighted += a_sky_i * sky_sck
+                        else:
+                            skylight_sc_weighted += a_sky_i * float(pm_sky.get("sc", params.sc_glass))
+                else:
+                    # Fallback capture if panel became glazing via per-face override
+                    existing_tp = next(
+                        (it for it in runtime_filtered_items if it.get("id") == f"sisi_tebal_panel::{rg.group_name}"),
+                        None,
+                    )
+                    if existing_tp is None:
+                        runtime_filtered_items.append({
+                            "id": f"sisi_tebal_panel::{rg.group_name}",
+                            "group": rg.group_name,
+                            "reason": "sisi_tebal_panel",
+                            "reason_label": "Sisi tebal tepi panel kaca menghadap atas (dimensi terpendek <= 0,3 m)",
+                            "face_count": 1,
+                            "area_m2": round(float(areas_v[i]), 4),
+                            "restored": False,
+                        })
+                    else:
+                        existing_tp["face_count"] = int(existing_tp["face_count"]) + 1
+                        existing_tp["area_m2"] = round(float(existing_tp["area_m2"]) + float(areas_v[i]), 4)
                 continue
 
             if is_below_ground:
@@ -2023,9 +2133,13 @@ def analyze_building_ottv(
     panel_r2_arr = np.zeros(num_panels, dtype=np.float64)
     panel_phi1_arr = np.zeros(num_panels, dtype=np.float64)
     sceff_errata_map: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+    is_template_method = is_sni_mode and (sf_source == "template_prodi")
+    tpl_shading_reg: Optional[TemplateShadingRegistry] = TemplateShadingRegistry() if is_template_method else None
 
     if is_sni_mode:
-        # SNI 6389:2020 Compliance Mode: SC_eff strictly from Lampiran A (Tabel A.5-A.16) using measured R1/R2
+        # SNI 6389:2020 Compliance Mode:
+        # - sf_source == 'template_prodi': exact template BO lookup (scefn..scefsw) via TemplateShadingRegistry
+        # - sf_source == 'sni2020': Lampiran A (Tabel A.5-A.16) with errata mode
         sni_shade_chunks = []
         sni_sh_tris_grp = _groups_to_tris(shading_groups + roof_groups)
         if len(sni_sh_tris_grp) > 0:
@@ -2049,19 +2163,34 @@ def analyze_building_ottv(
                 panel_r1_arr[idx_p] = r1_v
                 panel_r2_arr[idx_p] = r2_v
                 panel_phi1_arr[idx_p] = phi1_v
-                sc_det = lookup_sceff_detailed(
-                    p_rec["orientation_code"],
-                    r1_horizontal=r1_v,
-                    r2_vertical=r2_v,
-                    tilt_deg=phi1_v,
-                    table_mode=sceff_table_mode,
-                )
-                sc_Display_mult_arr[idx_p] = float(sc_det["sc_eff"])
-                if sc_det.get("used_errata") and p_rec.get("active"):
-                    for c_err in sc_det.get("corrections") or []:
-                        ek = (c_err.get("table"), c_err.get("r1"), c_err.get("r2"), c_err.get("angle_deg"))
-                        if ek not in sceff_errata_map:
-                            sceff_errata_map[ek] = dict(c_err)
+                if is_template_method and tpl_shading_reg is not None:
+                    if p_rec.get("active"):
+                        sh_yn, sh_code = tpl_shading_reg.register(r1_v, r2_v, phi1_v)
+                        p_rec["template_shade_yn"] = sh_yn
+                        p_rec["template_shade_code"] = sh_code
+                        sc_Display_mult_arr[idx_p] = tpl_shading_reg.lookup_bo_sceff(
+                            p_rec["orientation_code"],
+                            sh_yn,
+                            sh_code,
+                        )
+                    else:
+                        p_rec["template_shade_yn"] = ""
+                        p_rec["template_shade_code"] = ""
+                        sc_Display_mult_arr[idx_p] = 1.0
+                else:
+                    sc_det = lookup_sceff_detailed(
+                        p_rec["orientation_code"],
+                        r1_horizontal=r1_v,
+                        r2_vertical=r2_v,
+                        tilt_deg=phi1_v,
+                        table_mode=sceff_table_mode,
+                    )
+                    sc_Display_mult_arr[idx_p] = float(sc_det["sc_eff"])
+                    if sc_det.get("used_errata") and p_rec.get("active"):
+                        for c_err in sc_det.get("corrections") or []:
+                            ek = (c_err.get("table"), c_err.get("r1"), c_err.get("r2"), c_err.get("angle_deg"))
+                            if ek not in sceff_errata_map:
+                                sceff_errata_map[ek] = dict(c_err)
 
     sceff_errata_applied: List[Dict[str, Any]] = list(sceff_errata_map.values())
 
@@ -2174,8 +2303,13 @@ def analyze_building_ottv(
         cat = p["element_type"]
 
         if cat in ("glazing", "composite_cw"):
-            u_f_k = float(g_mat["u_value"]) if (g_mat and g_mat["category"] == "glazing") else float(glz_mat["u_value"] if glz_mat else params.u_fenestration)
-            sc_1_k = float(g_mat["sc"]) if (g_mat and g_mat.get("sc") is not None) else float(glz_mat["sc"] if glz_mat else params.sc_glass)
+            eff_g_mat = g_mat if (g_mat and g_mat.get("category") == "glazing") else glz_mat
+            u_f_k = float(eff_g_mat["u_value"]) if eff_g_mat else float(params.u_fenestration)
+            if is_template_method:
+                shgc_k, sc_1_k = compute_template_shgc_and_sck(eff_g_mat, fallback_sc=params.sc_glass)
+            else:
+                sc_1_k = float(eff_g_mat["sc"]) if (eff_g_mat and eff_g_mat.get("sc") is not None) else float(params.sc_glass)
+                shgc_k = get_material_shgc(eff_g_mat, fallback_sc=sc_1_k)
             u_w_k = float(wal_mat["u_value"]) if wal_mat else float(params.u_wall)
             alpha_k = float(wal_mat["alpha"]) if wal_mat else float(params.alpha_wall)
             tdek_k = _wall_tdek_from_mat(wal_mat, params.td_ek) if is_sni_mode else (float(wal_mat["td_ek"]) if wal_mat else float(params.td_ek))
@@ -2186,7 +2320,11 @@ def analyze_building_ottv(
             alpha_k = float(eff_w_mat["alpha"]) if (eff_w_mat and eff_w_mat.get("alpha") is not None) else float(params.alpha_wall)
             tdek_k = _wall_tdek_from_mat(eff_w_mat, params.td_ek) if is_sni_mode else (float(eff_w_mat["td_ek"]) if (eff_w_mat and eff_w_mat.get("td_ek") is not None) else float(params.td_ek))
             u_f_k = float(glz_mat["u_value"]) if glz_mat else float(params.u_fenestration)
-            sc_1_k = float(glz_mat["sc"]) if glz_mat else float(params.sc_glass)
+            if is_template_method:
+                shgc_k, sc_1_k = compute_template_shgc_and_sck(glz_mat, fallback_sc=params.sc_glass)
+            else:
+                sc_1_k = float(glz_mat["sc"]) if glz_mat else float(params.sc_glass)
+                shgc_k = get_material_shgc(glz_mat, fallback_sc=sc_1_k)
 
         if params.wwr_override is not None:
             wwr_k = max(0.0, min(0.95, float(params.wwr_override)))
@@ -2212,9 +2350,10 @@ def analyze_building_ottv(
         solar_exp_wm2 = round(p["sf_wm2"] * sc_eff, 2)
 
         p["wwr_panel"] = round(wwr_k, 3)
-        p["sc_glass"] = round(sc_1_k, 4)
+        p["shgc_glass"] = round(shgc_k, 4)
+        p["sc_glass"] = round(sc_1_k, 6)
         p["sc_shading_multiplier"] = round(sc_mult, 4)
-        p["sc_effective"] = round(sc_eff, 4)
+        p["sc_effective"] = round(sc_eff, 6)
         p["r1_horizontal"] = round(float(panel_r1_arr[idx]), 3)
         p["r2_vertical"] = round(float(panel_r2_arr[idx]), 3)
         p["phi1_tilt_deg"] = round(float(panel_phi1_arr[idx]), 1)
@@ -2950,6 +3089,7 @@ def analyze_building_ottv(
         "sf_source_info": sf_source_info if is_sni_mode else None,
         "sceff_table_mode": sceff_table_mode if is_sni_mode else None,
         "sceff_errata_applied": sceff_errata_applied,
+        "template_shading_registry": tpl_shading_reg.to_dict() if tpl_shading_reg is not None else None,
         "mode_label": (
             "Kepatuhan SNI 6389:2020"
             if is_sni_mode

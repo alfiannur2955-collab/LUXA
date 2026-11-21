@@ -23,3 +23,6 @@ docs/*.pdf
 Thumbs.db
 .vscode/
 .idea/
+
+# Korpus uji model (lisensi pihak ketiga / model mahasiswa) — jangan di-commit
+corpus/

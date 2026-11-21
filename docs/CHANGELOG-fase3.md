@@ -58,11 +58,16 @@ Branch: `fase-3-sni`
 
 ## Catatan Investigasi Model Uji (`compare_baseline.py`)
 
-### A. Penurunan Total Luas Selubung Vertikal `26,4 m²` pada `fasad_unitized_24lantai.3dm`
+### A. Penurunan Total Luas Selubung Vertikal `26,40 m²` pada `fasad_unitized_24lantai.3dm`
 - Pada baseline Fase 1, `fasad_unitized_24lantai.3dm` mencatat luas selubung vertikal `9.421,80 m²` (`glazing 5.146,19 m²`, `spandrel 4.275,61 m²`).
 - Pada Fase 3, luas selubung vertikal tercatat `9.395,40 m²` — berkurang tepat **`26,40 m²`**.
-- **Penyebab teknis:** Pada geometri panel kaca solid `.3dm` tersebut terdapat `1.972` face tutup sisi atas (*top-edge cap*) panel kaca dengan normal menghadap ke atas ($n_z > 0.50$, luas total sisi luar tepat `26,40 m²`). Di Fase 3, router Pasal 4.4 (`panel_cat == "glazing" and normals_v[i, 2] > 0.50`) memindahkan seluruh face kaca menghadap ke atas tersebut dari hitungan OTTV dinding vertikal ke hitungan **RTTV skylight** (`rttv.skylight_area_m2 = 26.40 m²`). Total luas kaca keseluruhan tetap lestari (`5.119,79 + 26,40 = 5.146,19 m²`).
-- **Catatan tambahan Fase 3b (katalog generik):** Pada `compare_baseline.py` (yang menjalankan `EnvelopeParameters()` default), perubahan katalog bawaan dari spandrel bermerek lama ($\alpha = 0.42$) ke spandrel generik SNI Tabel 1 (`wal_spandrel_insulasi_50`, $\alpha = 0.40$ — *Cat alumunium*) juga menurunkan kontribusi konduksi dinding secara kecil (~0,1–0,2 W/m²) pada model uji dengan spandrel.
+- **Penyebab teknis & perbaikan aturan dimensi skylight:** Pada geometri panel kaca solid `.3dm` tersebut terdapat `1.972` face tutup sisi atas (*top-edge cap*) panel kaca dengan normal menghadap ke atas ($n_z > 0.50$) dan dimensi terpendek hanya **0,03–0,10 m** (ketebalan panel kaca, bukan skylight). Awalnya face tersebut sempat dialihkan ke RTTV skylight (`26,40 m²`). Kini diterapkan aturan dimensi terpendek bidang:
+  - Bidang kaca menghadap atas ($n_z > 0.50$) hanya dihitung sebagai **skylight RTTV** apabila dimensi terpendek bidang **`> 0,30 m`**.
+  - Bidang kaca menghadap atas dengan dimensi terpendek **`<= 0,30 m`** tidak dihitung sebagai OTTV maupun RTTV skylight, melainkan dicatat transparan di `stage1_geometry_audit.filtered_items` dengan `reason = 'sisi_tebal_panel'` (dan dapat dipulihkan lewat `restore_filtered`).
+  - Akibatnya, pada `fasad_unitized_24lantai.3dm` seluruh `1.972` face tepi atas tipis masuk ke `filtered_items` (`sisi_tebal_panel`) dan `rttv.skylight_area_m2 = 0,0 m²` (akurat karena gedung ini memang tidak memiliki skylight).
+- **Catatan tambahan Fase 3b (katalog generik & metode template):**
+  - Saat `settings.sf_source == 'template_prodi'`, engine memakai [template_method.py](../backend/template_method.py) sehingga suku radiasi menggunakan $SF$ `'ref.'!A5:J22`, $SC_k = \text{SHGC}/0.86$, dan $SC_{eff}$ dari range `BO` (`scefn..scefsw`) persis seperti `template_prodi.xlsx`.
+  - Pada `compare_baseline.py` (mode `simulasi` default), perubahan katalog bawaan dari spandrel bermerek lama ($\alpha = 0.42$) ke spandrel generik SNI Tabel 1 (`wal_spandrel_insulasi_50`, $\alpha = 0.40$ — *Cat alumunium*) juga menurunkan kontribusi konduksi dinding secara kecil (~0,1–0,2 W/m²) pada model uji dengan spandrel.
 
 ### B. Mengapa `archicad_bim_curtainwall.ifc` Memiliki `SCeff = 1.0`
 - Model sampel `fixtures/archicad_bim_curtainwall.ifc` (dihasilkan oleh `create_sample_ifc_preset`) memiliki entitas `IFCSHADINGDEVICE` di dalam teks file STEP-nya, namun header file mendeklarasikan skema **`FILE_SCHEMA(('IFC2X3'))`**.
