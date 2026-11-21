@@ -507,15 +507,20 @@ def create_custom_material_endpoint(req: CustomMaterialRequest) -> Dict[str, Any
 
 @app.get("/api/locations")
 def list_locations() -> Dict[str, Any]:
-    from sni_tables import SNI_TABLE_8_SOLAR_FACTOR
+    from sni_tables import SNI_TABLE_8_SOLAR_FACTOR, TEMPLATE_PRODI_SF_TABLE
 
     sni_cities = [
         {"id": slug, "city": entry["city"], "sf": entry["sf"]}
         for slug, entry in SNI_TABLE_8_SOLAR_FACTOR.items()
     ]
+    template_prodi_cities = [
+        {"id": slug, "city": entry["label"], "sf": entry["sf"]}
+        for slug, entry in TEMPLATE_PRODI_SF_TABLE.items()
+    ]
     return {
         "cities": list(INDONESIAN_CITY_PRESETS.values()),
         "sni_cities": sni_cities,
+        "template_prodi_cities": template_prodi_cities,
         "sni_sf_anchors": [
             {"azimuth_deg": a, "code": c, "name": n, "sf_wm2": sf}
             for a, c, n, sf in SNI_SF_ANCHORS
@@ -820,6 +825,23 @@ def export_analysis_report(analysis_id: str, fmt: str) -> Response:
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="Laporan_OTTV_{base}_{short_id}_SNI6389.csv"'},
         )
+    if fmt_lo == "template_prodi":
+        from report_template_map import export_template_prodi_xlsx
+
+        try:
+            tpl_bytes, tpl_warnings, _ = export_template_prodi_xlsx(data)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        headers = {
+            "Content-Disposition": f'attachment; filename="Template_Prodi_OTTV_{base}_{short_id}.xlsx"',
+        }
+        if tpl_warnings:
+            headers["X-Template-Warnings"] = " | ".join(tpl_warnings)[:1000]
+        return Response(
+            content=tpl_bytes,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=headers,
+        )
     if fmt_lo == "pdf":
         pdf_bytes = generate_pdf_report(data)
         return Response(
@@ -829,7 +851,7 @@ def export_analysis_report(analysis_id: str, fmt: str) -> Response:
         )
     raise HTTPException(
         status_code=400,
-        detail=f"Format ekspor '{fmt}' tidak didukung. Gunakan 'xlsx', 'csv', atau 'pdf'.",
+        detail=f"Format ekspor '{fmt}' tidak didukung. Gunakan 'xlsx', 'template_prodi', 'csv', atau 'pdf'.",
     )
 
 

@@ -26,14 +26,14 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from materials_and_epw import get_material_by_id
+from materials_and_epw import SC_TO_SHGC_RATIO, get_material_by_id, migrate_material_id
 from sni_tables import get_tdek_roof, get_tdek_wall
 from universal_pipeline import suggest_material_id_for_group
 
 
-DEFAULT_GLAZING_MAT_ID = "glz_saint_gobain_xtreme_60_28"
-DEFAULT_WALL_MAT_ID = "wal_spandrel_rockwool_nichias_50"
-DEFAULT_FRAME_MAT_ID = "frm_ykkap_schuco_thermal_break"
+DEFAULT_GLAZING_MAT_ID = "glz_igu_triple_silver"
+DEFAULT_WALL_MAT_ID = "wal_spandrel_insulasi_50"
+DEFAULT_FRAME_MAT_ID = "frm_aluminium_thermal_break"
 DEFAULT_ROOF_MAT_ID = "rf_dak_beton_120_insulasi"
 
 
@@ -47,6 +47,7 @@ class CustomMaterialSpec(BaseModel):
     category: Literal["glazing", "wall", "frame", "roof"] = "wall"
     u_value: float = Field(ge=0.05, le=10.0)
     sc: Optional[float] = Field(default=None, ge=0.05, le=1.0)
+    shgc: Optional[float] = Field(default=None, ge=0.04, le=1.0)
     alpha: Optional[float] = Field(default=None, ge=0.05, le=0.98)
     massa_kg_m2: float = Field(default=150.0, ge=1.0, le=2000.0)
     sumber: str = ""
@@ -60,14 +61,24 @@ class CustomMaterialSpec(BaseModel):
             td_ek = get_tdek_roof(self.massa_kg_m2)
         else:
             td_ek = None
+        sc_val: Optional[float] = None
+        shgc_val: Optional[float] = None
+        if self.category == "glazing":
+            if self.sc is not None:
+                sc_val = float(self.sc)
+            elif self.shgc is not None:
+                sc_val = round(float(self.shgc) / SC_TO_SHGC_RATIO, 4)
+            else:
+                sc_val = 0.35
+            shgc_val = round(float(self.shgc), 4) if self.shgc is not None else round(sc_val * SC_TO_SHGC_RATIO, 4)
         return {
             "id": self.id,
             "name": self.name,
             "brand": self.brand,
             "category": self.category,
             "u_value": float(self.u_value),
-            "sc": float(self.sc) if self.sc is not None else (0.35 if self.category == "glazing" else None),
-            "shgc": round(float(self.sc) * 0.87, 3) if self.sc is not None else None,
+            "sc": sc_val,
+            "shgc": shgc_val,
             "alpha": float(self.alpha) if self.alpha is not None else (0.50 if self.category != "glazing" else None),
             "massa_kg_m2": float(self.massa_kg_m2),
             "td_ek": td_ek,
@@ -108,6 +119,8 @@ class SettingsConfig(BaseModel):
     city_preset: str = "jakarta"
     custom_epw: Optional[Dict[str, Any]] = None
     mode: Literal["sni", "simulasi"] = "sni"
+    sf_source: Literal["template_prodi", "sni2020"] = "template_prodi"
+    sceff_table_mode: Literal["terkoreksi", "ketat_pdf"] = "terkoreksi"
     design_month: int = Field(default=9, ge=1, le=12)
     north_angle_deg: float = Field(default=0.0, ge=0.0, le=360.0)
 
@@ -181,12 +194,14 @@ class ProjectConfig(BaseModel):
             city_preset=self.settings.city_preset,
             custom_epw_info=copy.deepcopy(self.settings.custom_epw),
             calculation_mode=self.settings.mode,
+            sf_source=self.settings.sf_source,
+            sceff_table_mode=self.settings.sceff_table_mode,
             design_month=self.settings.design_month,
             north_angle_deg=self.settings.north_angle_deg,
-            glazing_material_id=self.settings.glazing_material_id,
-            wall_material_id=self.settings.wall_material_id,
-            frame_material_id=self.settings.frame_material_id,
-            roof_material_id=self.settings.roof_material_id,
+            glazing_material_id=migrate_material_id(self.settings.glazing_material_id),
+            wall_material_id=migrate_material_id(self.settings.wall_material_id),
+            frame_material_id=migrate_material_id(self.settings.frame_material_id),
+            roof_material_id=migrate_material_id(self.settings.roof_material_id),
             custom_materials=self.custom_material_dicts(),
             orientation_material_overrides=dict(self.settings.orientation_material_overrides),
             include_frame_conduction=self.settings.include_frame_conduction,
@@ -316,11 +331,32 @@ def _migrate_legacy_scalars_into_settings(settings_dict: Dict[str, Any], source_
         settings_dict["custom_materials"] = custom_mats
 
 
+def _migrate_material_ids_in_config(data: Dict[str, Any]) -> None:
+    """Memigrasikan ID material lama (bermerek) pada settings & roles ke ID generik terdekat."""
+    settings = data.get("settings")
+    if isinstance(settings, dict):
+        for k in ("glazing_material_id", "wall_material_id", "frame_material_id", "roof_material_id"):
+            if settings.get(k):
+                settings[k] = migrate_material_id(settings[k])
+        ov = settings.get("orientation_material_overrides")
+        if isinstance(ov, dict):
+            settings["orientation_material_overrides"] = {
+                ok: migrate_material_id(mv) for ok, mv in ov.items() if mv
+            }
+    roles = data.get("roles")
+    if isinstance(roles, dict):
+        gm = roles.get("group_material_map")
+        if isinstance(gm, dict):
+            roles["group_material_map"] = {
+                gk: migrate_material_id(mv) for gk, mv in gm.items() if mv
+            }
+
+
 def migrate_v1(raw: Dict[str, Any]) -> ProjectConfig:
     """
     Migrates legacy v1 `.ottv.json` OR early v2 `.ottv.json` (which still carried
-    scalar thermal fields like alpha_wall/u_wall/td_ek/u_fenestration/sc_glass/u_frame/delta_t)
-    into a clean current `ProjectConfig(version=2)`.
+    scalar thermal fields like alpha_wall/u_wall/td_ek/u_fenestration/sc_glass/u_frame/delta_t
+    or legacy branded material IDs) into a clean current `ProjectConfig(version=2)`.
     """
     if not isinstance(raw, dict):
         return ProjectConfig()
@@ -331,6 +367,7 @@ def migrate_v1(raw: Dict[str, Any]) -> ProjectConfig:
         s_raw = data.get("settings")
         if isinstance(s_raw, dict):
             _migrate_legacy_scalars_into_settings(s_raw, s_raw)
+        _migrate_material_ids_in_config(data)
         return ProjectConfig.model_validate(data)
 
     prof = raw.get("profile") if isinstance(raw.get("profile"), dict) else {}
@@ -373,6 +410,8 @@ def migrate_v1(raw: Dict[str, Any]) -> ProjectConfig:
         "city_preset",
         "custom_epw",
         "mode",
+        "sf_source",
+        "sceff_table_mode",
         "design_month",
         "north_angle_deg",
         "glazing_material_id",
@@ -395,6 +434,7 @@ def migrate_v1(raw: Dict[str, Any]) -> ProjectConfig:
     if "custom_epw_info" in raw and raw["custom_epw_info"] is not None and "custom_epw" not in settings_dict:
         settings_dict["custom_epw"] = raw["custom_epw_info"]
     _migrate_legacy_scalars_into_settings(settings_dict, raw)
+    _migrate_material_ids_in_config({"settings": settings_dict, "roles": roles_dict})
 
     advanced_dict: Dict[str, Any] = {}
     for key in (
@@ -474,20 +514,20 @@ def resolve_material(
 
     # Priority 1: Explicit per-group override (most specific!)
     if group_name and group_name in group_mat_map:
-        gm_id = group_mat_map[group_name]
+        gm_id = migrate_material_id(group_mat_map[group_name]) or group_mat_map[group_name]
         gm_mat = get_material_by_id(gm_id, extra_materials=extra_mats)
         if gm_mat is not None:
-            return {"material_id": gm_id, "material": gm_mat, "source": "group_override"}
+            return {"material_id": gm_mat["id"], "material": gm_mat, "source": "group_override"}
 
     # Priority 2: Orientation override
     if orientation_code and orientation_code in orient_overrides:
-        ov_id = orient_overrides[orientation_code]
+        ov_id = migrate_material_id(orient_overrides[orientation_code]) or orient_overrides[orientation_code]
         ov_mat = get_material_by_id(ov_id, extra_materials=extra_mats)
         if ov_mat is not None and (
             ov_mat.get("category") == expected_mat_cat
             or (inferred_cat in ("glazing", "composite_cw") and ov_mat.get("category") == "glazing")
         ):
-            return {"material_id": ov_id, "material": ov_mat, "source": "orientation_override"}
+            return {"material_id": ov_mat["id"], "material": ov_mat, "source": "orientation_override"}
 
     # Priority 3: Role-level material selected in settings
     role_id = {
@@ -497,9 +537,10 @@ def resolve_material(
         "wall": role_wal_id,
     }.get(expected_mat_cat, role_wal_id)
     if role_id:
-        r_mat = get_material_by_id(role_id, extra_materials=extra_mats)
+        role_id_m = migrate_material_id(role_id) or role_id
+        r_mat = get_material_by_id(role_id_m, extra_materials=extra_mats)
         if r_mat is not None:
-            return {"material_id": role_id, "material": r_mat, "source": "role_default"}
+            return {"material_id": r_mat["id"], "material": r_mat, "source": "role_default"}
 
     # Priority 4: Name-based suggestion when role material is unset
     if expected_mat_cat != "roof":

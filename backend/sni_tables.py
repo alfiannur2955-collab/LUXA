@@ -771,6 +771,204 @@ SNI_TABLE_EGGCRATE_SCEFF: Dict[str, Dict[Tuple[float, float], Tuple[float, ...]]
 }
 
 
+# ============================================================================
+# Errata Tabel SC_eff Lampiran A (A.5 – A.16)
+# Sumber: docs/verifikasi_tabel_sni.md (Bagian 2, 3, 4, dan 5 — 36 sel unik)
+# Tabel utama di atas tetap menyimpan nilai tercetak PDF; errata diterapkan saat
+# lookup apabila sceff_table_mode == 'terkoreksi' (default).
+# ============================================================================
+SNI_SCEFF_ERRATA: List[Dict[str, Any]] = [
+    # --- Proyeksi Horizontal (Tabel A.5 – A.8) ---
+    {"table": "A.5", "kind": "horizontal", "orientation_key": "U_S", "r1": 1.2, "r2": None, "angle_deg": 20, "printed": 0.6685, "corrected": 0.6625, "reason": "Digit 2 tercetak 8 pada PDF (hlm. 37; lebih besar dari R=1.1 yaitu 0.6640)"},
+    {"table": "A.6", "kind": "horizontal", "orientation_key": "T_B", "r1": 0.5, "r2": None, "angle_deg": 20, "printed": 0.6550, "corrected": 0.6500, "reason": "Digit 0 tercetak 5 pada PDF (hlm. 38; hasil rumus ~0.6498)"},
+    {"table": "A.6", "kind": "horizontal", "orientation_key": "T_B", "r1": 0.7, "r2": None, "angle_deg": 50, "printed": 0.4581, "corrected": 0.4851, "reason": "Digit 85 tertukar jadi 58 pada PDF (hlm. 38; hasil rumus ~0.4850)"},
+    {"table": "A.7", "kind": "horizontal", "orientation_key": "TL_BL", "r1": 2.4, "r2": None, "angle_deg": 20, "printed": 0.4770, "corrected": 0.4759, "reason": "Sudah mencapai nilai datar 0.4759 sejak R=2.3 pada PDF (hlm. 39)"},
+    {"table": "A.8", "kind": "horizontal", "orientation_key": "TGR_BD", "r1": 0.6, "r2": None, "angle_deg": 30, "printed": 0.6553, "corrected": 0.5663, "reason": "Digit 56 tertukar jadi 65 pada PDF (hlm. 40; hasil rumus ~0.5662)"},
+    {"table": "A.8", "kind": "horizontal", "orientation_key": "TGR_BD", "r1": 1.0, "r2": None, "angle_deg": 20, "printed": 0.4542, "corrected": 0.4942, "reason": "Digit 9 tercetak 5 pada PDF (hlm. 40)"},
+
+    # --- Proyeksi Vertikal (Tabel A.9 – A.12) ---
+    {"table": "A.9", "kind": "vertical", "orientation_key": "U_S", "r1": 0.3, "r2": None, "angle_deg": 20, "printed": 0.6872, "corrected": 0.8672, "reason": "Digit 86 tertukar jadi 68 pada PDF (hlm. 41)"},
+    {"table": "A.9", "kind": "vertical", "orientation_key": "U_S", "r1": 0.4, "r2": None, "angle_deg": 30, "printed": 0.9325, "corrected": 0.8325, "reason": "Digit 8 tercetak 9 pada PDF (hlm. 41)"},
+    {"table": "A.9", "kind": "vertical", "orientation_key": "U_S", "r1": 1.1, "r2": None, "angle_deg": 30, "printed": 0.7117, "corrected": 0.7173, "reason": "PDF cetak 0.71173 (kelebihan angka 1 di tengah, hlm. 41)"},
+    {"table": "A.9", "kind": "vertical", "orientation_key": "U_S", "r1": 2.1, "r2": None, "angle_deg": 50, "printed": 0.7056, "corrected": 0.7026, "reason": "Digit 2 tercetak 5 pada PDF (hlm. 41; lebih besar dari R=2.0 yaitu 0.7052)"},
+    {"table": "A.10", "kind": "vertical", "orientation_key": "T_B", "r1": 0.4, "r2": None, "angle_deg": 40, "printed": 0.9338, "corrected": 0.8338, "reason": "Digit 8 tercetak 9 pada PDF (hlm. 42)"},
+    {"table": "A.10", "kind": "vertical", "orientation_key": "T_B", "r1": 0.4, "r2": None, "angle_deg": 50, "printed": 0.8578, "corrected": 0.8078, "reason": "Digit 0 tercetak 5 pada PDF (hlm. 42; lebih besar dari R=0.3 yaitu 0.8555)"},
+    {"table": "A.10", "kind": "vertical", "orientation_key": "T_B", "r1": 2.4, "r2": None, "angle_deg": 10, "printed": 0.5987, "corrected": 0.5897, "reason": "Digit 89 tertukar / duplikat baris atas pada PDF (hlm. 42)"},
+    {"table": "A.11", "kind": "vertical", "orientation_key": "TL_BL", "r1": 1.7, "r2": None, "angle_deg": 0, "printed": 0.6942, "corrected": 0.5942, "reason": "Digit 5 tercetak 6 pada PDF (hlm. 43)"},
+    {"table": "A.11", "kind": "vertical", "orientation_key": "TL_BL", "r1": 1.8, "r2": None, "angle_deg": 50, "printed": 0.4540, "corrected": 0.4840, "reason": "Digit 8 tercetak 5 pada PDF (hlm. 43)"},
+    {"table": "A.12", "kind": "vertical", "orientation_key": "TGR_BD", "r1": 2.1, "r2": None, "angle_deg": 10, "printed": 0.5990, "corrected": 0.4990, "reason": "Digit 4 tercetak 5 pada PDF (hlm. 44)"},
+
+    # --- Peneduh Kotak / Egg-Crate (Tabel A.13 – A.16) ---
+    {"table": "A.13", "kind": "eggcrate", "orientation_key": "U_S", "r1": 0.2, "r2": 1.0, "angle_deg": 30, "printed": 0.5832, "corrected": 0.6832, "reason": "Digit 6 tercetak 5 pada PDF (hlm. 45)"},
+    {"table": "A.13", "kind": "eggcrate", "orientation_key": "U_S", "r1": 0.4, "r2": 0.2, "angle_deg": 0, "printed": 0.7284, "corrected": 0.7184, "reason": "Digit 1 tercetak 2 pada PDF (hlm. 45; selisih +0.0100 dari rumus)"},
+    {"table": "A.14", "kind": "eggcrate", "orientation_key": "T_B", "r1": 0.2, "r2": 0.6, "angle_deg": 40, "printed": 0.7525, "corrected": 0.7525, "reason": "PDF cetak 0.75258 (kelebihan digit 8 di akhir, hlm. 48; nilai 0.7525 tepat)"},
+    {"table": "A.14", "kind": "eggcrate", "orientation_key": "T_B", "r1": 0.4, "r2": 1.4, "angle_deg": 30, "printed": 0.6827, "corrected": 0.5827, "reason": "Digit 5 tercetak 6 pada PDF (hlm. 48)"},
+    {"table": "A.14", "kind": "eggcrate", "orientation_key": "T_B", "r1": 0.6, "r2": 0.2, "angle_deg": 20, "printed": 0.5717, "corrected": 0.5917, "reason": "Digit 9 tercetak 7 pada PDF (hlm. 48)"},
+    {"table": "A.14", "kind": "eggcrate", "orientation_key": "T_B", "r1": 0.6, "r2": 1.4, "angle_deg": 0, "printed": 0.5615, "corrected": 0.5915, "reason": "Digit 9 tercetak 6 pada PDF (hlm. 48)"},
+    {"table": "A.14", "kind": "eggcrate", "orientation_key": "T_B", "r1": 1.8, "r2": 0.6, "angle_deg": 20, "printed": 0.7065, "corrected": 0.4065, "reason": "Digit 4 tercetak 7 pada PDF (hlm. 50)"},
+    {"table": "A.14", "kind": "eggcrate", "orientation_key": "T_B", "r1": 1.8, "r2": 1.4, "angle_deg": 20, "printed": 0.5047, "corrected": 0.4047, "reason": "Digit 4 tercetak 5 pada PDF (hlm. 50)"},
+    {"table": "A.15", "kind": "eggcrate", "orientation_key": "TL_BL", "r1": 0.2, "r2": 0.6, "angle_deg": 30, "printed": 0.6146, "corrected": 0.6746, "reason": "Digit 7 tercetak 1 pada PDF (hlm. 51)"},
+    {"table": "A.15", "kind": "eggcrate", "orientation_key": "TL_BL", "r1": 0.4, "r2": 0.4, "angle_deg": 30, "printed": 0.5258, "corrected": 0.6258, "reason": "Digit 6 tercetak 5 pada PDF (hlm. 51)"},
+    {"table": "A.15", "kind": "eggcrate", "orientation_key": "TL_BL", "r1": 0.8, "r2": 1.4, "angle_deg": 20, "printed": 0.4496, "corrected": 0.4960, "reason": "PDF cetak 0.44960 (kelebihan angka 4 di depan, hlm. 52)"},
+    {"table": "A.15", "kind": "eggcrate", "orientation_key": "TL_BL", "r1": 1.4, "r2": 0.2, "angle_deg": 30, "printed": 0.4851, "corrected": 0.4815, "reason": "Digit 15 tertukar jadi 51 pada PDF (hlm. 53)"},
+    {"table": "A.15", "kind": "eggcrate", "orientation_key": "TL_BL", "r1": 1.6, "r2": 0.2, "angle_deg": 30, "printed": 0.4770, "corrected": 0.4777, "reason": "PDF cetak 0.477 (kurang digit 7 terakhir, hlm. 53)"},
+    {"table": "A.15", "kind": "eggcrate", "orientation_key": "TL_BL", "r1": 1.8, "r2": 1.6, "angle_deg": 20, "printed": 0.4720, "corrected": 0.4772, "reason": "PDF cetak 0.472 (hilang angka 7, hlm. 53)"},
+    {"table": "A.16", "kind": "eggcrate", "orientation_key": "TGR_BD", "r1": 0.2, "r2": 1.6, "angle_deg": 30, "printed": 0.5475, "corrected": 0.5375, "reason": "Digit 3 tercetak 4 pada PDF (hlm. 54; lebih besar dari R2=1.4 yaitu 0.5465)"},
+    {"table": "A.16", "kind": "eggcrate", "orientation_key": "TGR_BD", "r1": 0.4, "r2": 0.2, "angle_deg": 30, "printed": 0.5356, "corrected": 0.6356, "reason": "Digit 6 tercetak 5 pada PDF (hlm. 54)"},
+    {"table": "A.16", "kind": "eggcrate", "orientation_key": "TGR_BD", "r1": 0.4, "r2": 0.4, "angle_deg": 30, "printed": 0.5044, "corrected": 0.6044, "reason": "Digit 6 tercetak 5 pada PDF (hlm. 54)"},
+    {"table": "A.16", "kind": "eggcrate", "orientation_key": "TGR_BD", "r1": 0.8, "r2": 0.2, "angle_deg": 30, "printed": 0.4354, "corrected": 0.4954, "reason": "Digit 9 tercetak 3 pada PDF (hlm. 55)"},
+    {"table": "A.16", "kind": "eggcrate", "orientation_key": "TGR_BD", "r1": 1.2, "r2": 1.4, "angle_deg": 0, "printed": 0.4648, "corrected": 0.4678, "reason": "Digit 7 tercetak 4 pada PDF (hlm. 55; deret 0.4713 -> 0.4678 -> 0.4643)"},
+    {"table": "A.16", "kind": "eggcrate", "orientation_key": "TGR_BD", "r1": 1.8, "r2": 1.8, "angle_deg": 20, "printed": 0.4442, "corrected": 0.4439, "reason": "Anomali minor PDF (hlm. 56; duplikat baris atas, deret -0.0003 -> 0.4439)"},
+]
+
+_ERRATA_INDEX: Dict[Tuple[str, str, float, Optional[float], int], Dict[str, Any]] = {
+    (e["kind"], e["orientation_key"], round(float(e["r1"]), 1), (round(float(e["r2"]), 1) if e["r2"] is not None else None), int(e["angle_deg"])): e
+    for e in SNI_SCEFF_ERRATA
+}
+
+
+# ============================================================================
+# Tabel SF Template Prodi — 'ref.'!A5:J22 pada docs/templates/template_prodi.xlsx
+# (18 lokasi, B=U, C=BL, D=B, E=BD, F=S, G=TGR, H=T, I=TL, J=DeltaT=5K)
+# CATATAN KEJUJURAN SUMBER: Tabel ini BUKAN Tabel 8 SNI 6389:2020; digunakan
+# sebagai default (sf_source='template_prodi') agar konsisten dengan template prodi.
+# ============================================================================
+TEMPLATE_PRODI_SF_TABLE: Dict[str, Dict[str, Any]] = {
+    "sni": {"label": "SNI", "sf": {"U": 130.0, "TL": 113.0, "T": 112.0, "TGR": 97.0, "S": 97.0, "BD": 176.0, "B": 243.0, "BL": 211.0, "ROOF": 427.0}},
+    "bandung": {"label": "Bandung", "sf": {"U": 133.0, "TL": 146.0, "T": 150.0, "TGR": 120.0, "S": 98.0, "BD": 123.0, "B": 155.0, "BL": 150.0, "ROOF": 426.0}},
+    "jakarta": {"label": "Jakarta", "sf": {"U": 152.0, "TL": 168.0, "T": 179.0, "TGR": 138.0, "S": 111.0, "BD": 165.0, "B": 219.0, "BL": 197.0, "ROOF": 427.0}},
+    "surabaya": {"label": "Surabaya", "sf": {"U": 154.0, "TL": 164.0, "T": 168.0, "TGR": 130.0, "S": 107.0, "BD": 153.0, "B": 204.0, "BL": 190.0, "ROOF": 470.0}},
+    "malang": {"label": "Malang", "sf": {"U": 151.0, "TL": 173.0, "T": 171.0, "TGR": 126.0, "S": 98.0, "BD": 115.0, "B": 144.0, "BL": 148.0, "ROOF": 426.0}},
+    "semarang": {"label": "Semarang", "sf": {"U": 142.0, "TL": 153.0, "T": 155.0, "TGR": 119.0, "S": 98.0, "BD": 128.0, "B": 167.0, "BL": 161.0, "ROOF": 434.0}},
+    "yogyakarta": {"label": "Yogyakarta", "sf": {"U": 135.0, "TL": 148.0, "T": 151.0, "TGR": 116.0, "S": 95.0, "BD": 126.0, "B": 160.0, "BL": 151.0, "ROOF": 380.0}},
+    "pontianak": {"label": "Pontianak", "sf": {"U": 122.0, "TL": 122.0, "T": 131.0, "TGR": 121.0, "S": 116.0, "BD": 152.0, "B": 183.0, "BL": 161.0, "ROOF": 384.0}},
+    "banjarmasin": {"label": "Banjarmasin", "sf": {"U": 140.0, "TL": 149.0, "T": 159.0, "TGR": 133.0, "S": 116.0, "BD": 161.0, "B": 204.0, "BL": 182.0, "ROOF": 432.0}},
+    "denpasar": {"label": "Denpasar", "sf": {"U": 150.0, "TL": 163.0, "T": 171.0, "TGR": 138.0, "S": 111.0, "BD": 149.0, "B": 190.0, "BL": 178.0, "ROOF": 410.0}},
+    "serang_banten": {"label": "Serang Banten", "sf": {"U": 146.0, "TL": 151.0, "T": 156.0, "TGR": 128.0, "S": 110.0, "BD": 155.0, "B": 202.0, "BL": 185.0, "ROOF": 430.0}},
+    "pekanbaru": {"label": "Pekanbaru", "sf": {"U": 126.0, "TL": 142.0, "T": 163.0, "TGR": 145.0, "S": 130.0, "BD": 171.0, "B": 203.0, "BL": 169.0, "ROOF": 428.0}},
+    "palembang": {"label": "Palembang", "sf": {"U": 137.0, "TL": 146.0, "T": 160.0, "TGR": 137.0, "S": 118.0, "BD": 160.0, "B": 201.0, "BL": 178.0, "ROOF": 425.0}},
+    "manado": {"label": "Manado", "sf": {"U": 123.0, "TL": 143.0, "T": 166.0, "TGR": 145.0, "S": 127.0, "BD": 161.0, "B": 188.0, "BL": 157.0, "ROOF": 432.0}},
+    "padang": {"label": "Padang", "sf": {"U": 134.0, "TL": 148.0, "T": 164.0, "TGR": 142.0, "S": 125.0, "BD": 165.0, "B": 200.0, "BL": 173.0, "ROOF": 431.0}},
+    "lampung": {"label": "Lampung", "sf": {"U": 141.0, "TL": 146.0, "T": 152.0, "TGR": 128.0, "S": 113.0, "BD": 157.0, "B": 200.0, "BL": 180.0, "ROOF": 422.0}},
+    "batam": {"label": "Batam", "sf": {"U": 123.0, "TL": 141.0, "T": 164.0, "TGR": 148.0, "S": 132.0, "BD": 170.0, "B": 196.0, "BL": 161.0, "ROOF": 423.0}},
+    "makasar": {"label": "Makasar", "sf": {"U": 141.0, "TL": 161.0, "T": 176.0, "TGR": 143.0, "S": 116.0, "BD": 162.0, "B": 204.0, "BL": 180.0, "ROOF": 426.0}},
+}
+
+_TEMPLATE_PRODI_NEAREST_FALLBACK: Dict[str, str] = {
+    "makassar": "makasar",
+    "serang": "serang_banten",
+    "tangerang": "jakarta",
+    "bogor": "jakarta",
+    "bekasi": "jakarta",
+    "depok": "jakarta",
+    "medan": "pekanbaru",
+    "aceh": "padang",
+    "lhokseumawe": "padang",
+    "jambi": "palembang",
+    "bengkulu": "padang",
+    "pangkalpinang": "palembang",
+    "belitung": "palembang",
+    "tanjungpinang": "batam",
+    "singkep": "batam",
+    "tegal": "semarang",
+    "cilacap": "yogyakarta",
+    "solo": "yogyakarta",
+    "surakarta": "yogyakarta",
+    "madura": "surabaya",
+    "banyuwangi": "denpasar",
+    "bawean": "surabaya",
+    "palangkaraya": "banjarmasin",
+    "samarinda": "banjarmasin",
+    "balikpapan": "banjarmasin",
+    "ikn_nusantara": "banjarmasin",
+    "bulungan": "banjarmasin",
+    "tarakan": "banjarmasin",
+    "gorontalo": "manado",
+    "palu": "makasar",
+    "kendari": "makasar",
+    "bau_bau": "makasar",
+    "banggai": "manado",
+    "masamba_luwu_utara": "makasar",
+    "majene": "makasar",
+    "mataram": "denpasar",
+    "bima": "denpasar",
+    "waingapu": "denpasar",
+    "kupang": "denpasar",
+    "ambon": "manado",
+    "ternate": "manado",
+    "saumlaki": "makasar",
+    "fak_fak": "manado",
+    "manokwari": "manado",
+    "jayapura": "manado",
+    "merauke": "makasar",
+}
+
+
+def resolve_template_prodi_city(city_key: Optional[str]) -> Tuple[str, str, Optional[str]]:
+    """
+    Resolves `city_key` to a valid `'ref.'!A5:A22` template city.
+    Returns `(template_slug, exact_excel_label, warning_or_none)`.
+    """
+    raw = (city_key or "jakarta").strip()
+    slug = re.sub(r"[^a-z0-9]+", "_", raw.lower()).strip("_")
+    if slug in TEMPLATE_PRODI_SF_TABLE:
+        return slug, TEMPLATE_PRODI_SF_TABLE[slug]["label"], None
+    # Direct exact spelling aliases (not a geographic fallback)
+    if slug in ("makassar",):
+        return "makasar", TEMPLATE_PRODI_SF_TABLE["makasar"]["label"], None
+    if slug in ("serang",):
+        return "serang_banten", TEMPLATE_PRODI_SF_TABLE["serang_banten"]["label"], None
+    if slug in _TEMPLATE_PRODI_NEAREST_FALLBACK:
+        fb = _TEMPLATE_PRODI_NEAREST_FALLBACK[slug]
+        lbl = TEMPLATE_PRODI_SF_TABLE[fb]["label"]
+        return fb, lbl, f"Kota '{raw}' tidak ada di daftar Template Prodi ('ref.'!A5:A22); menggunakan kota terdekat '{lbl}'."
+    return "jakarta", "Jakarta", f"Kota '{raw}' tidak dikenali pada Template Prodi ('ref.'!A5:A22); menggunakan 'Jakarta'."
+
+
+def get_sf_for_source(
+    city_key: Optional[str],
+    orientation_code: str,
+    sf_source: str = "template_prodi",
+) -> float:
+    """Returns discrete Solar Factor (W/m2) from either 'template_prodi' ('ref.'!A5:J22) or 'sni2020' (Tabel 8)."""
+    src = (sf_source or "template_prodi").strip().lower()
+    code = (orientation_code or "U").strip().upper()
+    if code in ("ROOF", "HORISONTAL", "HORIZONTAL", "ATAP"):
+        if src == "template_prodi":
+            tslug, _, _ = resolve_template_prodi_city(city_key)
+            return float(TEMPLATE_PRODI_SF_TABLE[tslug]["sf"]["ROOF"])
+        return get_sf_table8(city_key, "ROOF")
+
+    if src == "template_prodi":
+        tslug, _, _ = resolve_template_prodi_city(city_key)
+        return float(TEMPLATE_PRODI_SF_TABLE[tslug]["sf"].get(code, TEMPLATE_PRODI_SF_TABLE[tslug]["sf"]["U"]))
+    return get_sf_table8(city_key, code)
+
+
+def get_sf_source_info(city_key: Optional[str], sf_source: str = "template_prodi") -> Dict[str, Any]:
+    """Returns honest, transparent SF source metadata (never mislabels template_prodi as Tabel 8 SNI 6389:2020)."""
+    src = (sf_source or "template_prodi").strip().lower()
+    if src == "template_prodi":
+        tslug, tlabel, warn = resolve_template_prodi_city(city_key)
+        return {
+            "sf_source": "template_prodi",
+            "sf_source_label": "Tabel SF Template Prodi ('ref.'!A5:J22)",
+            "city_key": tslug,
+            "city_label": tlabel,
+            "sf_table": dict(TEMPLATE_PRODI_SF_TABLE[tslug]["sf"]),
+            "warning": warn,
+        }
+    sni_k, entry = get_sni_city_entry(city_key)
+    return {
+        "sf_source": "sni2020",
+        "sf_source_label": "Tabel 8 SNI 6389:2020 (hlm. 11–12)",
+        "city_key": sni_k,
+        "city_label": entry["city"],
+        "sf_table": dict(entry["sf"]),
+        "warning": None,
+    }
+
+
 _ORIENT_PAIR_KEY: Dict[str, str] = {
     "U": "U_S",
     "S": "U_S",
@@ -851,73 +1049,135 @@ def get_tdek_roof(massa_kg_m2: float) -> float:
     return 16.0
 
 
-def _interp_1d_row(row_vals: Tuple[float, ...], angles: Tuple[int, ...], tilt_deg: float) -> float:
+def _get_cell_value_with_errata(
+    kind: str,
+    pair_key: str,
+    r1: float,
+    r2: Optional[float],
+    angle_deg: int,
+    raw_val: float,
+    table_mode: str,
+    errata_used: Optional[List[Dict[str, Any]]] = None,
+) -> float:
+    if (table_mode or "terkoreksi").strip().lower() == "ketat_pdf":
+        return raw_val
+    key = (kind, pair_key, round(float(r1), 1), (round(float(r2), 1) if r2 is not None else None), int(angle_deg))
+    err = _ERRATA_INDEX.get(key)
+    if err is not None:
+        if errata_used is not None:
+            errata_used.append(dict(err))
+        return float(err["corrected"])
+    return raw_val
+
+
+def _interp_1d_row_with_errata(
+    kind: str,
+    pair_key: str,
+    r1: float,
+    r2: Optional[float],
+    row_vals: Tuple[float, ...],
+    angles: Tuple[int, ...],
+    tilt_deg: float,
+    table_mode: str,
+    errata_used: Optional[List[Dict[str, Any]]] = None,
+) -> float:
     a = max(float(angles[0]), min(float(angles[-1]), abs(float(tilt_deg))))
     for i in range(len(angles) - 1):
         a0, a1 = float(angles[i]), float(angles[i + 1])
         if a0 <= a <= a1:
             t = (a - a0) / (a1 - a0) if a1 > a0 else 0.0
-            return row_vals[i] + t * (row_vals[i + 1] - row_vals[i])
-    return row_vals[-1]
+            v0 = _get_cell_value_with_errata(kind, pair_key, r1, r2, angles[i], row_vals[i], table_mode, errata_used)
+            if t <= 1e-9:
+                return v0
+            v1 = _get_cell_value_with_errata(kind, pair_key, r1, r2, angles[i + 1], row_vals[i + 1], table_mode, errata_used)
+            if t >= 1.0 - 1e-9:
+                return v1
+            return v0 + t * (v1 - v0)
+    return _get_cell_value_with_errata(kind, pair_key, r1, r2, angles[-1], row_vals[-1], table_mode, errata_used)
 
 
-def _lookup_1d_table(table: Dict[float, Tuple[float, ...]], ratio: float, tilt_deg: float) -> float:
+def _lookup_1d_table(
+    kind: str,
+    pair_key: str,
+    table: Dict[float, Tuple[float, ...]],
+    ratio: float,
+    tilt_deg: float,
+    table_mode: str = "terkoreksi",
+    errata_used: Optional[List[Dict[str, Any]]] = None,
+) -> float:
     r = max(0.0, float(ratio))
     if r <= 1e-6:
         return 1.0
-    # Between 0.0 (SC_eff = 1.0) and 0.1
     if r < 0.1:
-        v01 = _interp_1d_row(table[0.1], SCEFF_1D_ANGLES_DEG, tilt_deg)
+        v01 = _interp_1d_row_with_errata(kind, pair_key, 0.1, None, table[0.1], SCEFF_1D_ANGLES_DEG, tilt_deg, table_mode, errata_used)
         return 1.0 + (r / 0.1) * (v01 - 1.0)
     r_clamped = min(3.0, r)
     r_lo = round(int(r_clamped * 10.0 + 1e-9) / 10.0, 1)
     r_lo = max(0.1, min(3.0, r_lo))
     r_hi = min(3.0, round(r_lo + 0.1, 1))
-    v_lo = _interp_1d_row(table[r_lo], SCEFF_1D_ANGLES_DEG, tilt_deg)
-    if r_hi <= r_lo + 1e-9:
+    v_lo = _interp_1d_row_with_errata(kind, pair_key, r_lo, None, table[r_lo], SCEFF_1D_ANGLES_DEG, tilt_deg, table_mode, errata_used)
+    if r_hi <= r_lo + 1e-9 or abs(r_clamped - r_lo) <= 1e-9:
         return v_lo
-    v_hi = _interp_1d_row(table[r_hi], SCEFF_1D_ANGLES_DEG, tilt_deg)
+    v_hi = _interp_1d_row_with_errata(kind, pair_key, r_hi, None, table[r_hi], SCEFF_1D_ANGLES_DEG, tilt_deg, table_mode, errata_used)
     t = (r_clamped - r_lo) / (r_hi - r_lo)
     return v_lo + t * (v_hi - v_lo)
 
 
-def get_sceff_horizontal(orientation_code: str, r1: float, tilt_deg: float = 0.0) -> float:
+def get_sceff_horizontal(
+    orientation_code: str,
+    r1: float,
+    tilt_deg: float = 0.0,
+    table_mode: str = "terkoreksi",
+    errata_used: Optional[List[Dict[str, Any]]] = None,
+) -> float:
     """Returns SC_eff for horizontal projection R1 from SNI 6389:2020 Tabel A.5-A.8 (hlm. 31-34)."""
     pair_key = _ORIENT_PAIR_KEY.get((orientation_code or "U").upper(), "U_S")
-    return round(_lookup_1d_table(SNI_TABLE_HORIZONTAL_SCEFF[pair_key], r1, tilt_deg), 4)
+    return round(_lookup_1d_table("horizontal", pair_key, SNI_TABLE_HORIZONTAL_SCEFF[pair_key], r1, tilt_deg, table_mode, errata_used), 4)
 
 
-def get_sceff_vertical(orientation_code: str, r2: float, tilt_deg: float = 0.0) -> float:
+def get_sceff_vertical(
+    orientation_code: str,
+    r2: float,
+    tilt_deg: float = 0.0,
+    table_mode: str = "terkoreksi",
+    errata_used: Optional[List[Dict[str, Any]]] = None,
+) -> float:
     """Returns SC_eff for vertical fin projection R2 from SNI 6389:2020 Tabel A.9-A.12 (hlm. 35-38)."""
     pair_key = _ORIENT_PAIR_KEY.get((orientation_code or "U").upper(), "U_S")
-    return round(_lookup_1d_table(SNI_TABLE_VERTICAL_SCEFF[pair_key], r2, tilt_deg), 4)
+    return round(_lookup_1d_table("vertical", pair_key, SNI_TABLE_VERTICAL_SCEFF[pair_key], r2, tilt_deg, table_mode, errata_used), 4)
 
 
-def get_sceff_eggcrate(orientation_code: str, r1: float, r2: float, tilt_deg: float = 0.0) -> float:
+def get_sceff_eggcrate(
+    orientation_code: str,
+    r1: float,
+    r2: float,
+    tilt_deg: float = 0.0,
+    table_mode: str = "terkoreksi",
+    errata_used: Optional[List[Dict[str, Any]]] = None,
+) -> float:
     """Returns SC_eff for egg-crate louvers (R1, R2) from SNI 6389:2020 Tabel A.13-A.16 (hlm. 39-50)."""
     r1_v = max(0.0, float(r1))
     r2_v = max(0.0, float(r2))
     if r1_v <= 1e-6 and r2_v <= 1e-6:
         return 1.0
     if r2_v <= 1e-6:
-        return get_sceff_horizontal(orientation_code, r1_v, tilt_deg)
+        return get_sceff_horizontal(orientation_code, r1_v, tilt_deg, table_mode, errata_used)
     if r1_v <= 1e-6:
-        return get_sceff_vertical(orientation_code, r2_v, 0.0)
+        return get_sceff_vertical(orientation_code, r2_v, 0.0, table_mode, errata_used)
 
     pair_key = _ORIENT_PAIR_KEY.get((orientation_code or "U").upper(), "U_S")
     table = SNI_TABLE_EGGCRATE_SCEFF[pair_key]
-
-    # Bilinear interpolation over grid {0.0, 0.2, 0.4, ..., 1.8}
     grid = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4, 1.6, 1.8]
 
     def _cell(g1: float, g2: float) -> float:
         if g1 <= 1e-6 and g2 <= 1e-6:
             return 1.0
         if g2 <= 1e-6:
-            return _lookup_1d_table(SNI_TABLE_HORIZONTAL_SCEFF[pair_key], g1, tilt_deg)
+            return _lookup_1d_table("horizontal", pair_key, SNI_TABLE_HORIZONTAL_SCEFF[pair_key], g1, tilt_deg, table_mode, errata_used)
         if g1 <= 1e-6:
-            return _lookup_1d_table(SNI_TABLE_VERTICAL_SCEFF[pair_key], g2, 0.0)
-        return _interp_1d_row(table[(round(g1, 1), round(g2, 1))], SCEFF_EGGCRATE_ANGLES_DEG, tilt_deg)
+            return _lookup_1d_table("vertical", pair_key, SNI_TABLE_VERTICAL_SCEFF[pair_key], g2, 0.0, table_mode, errata_used)
+        k_r1, k_r2 = round(g1, 1), round(g2, 1)
+        return _interp_1d_row_with_errata("eggcrate", pair_key, k_r1, k_r2, table[(k_r1, k_r2)], SCEFF_EGGCRATE_ANGLES_DEG, tilt_deg, table_mode, errata_used)
 
     def _bracket(val: float) -> Tuple[float, float, float]:
         vc = max(0.0, min(1.8, val))
@@ -929,6 +1189,16 @@ def get_sceff_eggcrate(orientation_code: str, r1: float, r2: float, tilt_deg: fl
 
     r1_0, r1_1, t1 = _bracket(r1_v)
     r2_0, r2_1, t2 = _bracket(r2_v)
+    if t1 <= 1e-9 and t2 <= 1e-9:
+        return round(_cell(r1_0, r2_0), 4)
+    if t1 <= 1e-9:
+        v0 = _cell(r1_0, r2_0)
+        v1 = _cell(r1_0, r2_1)
+        return round(v0 + t2 * (v1 - v0), 4)
+    if t2 <= 1e-9:
+        v0 = _cell(r1_0, r2_0)
+        v1 = _cell(r1_1, r2_0)
+        return round(v0 + t1 * (v1 - v0), 4)
     q00 = _cell(r1_0, r2_0)
     q10 = _cell(r1_1, r2_0)
     q01 = _cell(r1_0, r2_1)
@@ -938,20 +1208,55 @@ def get_sceff_eggcrate(orientation_code: str, r1: float, r2: float, tilt_deg: fl
     return round(v0 + t2 * (v1 - v0), 4)
 
 
+def lookup_sceff_detailed(
+    orientation_code: str,
+    r1_horizontal: float = 0.0,
+    r2_vertical: float = 0.0,
+    tilt_deg: float = 0.0,
+    table_mode: str = "terkoreksi",
+) -> Dict[str, Any]:
+    """
+    Unified Lampiran A SC_eff lookup returning:
+      `{"sc_eff": float, "used_errata": bool, "corrections": List[dict], "table_mode": str}`.
+    """
+    r1 = max(0.0, float(r1_horizontal))
+    r2 = max(0.0, float(r2_vertical))
+    mode = (table_mode or "terkoreksi").strip().lower()
+    used_list: List[Dict[str, Any]] = []
+
+    if r1 <= 1e-4 and r2 <= 1e-4:
+        val = 1.0
+    elif r1 > 1e-4 and r2 > 1e-4:
+        val = get_sceff_eggcrate(orientation_code, r1, r2, tilt_deg, table_mode=mode, errata_used=used_list)
+    elif r1 > 1e-4:
+        val = get_sceff_horizontal(orientation_code, r1, tilt_deg, table_mode=mode, errata_used=used_list)
+    else:
+        val = get_sceff_vertical(orientation_code, r2, tilt_deg, table_mode=mode, errata_used=used_list)
+
+    # Deduplicate any repeated errata entries touched during interpolation
+    dedup: List[Dict[str, Any]] = []
+    seen = set()
+    for e in used_list:
+        k = (e["table"], e["orientation_key"], e["r1"], e.get("r2"), e["angle_deg"])
+        if k not in seen:
+            seen.add(k)
+            dedup.append(e)
+
+    return {
+        "sc_eff": val,
+        "used_errata": len(dedup) > 0,
+        "corrections": dedup,
+        "table_mode": mode,
+    }
+
+
 def lookup_sceff(
     orientation_code: str,
     r1_horizontal: float = 0.0,
     r2_vertical: float = 0.0,
     tilt_deg: float = 0.0,
+    table_mode: str = "terkoreksi",
 ) -> float:
-    """Unified Lampiran A SC_eff lookup selecting Horizontal (A.5-A.8), Vertical (A.9-A.12), or Egg-Crate (A.13-A.16)."""
-    r1 = max(0.0, float(r1_horizontal))
-    r2 = max(0.0, float(r2_vertical))
-    if r1 <= 1e-4 and r2 <= 1e-4:
-        return 1.0
-    if r1 > 1e-4 and r2 > 1e-4:
-        return get_sceff_eggcrate(orientation_code, r1, r2, tilt_deg)
-    if r1 > 1e-4:
-        return get_sceff_horizontal(orientation_code, r1, tilt_deg)
-    return get_sceff_vertical(orientation_code, r2, tilt_deg)
+    """Backward-compatible scalar SC_eff lookup (use `lookup_sceff_detailed` for errata metadata)."""
+    return float(lookup_sceff_detailed(orientation_code, r1_horizontal, r2_vertical, tilt_deg, table_mode)["sc_eff"])
 

@@ -117,10 +117,11 @@ def test_resolve_material_priority_rule():
 
     cfg = ProjectConfig(
         roles=RolesConfig(
+            # Also exercises automatic migration of legacy branded IDs -> generic IDs
             group_material_map={"Glass_Group_A": "glz_asahimas_panasap_grey_8"},
         ),
         settings=SettingsConfig(
-            glazing_material_id="glz_asahimas_stopsol_supersilver_8",
+            glazing_material_id="glz_kaca_reflektif_8",
             wall_material_id="custom_wall_project",
             custom_materials=[
                 CustomMaterialSpec(
@@ -138,19 +139,19 @@ def test_resolve_material_priority_rule():
         ),
     )
 
-    # Priority 1: Group override beats orientation override and role default!
+    # Priority 1: Group override beats orientation override and role default (legacy ID migrated -> glz_kaca_tinted_8)
     r1 = resolve_material("Glass_Group_A", cfg, category="glazing", orientation_code="B")
-    assert r1["material_id"] == "glz_asahimas_panasap_grey_8"
+    assert r1["material_id"] == "glz_kaca_tinted_8"
     assert r1["source"] == "group_override"
 
-    # Priority 2: Orientation override beats role default when group has no override
+    # Priority 2: Orientation override beats role default (legacy ID migrated -> glz_igu_lowe_selektif)
     r2 = resolve_material("Generic_Glazing", cfg, category="glazing", orientation_code="B")
-    assert r2["material_id"] == "glz_saint_gobain_cool_lite_skn154"
+    assert r2["material_id"] == "glz_igu_lowe_selektif"
     assert r2["source"] == "orientation_override"
 
     # Priority 3: Role default (including per-model custom_materials!) applies directly
     r3 = resolve_material("Generic_Glazing", cfg, category="glazing", orientation_code="U")
-    assert r3["material_id"] == "glz_asahimas_stopsol_supersilver_8"
+    assert r3["material_id"] == "glz_kaca_reflektif_8"
     assert r3["source"] == "role_default"
 
     r3_custom = resolve_material("Generic_Wall", cfg, category="wall", orientation_code="U")
@@ -160,8 +161,8 @@ def test_resolve_material_priority_rule():
 
     # Priority 4: Name-based suggestion when role default is None
     cfg_no_default = ProjectConfig(settings=SettingsConfig(glazing_material_id=None))
-    r4 = resolve_material("Kaca_Indoflo_Clear", cfg_no_default, category="glazing")
-    assert r4["material_id"] == "glz_asahimas_indoflo_clear_8"
+    r4 = resolve_material("Kaca_Polos_Clear", cfg_no_default, category="glazing")
+    assert r4["material_id"] == "glz_kaca_polos_8"
     assert r4["source"] == "suggested"
 
     # Priority 5: Built-in catalog default fallback when role default is None & name unmatched
@@ -319,6 +320,11 @@ def test_provisional_status_label_and_exports_by_analysis_id(isolated_client):
     pdf_resp = client.get(f"/api/analyses/{aid}/export/pdf")
     assert pdf_resp.status_code == 200
     assert pdf_resp.content.startswith(b"%PDF")
+
+    # Export Template Prodi by analysis_id (pure zip/XML)
+    tpl_resp = client.get(f"/api/analyses/{aid}/export/template_prodi")
+    assert tpl_resp.status_code == 200
+    assert tpl_resp.content[:2] == b"PK"
 
     # Unknown analysis_id -> 404; invalid format -> 400
     assert client.get("/api/analyses/nonexistent_id/export/csv").status_code == 404
