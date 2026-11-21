@@ -1,0 +1,505 @@
+/**
+ * LUXA Camera Rig (Fase 4b-1 — `docs/FASE4_UI_SPEC.md` §4.1):
+ * - 4 projections:
+ *   1. `perspective`  : PerspectiveCamera, free orbit
+ *   2. `two_point`    : PerspectiveCamera with pitch locked to 0 (horizontal viewing ray)
+ *                       and vertical framing shifted via `setViewOffset` so verticals stay plumb
+ *   3. `axonometric`  : OrthographicCamera from isometric elevation (~35.264°)
+ *   4. `elevation`    : OrthographicCamera perpendicular to one of 8 compass directions or `Atas`
+ * - Smooth 200 ms transitions (instant under `prefers-reduced-motion`).
+ * - Honors `north_angle_deg` (azimuth clockwise from +Y in backend convention).
+ */
+
+import * as THREE from 'three';
+import { prefersReducedMotion } from '../ui/glass.js';
+
+export const DIRECTION_AZIMUTHS = {
+  U: 0,
+  TL: 45,
+  T: 90,
+  TG: 135,
+  S: 180,
+  BD: 225,
+  B: 270,
+  BL: 315,
+};
+
+export const DIRECTION_NAMES = {
+  U: 'Utara',
+  TL: 'Timur Laut',
+  T: 'Timur',
+  TG: 'Tenggara',
+  S: 'Selatan',
+  BD: 'Barat Daya',
+  B: 'Barat',
+  BL: 'Barat Laut',
+  Atas: 'Atas',
+};
+
+export const PROJECTION_LABELS = {
+  perspective: 'Perspektif',
+  two_point: '2 titik',
+  axonometric: 'Aksonometri',
+  elevation: 'Tampak',
+};
+
+export const PROJECTION_SHORT = {
+  perspective: 'Persp',
+  two_point: '2 titik',
+  axonometric: 'Akso',
+  elevation: 'Tampak',
+};
+
+/**
+ * Converts backend Z-up (x=East, y=North, z=Up) to Three.js Y-up (x=East, y=Up, z=-North).
+ */
+export function toThreeCoords(x, y, z) {
+  return new THREE.Vector3(Number(x) || 0, Number(z) || 0, -(Number(y) || 0));
+}
+
+/**
+ * Outward horizontal unit vector in Three.js XZ plane for an azimuth clockwise from North.
+ * Azimuth 0° (U) -> (0, 0, -1), 90° (T) -> (1, 0, 0), 180° (S) -> (0, 0, 1), 270° (B) -> (-1, 0, 0).
+ */
+export function azimuthToThreeHorizontal(azDeg, northAngleDeg = 0) {
+  const rad = (((Number(azDeg) || 0) + (Number(northAngleDeg) || 0)) * Math.PI) / 180;
+  return new THREE.Vector3(Math.sin(rad), 0, -Math.cos(rad));
+}
+
+export class CameraRig {
+  constructor() {
+    this.width = 800;
+    this.height = 600;
+    this.projection = 'perspective'; // 'perspective' | 'two_point' | 'axonometric' | 'elevation'
+    this.direction = 'B'; // 'U'..'BL' | 'Atas'
+    this.northAngleDeg = 0;
+    this.twoPointShiftY = 0; // normalized vertical lens shift (-0.35 .. 0.35)
+    this.bbox = null;
+
+    this.perspCamera = new THREE.PerspectiveCamera(42, 4 / 3, 0.1, 4000);
+    this.perspCamera.position.set(28, 22, 28);
+
+    this.orthoCamera = new THREE.OrthographicCamera(-20, 20, 15, -15, -2000, 4000);
+    this.orthoCamera.position.set(28, 22, 28);
+
+    this.activeCamera = this.perspCamera;
+    this.orthoHalfHeight = 20;
+
+    this.anim = null;
+  }
+
+  getActiveCamera() {
+    return this.activeCamera;
+  }
+
+  setNorthAngle(deg) {
+    this.northAngleDeg = Number(deg) || 0;
+  }
+
+  setBBox(bbox) {
+    this.bbox = bbox || null;
+  }
+
+  _getModelMetrics() {
+    const b = this.bbox;
+    if (!b || !b.span || !b.center) {
+      return {
+        center: new THREE.Vector3(0, 6, 0),
+        spanX: 20,
+        spanY: 20,
+        spanZ: 15,
+        maxDim: 22,
+        radius: 16,
+      };
+    }
+    const center = toThreeCoords(b.center[0], b.center[1], b.center[2]);
+    const spanX = Math.max(1, Number(b.span[0]) || 10);
+    const spanY = Math.max(1, Number(b.span[1]) || 10);
+    const spanZ = Math.max(1, Number(b.span[2]) || 10);
+    const maxDim = Math.max(spanX, spanY, spanZ, 4);
+    const radius = 0.5 * Math.hypot(spanX, spanY, spanZ);
+    return { center, spanX, spanY, spanZ, maxDim, radius };
+  }
+
+  resize(width, height) {
+    this.width = Math.max(1, width);
+    this.height = Math.max(1, height);
+    const aspect = this.width / this.height;
+
+    this.perspCamera.aspect = aspect;
+    if (this.projection === 'two_point') {
+      this._applyTwoPointViewOffset();
+    } else {
+      this.perspCamera.clearViewOffset();
+    }
+    this.perspCamera.updateProjectionMatrix();
+
+    this._updateOrthoFrustum();
+  }
+
+  _applyTwoPointViewOffset() {
+    const offsetPx = Math.round(this.twoPointShiftY * this.height);
+    this.perspCamera.setViewOffset(this.width, this.height, 0, offsetPx, this.width, this.height);
+  }
+
+  _updateOrthoFrustum() {
+    const aspect = this.width / Math.max(1, this.height);
+    const hh = Math.max(1, this.orthoHalfHeight);
+    this.orthoCamera.left = -hh * aspect;
+    this.orthoCamera.right = hh * aspect;
+    this.orthoCamera.top = hh;
+    this.orthoCamera.bottom = -hh;
+    this.orthoCamera.updateProjectionMatrix();
+  }
+
+  /**
+   * Configures OrbitControls constraints for the active projection.
+   */
+  applyControlsConstraints(controls) {
+    if (!controls) return;
+    controls.object = this.activeCamera;
+    if (this.projection === 'two_point') {
+      // Lock pitch strictly horizontal so vertical architectural edges stay parallel/plumb
+      controls.minPolarAngle = Math.PI / 2;
+      controls.maxPolarAngle = Math.PI / 2;
+      controls.enableRotate = true;
+    } else if (this.projection === 'elevation' && this.direction === 'Atas') {
+      controls.minPolarAngle = 0.001;
+      controls.maxPolarAngle = Math.PI - 0.001;
+      controls.enableRotate = true;
+    } else {
+      controls.minPolarAngle = 0.02;
+      controls.maxPolarAngle = Math.PI - 0.02;
+      controls.enableRotate = true;
+    }
+    controls.update();
+  }
+
+  /**
+   * Computes ideal pose for a given projection & direction.
+   */
+  _computeTargetPose(projection, direction, controls) {
+    const m = this._getModelMetrics();
+    const dist = Math.max(m.radius * 2.7, m.maxDim * 1.75);
+    const curPos = this.activeCamera.position.clone();
+    const curTarget = controls ? controls.target.clone() : m.center.clone();
+    const rel = curPos.clone().sub(curTarget);
+    const curDist = Math.max(4, rel.length());
+
+    let pos = new THREE.Vector3();
+    let target = m.center.clone();
+    let up = new THREE.Vector3(0, 1, 0);
+    let orthoHalf = Math.max(m.radius * 1.28, m.maxDim * 0.72);
+    let shiftY = 0;
+
+    if (projection === 'perspective') {
+      if (rel.lengthSq() > 1e-3 && this.projection !== 'elevation') {
+        const horiz = new THREE.Vector3(rel.x, 0, rel.z);
+        if (horiz.lengthSq() < 1e-3) {
+          pos.set(m.center.x + dist * 0.68, m.center.y + dist * 0.45, m.center.z + dist * 0.72);
+        } else {
+          horiz.normalize();
+          const elev = Math.max(curDist * 0.25, Math.min(curDist * 0.75, rel.y > 0.5 ? rel.y : curDist * 0.35));
+          pos.copy(m.center).addScaledVector(horiz, Math.sqrt(Math.max(1, curDist * curDist - elev * elev)));
+          pos.y = m.center.y + elev;
+        }
+      } else {
+        const dirVec = azimuthToThreeHorizontal(DIRECTION_AZIMUTHS[direction] ?? 225, this.northAngleDeg);
+        pos.copy(m.center).addScaledVector(dirVec, dist * 0.88);
+        pos.y = m.center.y + dist * 0.42;
+      }
+    } else if (projection === 'two_point') {
+      // Strictly horizontal camera at eye height (~35% up the building) with lens shift to frame roof
+      let horiz = new THREE.Vector3(rel.x, 0, rel.z);
+      if (horiz.lengthSq() < 1e-3) {
+        const az = DIRECTION_AZIMUTHS[direction] ?? 225;
+        horiz = azimuthToThreeHorizontal(az, this.northAngleDeg);
+      } else {
+        horiz.normalize();
+      }
+      const eyeY = m.center.y - m.spanZ * 0.12;
+      target.set(m.center.x, eyeY, m.center.z);
+      pos.copy(target).addScaledVector(horiz, Math.max(dist, curDist * 0.95));
+      pos.y = eyeY; // pitch strictly 0!
+      // Vertical view offset shifts the horizon slightly down so tall towers sit gracefully in frame
+      shiftY = -0.10;
+    } else if (projection === 'axonometric') {
+      // Isometric angle (~35.264° elevation) from nearest quadrant to current camera
+      let azRad = Math.atan2(rel.x, -rel.z);
+      if (!Number.isFinite(azRad) || (Math.abs(rel.x) < 1e-3 && Math.abs(rel.z) < 1e-3)) {
+        azRad = (225 * Math.PI) / 180;
+      }
+      // Snap to nearest isometric diagonal (45, 135, 225, 315)
+      const deg = ((azRad * 180) / Math.PI + 360) % 360;
+      const snappedDeg = Math.floor(deg / 90) * 90 + 45;
+      const rad = (snappedDeg * Math.PI) / 180;
+      const elevRad = Math.atan(1 / Math.SQRT2); // 35.264°
+      const cosE = Math.cos(elevRad);
+      pos.set(
+        m.center.x + dist * cosE * Math.sin(rad),
+        m.center.y + dist * Math.sin(elevRad),
+        m.center.z - dist * cosE * Math.cos(rad),
+      );
+      orthoHalf = Math.max(m.radius * 1.25, m.maxDim * 0.72);
+    } else {
+      // elevation ('Tampak')
+      if (direction === 'Atas') {
+        pos.set(m.center.x, m.center.y + dist, m.center.z);
+        const northVec = azimuthToThreeHorizontal(0, this.northAngleDeg);
+        up.copy(northVec);
+        orthoHalf = Math.max(m.spanX, m.spanY) * 0.72;
+      } else {
+        const az = DIRECTION_AZIMUTHS[direction] ?? 270;
+        const dirVec = azimuthToThreeHorizontal(az, this.northAngleDeg);
+        pos.copy(m.center).addScaledVector(dirVec, dist);
+        pos.y = m.center.y;
+        const horizSpan = Math.max(m.spanX, m.spanY);
+        orthoHalf = Math.max(m.spanZ, horizSpan) * 0.68;
+      }
+    }
+
+    return { pos, target, up, orthoHalf, shiftY };
+  }
+
+  /**
+   * Switches projection (`perspective` | `two_point` | `axonometric` | `elevation`)
+   * with a 200 ms transition (instant if `prefers-reduced-motion`).
+   */
+  setProjection(projection, controls, { direction = null, animate = true } = {}) {
+    if (direction) this.direction = direction;
+    const prevCam = this.activeCamera;
+    const startPos = prevCam.position.clone();
+    const startTarget = controls ? controls.target.clone() : this._getModelMetrics().center;
+    const startHalf = this.orthoHalfHeight;
+
+    this.projection = projection;
+    const isOrtho = projection === 'axonometric' || projection === 'elevation';
+    this.activeCamera = isOrtho ? this.orthoCamera : this.perspCamera;
+
+    const pose = this._computeTargetPose(projection, this.direction, controls);
+    this.twoPointShiftY = pose.shiftY;
+
+    const m = this._getModelMetrics();
+    this.perspCamera.near = Math.max(0.05, m.maxDim * 0.004);
+    this.perspCamera.far = Math.max(2500, m.maxDim * 35);
+    this.orthoCamera.near = -Math.max(1500, m.maxDim * 20);
+    this.orthoCamera.far = Math.max(2500, m.maxDim * 35);
+
+    this.activeCamera.up.copy(pose.up);
+    if (projection === 'two_point') {
+      this._applyTwoPointViewOffset();
+    } else {
+      this.perspCamera.clearViewOffset();
+    }
+    this.perspCamera.updateProjectionMatrix();
+
+    this._startTransition({
+      startPos,
+      endPos: pose.pos,
+      startTarget,
+      endTarget: pose.target,
+      startHalf,
+      endHalf: pose.orthoHalf,
+      controls,
+      animate: animate && !prefersReducedMotion(),
+    });
+  }
+
+  /**
+   * Looks directly at one of the 8 facade directions (`U`..`BL`) or `Atas`.
+   * Keeps `two_point` if active (unless `Atas`, which switches to `elevation`),
+   * or switches to `elevation` / frames that facade cleanly.
+   */
+  lookAtDirection(direction, controls, { forceElevation = false, animate = true } = {}) {
+    this.direction = direction;
+    const m = this._getModelMetrics();
+    const dist = Math.max(m.radius * 2.6, m.maxDim * 1.72);
+    const startPos = this.activeCamera.position.clone();
+    const startTarget = controls ? controls.target.clone() : m.center.clone();
+    const startHalf = this.orthoHalfHeight;
+
+    let targetProj = this.projection;
+    if (direction === 'Atas' || forceElevation) {
+      targetProj = 'elevation';
+    }
+    this.projection = targetProj;
+    const isOrtho = targetProj === 'axonometric' || targetProj === 'elevation';
+    this.activeCamera = isOrtho ? this.orthoCamera : this.perspCamera;
+
+    let endPos = new THREE.Vector3();
+    let endTarget = m.center.clone();
+    let up = new THREE.Vector3(0, 1, 0);
+    let endHalf = Math.max(m.radius * 1.25, m.maxDim * 0.70);
+    let shiftY = 0;
+
+    if (direction === 'Atas') {
+      endPos.set(m.center.x, m.center.y + dist, m.center.z);
+      up.copy(azimuthToThreeHorizontal(0, this.northAngleDeg));
+      endHalf = Math.max(m.spanX, m.spanY) * 0.72;
+    } else {
+      const az = DIRECTION_AZIMUTHS[direction] ?? 270;
+      const dirVec = azimuthToThreeHorizontal(az, this.northAngleDeg);
+      if (targetProj === 'two_point') {
+        const eyeY = m.center.y - m.spanZ * 0.12;
+        endTarget.set(m.center.x, eyeY, m.center.z);
+        endPos.copy(endTarget).addScaledVector(dirVec, dist);
+        endPos.y = eyeY;
+        shiftY = -0.10;
+      } else if (targetProj === 'elevation') {
+        endPos.copy(m.center).addScaledVector(dirVec, dist);
+        endPos.y = m.center.y;
+        endHalf = Math.max(m.spanZ, Math.max(m.spanX, m.spanY)) * 0.68;
+      } else if (targetProj === 'axonometric') {
+        const elevRad = Math.atan(1 / Math.SQRT2);
+        endPos.copy(m.center).addScaledVector(dirVec, dist * Math.cos(elevRad));
+        endPos.y = m.center.y + dist * Math.sin(elevRad);
+      } else {
+        endPos.copy(m.center).addScaledVector(dirVec, dist * 0.92);
+        endPos.y = m.center.y + dist * 0.34;
+      }
+    }
+
+    this.twoPointShiftY = shiftY;
+    this.activeCamera.up.copy(up);
+    if (targetProj === 'two_point') {
+      this._applyTwoPointViewOffset();
+    } else {
+      this.perspCamera.clearViewOffset();
+    }
+    this.perspCamera.updateProjectionMatrix();
+
+    this._startTransition({
+      startPos,
+      endPos,
+      startTarget,
+      endTarget,
+      startHalf,
+      endHalf,
+      controls,
+      animate: animate && !prefersReducedMotion(),
+    });
+  }
+
+  /**
+   * Fits the active camera smoothly back to the model bounding box (`F`).
+   */
+  fitToModel(controls, { animate = true } = {}) {
+    this.setProjection(this.projection, controls, { animate });
+  }
+
+  _startTransition({ startPos, endPos, startTarget, endTarget, startHalf, endHalf, controls, animate }) {
+    if (!animate) {
+      this.anim = null;
+      this.activeCamera.position.copy(endPos);
+      this.orthoHalfHeight = endHalf;
+      this.orthoCamera.zoom = 1;
+      this._updateOrthoFrustum();
+      if (controls) {
+        controls.target.copy(endTarget);
+        this.applyControlsConstraints(controls);
+      } else {
+        this.activeCamera.lookAt(endTarget);
+      }
+      return;
+    }
+
+    this.orthoCamera.zoom = 1;
+    this.anim = {
+      startTime: performance.now(),
+      duration: 200,
+      startPos,
+      endPos,
+      startTarget,
+      endTarget,
+      startHalf,
+      endHalf,
+      controls,
+    };
+    this.applyControlsConstraints(controls);
+  }
+
+  tick(now) {
+    if (!this.anim) return;
+    const { startTime, duration, startPos, endPos, startTarget, endTarget, startHalf, endHalf, controls } =
+      this.anim;
+    const rawT = Math.min(1, Math.max(0, (now - startTime) / duration));
+    // Smooth ease-out cubic
+    const t = 1 - Math.pow(1 - rawT, 3);
+
+    this.activeCamera.position.lerpVectors(startPos, endPos, t);
+    if (controls) {
+      controls.target.lerpVectors(startTarget, endTarget, t);
+    }
+    this.orthoHalfHeight = startHalf + (endHalf - startHalf) * t;
+    this._updateOrthoFrustum();
+
+    if (rawT >= 1) {
+      this.anim = null;
+      if (controls) {
+        this.applyControlsConstraints(controls);
+      }
+    }
+  }
+
+  exportState(controls) {
+    const pos = this.activeCamera.position;
+    const tgt = controls ? controls.target : new THREE.Vector3();
+    return {
+      projection: this.projection,
+      direction: this.direction,
+      position: [Number(pos.x.toFixed(3)), Number(pos.y.toFixed(3)), Number(pos.z.toFixed(3))],
+      target: [Number(tgt.x.toFixed(3)), Number(tgt.y.toFixed(3)), Number(tgt.z.toFixed(3))],
+      up: [
+        Number(this.activeCamera.up.x.toFixed(3)),
+        Number(this.activeCamera.up.y.toFixed(3)),
+        Number(this.activeCamera.up.z.toFixed(3)),
+      ],
+      orthoHalfHeight: Number(this.orthoHalfHeight.toFixed(3)),
+      orthoZoom: Number((this.orthoCamera.zoom || 1).toFixed(3)),
+      twoPointShiftY: Number(this.twoPointShiftY.toFixed(4)),
+    };
+  }
+
+  applySavedState(camState, controls, { animate = true } = {}) {
+    if (!camState) return;
+    const prevCam = this.activeCamera;
+    const startPos = prevCam.position.clone();
+    const startTarget = controls ? controls.target.clone() : new THREE.Vector3();
+    const startHalf = this.orthoHalfHeight;
+
+    this.projection = camState.projection || 'perspective';
+    this.direction = camState.direction || this.direction;
+    this.twoPointShiftY = Number(camState.twoPointShiftY || 0);
+
+    const isOrtho = this.projection === 'axonometric' || this.projection === 'elevation';
+    this.activeCamera = isOrtho ? this.orthoCamera : this.perspCamera;
+
+    const endPos = new THREE.Vector3(...(camState.position || [25, 20, 25]));
+    const endTarget = new THREE.Vector3(...(camState.target || [0, 5, 0]));
+    const upArr = camState.up || [0, 1, 0];
+    this.activeCamera.up.set(upArr[0], upArr[1], upArr[2]);
+
+    if (this.projection === 'two_point') {
+      this._applyTwoPointViewOffset();
+    } else {
+      this.perspCamera.clearViewOffset();
+    }
+    this.perspCamera.updateProjectionMatrix();
+
+    const endHalf = Number(camState.orthoHalfHeight || this.orthoHalfHeight || 20);
+    this._startTransition({
+      startPos,
+      endPos,
+      startTarget,
+      endTarget,
+      startHalf,
+      endHalf,
+      controls,
+      animate: animate && !prefersReducedMotion(),
+    });
+    if (isOrtho && camState.orthoZoom) {
+      this.orthoCamera.zoom = Number(camState.orthoZoom) || 1;
+      this.orthoCamera.updateProjectionMatrix();
+    }
+  }
+}
