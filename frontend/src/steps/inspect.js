@@ -64,15 +64,17 @@ export function renderInspectScreen(state, handlers) {
     state.viewerMode === 'heatmap' && !state.analysisData
       ? 'classification'
       : state.viewerMode || 'classification';
-  viewerSec.appendChild(
-    renderViewerModeBar({ ...state, viewerMode: activeInspectMode }, (modeId) => {
-      if (modeId === 'heatmap' && state.analysisData) {
-        handlers.onGoToResults();
-      } else {
-        handlers.onChangeViewerMode(modeId);
-      }
-    }),
-  );
+  const modeBarEl = renderViewerModeBar({ ...state, viewerMode: activeInspectMode }, (modeId) => {
+    if (modeId === 'heatmap' && state.analysisData) {
+      handlers.onGoToResults();
+    } else {
+      handlers.onChangeViewerMode(modeId);
+    }
+  });
+  const modeAtBottom = state.workspace?.modeBarPosition === 'bottom';
+  if (!modeAtBottom) {
+    viewerSec.appendChild(modeBarEl);
+  }
 
   // Interactive North Compass (drag or keyboard arrows)
   viewerSec.appendChild(
@@ -82,9 +84,16 @@ export function renderInspectScreen(state, handlers) {
     }),
   );
 
+  // Bottom overlay stack (T2): legend always sits 12px above bottom pills
+  const bottomStack = document.createElement('div');
+  bottomStack.className = 'viewer-bottom-stack';
+  if (modeAtBottom) {
+    bottomStack.appendChild(modeBarEl);
+  }
+
   // Legend (lifted cleanly above bottom pills)
   const legend = document.createElement('div');
-  legend.className = 'legend legend-lifted num';
+  legend.className = `legend legend-lifted num${state.activeRailCard ? ' legend-shifted' : ''}`;
   if (activeInspectMode === 'orientation') {
     const tokens = readThemeTokens();
     legend.innerHTML = ORIENTATION_CODES.map(
@@ -117,11 +126,12 @@ export function renderInspectScreen(state, handlers) {
     }
     legend.innerHTML = legendParts.join('');
   }
-  viewerSec.appendChild(legend);
+  bottomStack.appendChild(legend);
 
   if (handlers.vbarHandlers) {
-    viewerSec.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
+    bottomStack.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
   }
+  viewerSec.appendChild(bottomStack);
 
   // Right Top: Grup terdeteksi
   const groupsCard = document.createElement('section');

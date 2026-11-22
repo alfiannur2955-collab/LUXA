@@ -93,7 +93,7 @@ export function renderViewerBottomBar(state, handlers) {
     slider.step = '1';
     slider.value = String(Math.round(Number(state.sunHour ?? 13)));
     slider.setAttribute('aria-label', 'Jam matahari');
-    slider.style.width = '88px';
+    slider.style.width = '76px';
     slider.style.accentColor = 'var(--sun)';
     slider.addEventListener('input', () => {
       handlers.onChangeSunHour(Number(slider.value));
@@ -189,7 +189,7 @@ export function renderViewerBottomBar(state, handlers) {
   viewsBtn.setAttribute('aria-haspopup', 'listbox');
   viewsBtn.setAttribute('aria-expanded', state.openPopover === 'views' ? 'true' : 'false');
   const vtSpan = document.createElement('span');
-  vtSpan.style.maxWidth = '136px';
+  vtSpan.style.maxWidth = '122px';
   vtSpan.style.overflow = 'hidden';
   vtSpan.style.textOverflow = 'ellipsis';
   vtSpan.textContent = viewTriggerText;

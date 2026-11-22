@@ -51,7 +51,11 @@ export function renderResultsScreen(state, handlers) {
 
   // Mode bar (Klasifikasi, Orientasi, Heatmap | Kejanggalan, X-ray)
   const activeMode = state.viewerMode || 'heatmap';
-  viewerSec.appendChild(renderViewerModeBar({ ...state, viewerMode: activeMode }, handlers.onChangeViewerMode));
+  const modeBarEl = renderViewerModeBar({ ...state, viewerMode: activeMode }, handlers.onChangeViewerMode);
+  const modeAtBottom = state.workspace?.modeBarPosition === 'bottom';
+  if (!modeAtBottom) {
+    viewerSec.appendChild(modeBarEl);
+  }
 
   // Interactive North Compass (top-right, aligned at top: 16px, height: 52px) + Hitung ulang chip
   viewerSec.appendChild(
@@ -66,6 +70,13 @@ export function renderResultsScreen(state, handlers) {
     onToggleExpand: handlers.onToggleFormulaPill,
   });
   if (formulaPill) viewerSec.appendChild(formulaPill);
+
+  // Bottom overlay stack (T2): legend always sits 12px above bottom pills regardless of pill wrapping
+  const bottomStack = document.createElement('div');
+  bottomStack.className = 'viewer-bottom-stack';
+  if (modeAtBottom) {
+    bottomStack.appendChild(modeBarEl);
+  }
 
   // Legend (lifted cleanly above bottom pills; shifts right if Tampilan card is open)
   const legend = document.createElement('div');
@@ -167,11 +178,12 @@ export function renderResultsScreen(state, handlers) {
       <span class="legend-item"><i class="swatch" style="background:var(--data-shading);"></i>Peneduh</span>
     `;
   }
-  viewerSec.appendChild(legend);
+  bottomStack.appendChild(legend);
 
   if (handlers.vbarHandlers) {
-    viewerSec.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
+    bottomStack.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
   }
+  viewerSec.appendChild(bottomStack);
 
   // Presentation mode exit pill (`Esc` also exits)
   if (state.workspace?.preset === 'presentasi') {
