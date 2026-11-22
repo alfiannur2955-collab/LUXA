@@ -31,6 +31,7 @@ import {
   ottvToThreeColor,
   readThemeTokens,
   resolveViewerMode,
+  EXPOSURE_SCALE,
 } from './modes.js';
 import { populateSelectionHighlightGroup, summarizeSelectedPanels } from './selection.js';
 
@@ -76,9 +77,9 @@ function _updateSmoothLegend(range) {
 }
 
 export function smoothLegendTicksHtml(range) {
-  if (!range) return '<span>Rendah</span><span>Tinggi</span>';
-  // Satuan W/m² ada di tooltip legenda.
-  return `<span>${Math.round(range.min)}</span><span class="is-limit">W/m²</span><span>${Math.round(range.max)}</span>`;
+  const lo = range ? Math.round(range.min) : EXPOSURE_SCALE.min;
+  const hi = range ? Math.round(range.max) : EXPOSURE_SCALE.max;
+  return `<span>${lo}</span><span class="is-limit">W/m²</span><span>${hi}+</span>`;
 }
 
 function _computeFaceNormalBackend(v0, v1, v2) {
@@ -1169,13 +1170,13 @@ class LuxaViewer {
         smoothMin = mid - 0.25;
         smoothMax = mid + 0.25;
       }
-      this.lastSmoothRange = { min: smoothMin, max: smoothMax };
+      // Skala tetap (80–250 W/m², rentang SF fasad SNI) supaya warna bisa dibandingkan antar model.
+      this.lastSmoothRange = { min: EXPOSURE_SCALE.min, max: EXPOSURE_SCALE.max, dataMin: smoothMin, dataMax: smoothMax };
       _updateSmoothLegend(this.lastSmoothRange);
     } else {
       this.lastSmoothRange = null;
     }
-    // Rentang paparan di model direntangkan ke seluruh gradasi hijau -> oranye.
-    const relColor = (v) => exposureToThreeColor((v - smoothMin) / (smoothMax - smoothMin), tokens);
+    const relColor = (v) => exposureToThreeColor((v - EXPOSURE_SCALE.min) / (EXPOSURE_SCALE.max - EXPOSURE_SCALE.min), tokens);
 
     const cHeat1 = new THREE.Color(tokens.heat1);
     const cWall = new THREE.Color(tokens.wall);

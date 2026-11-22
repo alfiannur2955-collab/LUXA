@@ -3632,10 +3632,7 @@ body.is-d5-rotating * {
   font-size: 11.5px;
 }
 
-/* Kartu fitur kiri mendorong area kerja ke kanan, bukan menutupi viewer. */
-.has-rail-card .main {
-  padding-left: calc(min(380px, 100vw - 116px) + 20px);
-}
+/* Kartu fitur kiri melayang di atas viewer (kaca buram); viewer tidak menyempit. */
 
 .has-rail-card .legend-shifted,
 .viewer-bottom-stack > .legend.legend-shifted {
@@ -4186,4 +4183,185 @@ body.is-d5-rotating * {
     top: 78px;
     right: 16px;
   }
+}
+
+/* Rumus OTTV di kartu "Per arah" */
+.link-btn {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--sun);
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  text-decoration: underline;
+}
+
+.hero-formula-link {
+  margin-top: 10px;
+}
+
+.chip.chip-xs {
+  height: 20px;
+  padding: 0 8px;
+  font-size: 10.5px;
+}
+
+.orient-formula {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 6px;
+}
+
+.orient-formula .formula-eq-line {
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+/* ============================================================================
+ * Dok bawah dua tingkat (23 Nov): atas legenda mode, bawah kontrol
+ * ============================================================================ */
+.viewer-bottom-stack {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+.viewer-dock {
+  position: relative;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  max-width: 100%;
+  padding: 6px 8px;
+  border-radius: 20px;
+}
+
+.viewer-dock > .legend.dock-top {
+  position: static;
+  width: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  height: auto;
+  min-height: 40px;
+  padding: 4px 6px 8px;
+  margin: 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  white-space: normal;
+  max-width: none;
+}
+
+.dock-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-right: 4px;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.dock-title b {
+  font-weight: 800;
+}
+
+.dock-title small {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+.viewer-dock .sunlit-stat,
+.viewer-dock .legend-iso-chip {
+  margin-left: auto;
+}
+
+.viewer-dock > .vbar {
+  position: static;
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px 8px;
+  padding-top: 4px;
+  width: auto;
+}
+
+.viewer-dock .vbar .pill {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  height: 44px;
+  padding: 0 2px;
+  overflow: visible;
+}
+
+.viewer-dock .vbar > .vbar-anchor {
+  position: static;
+}
+
+.viewer-dock .vbar > .vbar-anchor + .vbar-anchor {
+  border-left: 1px solid var(--line);
+  padding-left: 6px;
+}
+
+.viewer-dock .vbar-popover {
+  bottom: calc(100% + 10px);
+  left: 0;
+}
+
+.viewer-dock .vbar-popover.vbar-popover-right,
+.viewer-dock .vbar > .vbar-anchor + .vbar-anchor .vbar-popover {
+  left: auto;
+  right: 0;
+}
+
+/* Saat kartu samping terbuka, bar mode dan dok bergeser ke kanan kartu. */
+.has-rail-card .viewer > .modes:not(.modes-bottom),
+.has-rail-card .viewer .viewer-bottom-stack {
+  left: calc(min(380px, 100vw - 116px) + 20px);
+}
+
+.card-host.glass {
+  box-shadow: var(--shadow-float), 0 0 0 1px var(--glass-edge);
+}
+
+/* Kartu samping terbuka: ruang viewer lebih sempit → bar mode ringkas, grup kanan dok rata kanan saat terlipat. */
+.has-rail-card .viewer > .modes button:not(.on) .modes-lbl {
+  display: none;
+}
+
+.has-rail-card .viewer > .modes button:not(.on) {
+  padding: 0 10px;
+}
+
+.viewer-dock .vbar > .vbar-anchor:last-child {
+  margin-left: auto;
+}
+
+.has-rail-card .viewer-dock .pill .b.b-icon {
+  width: 32px;
 }

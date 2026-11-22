@@ -9,7 +9,7 @@ import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
 import { makeTermTip } from '../ui/tooltips.js';
 import { renderInteractiveCompass } from '../viewer/compass.js';
-import { renderFormulaPill } from '../viewer/formulaPill.js';
+import { renderFormulaSheet } from '../viewer/formulaPill.js';
 import {
   ORIENTATION_CODES,
   ORIENTATION_NAMES_ID,
@@ -86,11 +86,7 @@ export function renderResultsScreen(state, handlers) {
     }),
   );
 
-  // Draggable & expandable Formula Pill (top-right, left of compass: top 16px, right 76px, height 52px)
-  const formulaPill = renderFormulaPill(state, {
-    onToggleExpand: handlers.onToggleFormulaPill,
-  });
-  if (formulaPill) viewerStage.appendChild(formulaPill);
+  // Rumus OTTV tidak lagi melayang di viewer: ada di kartu "Per arah" (kolom kanan).
 
   // Bottom overlay stack (T2): legend always sits 12px above bottom pills regardless of pill wrapping
   const bottomStack = document.createElement('div');
@@ -101,7 +97,7 @@ export function renderResultsScreen(state, handlers) {
 
   // Legend (lifted cleanly above bottom pills; shifts right if Tampilan card is open)
   const legend = document.createElement('div');
-  legend.className = `legend legend-lifted${state.activeRailCard ? ' legend-shifted' : ''}`;
+  legend.className = 'legend dock-top';
 
   // Mode Matahari: pilihan Sepanjang tahun / tanggal & jam aktif
   if (view.mode === 'sun') {
@@ -263,10 +259,23 @@ export function renderResultsScreen(state, handlers) {
     chip.addEventListener('click', () => handlers.onClearIsolation?.());
     legend.appendChild(chip);
   }
-  bottomStack.appendChild(legend);
+  {
+    const t = document.createElement('span');
+    t.className = 'dock-title';
+    const titles = { heatmap: ['OTTV', 'W/m²'], exposure: ['Matahari', ''], orientation: ['Orientasi', 'arah hadap'], classification: ['Klasifikasi', 'jenis bidang'] };
+    const [tt, sub] = titles[view.mode === 'sun' ? 'exposure' : activeMode] || ['Tampilan', ''];
+    t.innerHTML = `<b>${tt}</b>${sub ? `<small>${sub}</small>` : ''}`;
+    legend.prepend(t);
+  }
+
+  // Dok bawah dua tingkat: atas = legenda mode (berubah-ubah), bawah = kontrol (tetap).
+  const dock = document.createElement('div');
+  dock.className = 'glass viewer-dock';
+  dock.appendChild(legend);
+  bottomStack.appendChild(dock);
 
   if (handlers.vbarHandlers) {
-    bottomStack.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
+    dock.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
   }
   viewerSec.appendChild(bottomStack);
 
@@ -350,6 +359,22 @@ export function renderResultsScreen(state, handlers) {
   }
 
   heroCard.append(heroHead, heroVal, chipRow);
+
+  // Tautan ke rumus: buka rincian arah tertinggi (atau arah terpilih) di kartu "Per arah".
+  const formulaLink = document.createElement('button');
+  formulaLink.type = 'button';
+  formulaLink.className = 'link-btn hero-formula-link';
+  formulaLink.innerHTML = `${icon('formula', 14)}<span>${state.formulaPillExpanded ? 'Tutup rumus' : 'Lihat rumus'}</span>`;
+  formulaLink.addEventListener('click', () => {
+    const open = !state.formulaPillExpanded;
+    handlers.onToggleFormulaPill?.(open);
+    if (open) {
+      window.setTimeout(() => {
+        document.querySelector('.orient-formula')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 60);
+    }
+  });
+  heroCard.appendChild(formulaLink);
 
   // Fase 4e: Fast material pick & recommender shortcut right from Results hero card
   const matQuickRow = document.createElement('div');
@@ -675,8 +700,15 @@ export function renderResultsScreen(state, handlers) {
   orientCard.append(orHead, ol);
 
   // Selected orientation detail strip
-  if (state.selectedOrientation && orientByCode.has(state.selectedOrientation)) {
-    const sel = orientByCode.get(state.selectedOrientation);
+  const orientWithArea = orientList.filter((o) => Number(o.total_area_m2 || 0) > 0.01);
+  const highestOrient = orientWithArea.length
+    ? orientWithArea.reduce((b, c) => (Number(c.ottv_orientation_wm2 || 0) > Number(b.ottv_orientation_wm2 || 0) ? c : b))
+    : null;
+  const detailCode =
+    state.selectedOrientation && orientByCode.has(state.selectedOrientation) ? state.selectedOrientation : highestOrient?.code || null;
+  if (detailCode) {
+    const sel = orientByCode.get(detailCode);
+    const isHighest = highestOrient && sel.code === highestOrient.code;
     const detailDiv = document.createElement('div');
     detailDiv.className = 'glass-thin';
     detailDiv.style.marginTop = '10px';
@@ -688,7 +720,19 @@ export function renderResultsScreen(state, handlers) {
 
     const titleLine = document.createElement('div');
     titleLine.style.fontWeight = '700';
-    titleLine.textContent = `Fasad ${sel.name_id || sel.code}`;
+    titleLine.style.display = 'flex';
+    titleLine.style.alignItems = 'baseline';
+    titleLine.style.gap = '6px';
+    titleLine.innerHTML = '';
+    const tName = document.createElement('span');
+    tName.textContent = `Fasad ${sel.name_id || sel.code} · ${fmtId(sel.ottv_orientation_wm2 || 0, 2)} W/m²`;
+    titleLine.appendChild(tName);
+    if (isHighest) {
+      const tag = document.createElement('span');
+      tag.className = 'chip st-warn chip-xs';
+      tag.textContent = 'tertinggi';
+      titleLine.appendChild(tag);
+    }
 
     const metricLine = document.createElement('div');
     metricLine.className = 'muted num';
@@ -715,7 +759,24 @@ export function renderResultsScreen(state, handlers) {
       }),
     );
 
-    detailDiv.append(titleLine, metricLine, noteLine, pickOrientBtn);
+    const fBtn = document.createElement('button');
+    fBtn.type = 'button';
+    fBtn.className = `ghost ghost-sm${state.formulaPillExpanded ? ' on' : ''}`;
+    fBtn.style.height = '30px';
+    fBtn.style.marginTop = '4px';
+    fBtn.setAttribute('aria-expanded', state.formulaPillExpanded ? 'true' : 'false');
+    fBtn.innerHTML = `${icon('formula', 14)}<span>${state.formulaPillExpanded ? 'Tutup rumus' : 'Rumus'}</span>`;
+    fBtn.addEventListener('click', () => handlers.onToggleFormulaPill?.(!state.formulaPillExpanded));
+
+    const btnRow = document.createElement('div');
+    btnRow.style.display = 'flex';
+    btnRow.style.flexWrap = 'wrap';
+    btnRow.style.gap = '6px';
+    btnRow.append(pickOrientBtn, fBtn);
+    pickOrientBtn.style.marginTop = '4px';
+
+    detailDiv.append(titleLine, metricLine, noteLine, btnRow);
+    if (state.formulaPillExpanded) detailDiv.appendChild(renderFormulaSheet(sel));
     orientCard.appendChild(detailDiv);
   }
 
