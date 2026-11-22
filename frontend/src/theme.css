@@ -1221,6 +1221,28 @@ body.is-d5-rotating * {
   pointer-events: auto;
 }
 
+/* Kompas hidup: jarum mengikuti kamera, klik = hadap utara */
+.compass-live {
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  transition: transform 140ms var(--ease-ui), border-color 140ms var(--ease-ui);
+}
+
+.compass-live:hover {
+  border-color: var(--sun);
+}
+
+.compass-live:active {
+  transform: scale(0.95);
+}
+
+.compass-live:focus-visible {
+  outline: 2px solid var(--sun);
+  outline-offset: 2px;
+}
+
 .d5-handles-layer {
   position: absolute;
   inset: 0;

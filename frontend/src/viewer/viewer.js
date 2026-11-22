@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { AxisGizmo } from './axes.js';
-import { CameraRig, toThreeCoords } from './cameras.js';
+import { CameraRig, toThreeCoords, azimuthToThreeHorizontal } from './cameras.js';
 import { computeSolarPosition } from './sundome.js';
 import { ViewerLabelsOverlay } from './labels.js';
 import {
@@ -243,6 +243,10 @@ class LuxaViewer {
     this.controls.dampingFactor = 0.08;
     this.controls.maxDistance = 1600;
     this.controls.minDistance = 2;
+    // Pengguna mulai memutar sendiri → hentikan putaran otomatis dari kompas.
+    this.controls.addEventListener('start', () => {
+      if (this.rig) this.rig.spin = null;
+    });
     this.controls.addEventListener('end', () => {
       if (typeof this.onCameraDirectionSettled === 'function') {
         const liveDir = this.rig.getLiveDirection(this.controls);
@@ -320,6 +324,7 @@ class LuxaViewer {
           this.renderer.render(this.scene, cam);
         }
         this.gizmo.update(cam);
+        this._updateCompassDials(cam);
         this.labelsOverlay.update(cam, this.lastWidth, this.lastHeight);
         if (this.sunDomeController && typeof this.sunDomeController.updateLabels === 'function') {
           this.sunDomeController.updateLabels(cam, this.lastWidth, this.lastHeight);
@@ -456,6 +461,62 @@ class LuxaViewer {
   setRightInsetPx(px) {
     this._initThree();
     this.rig.setRightInsetPx(px);
+  }
+
+  /**
+   * Sudut utara di layar (derajat, searah jarum jam dari atas) untuk kamera aktif.
+   * Dihitung dari arah hadap kamera, bukan dari proyeksi titik, supaya tidak miring
+   * karena perspektif atau pergeseran pusat pandang.
+   */
+  screenNorthDeg(cam = null) {
+    if (!this.rig) return 0;
+    const camera = cam || this.rig.getActiveCamera();
+    camera.updateMatrixWorld();
+    const e = camera.matrixWorld.elements;
+    const right = new THREE.Vector3(e[0], 0, e[2]);
+    // "Atas layar" di bidang tanah = komponen datar dari (atas kamera + arah hadap).
+    const upGround = new THREE.Vector3(e[4] - e[8], 0, e[6] - e[10]);
+    if (upGround.lengthSq() < 1e-10 || right.lengthSq() < 1e-10) return this._compassDeg || 0;
+    const n = azimuthToThreeHorizontal(0, this.rig.northAngleDeg);
+    return (Math.atan2(n.dot(right.normalize()), n.dot(upGround.normalize())) * 180) / Math.PI;
+  }
+
+  /** Kompas di sudut viewer ikut berputar mengikuti kamera (tanpa render ulang halaman). */
+  _updateCompassDials(cam) {
+    const host = this.overlayHost || this.container?.parentElement;
+    if (!host) return;
+    const deg = this.screenNorthDeg(cam);
+    const els = this._compassEls && this._compassEls.length && this._compassEls[0].isConnected
+      ? this._compassEls
+      : (this._compassEls = [...host.querySelectorAll('.compass-live svg')]);
+    if (!els.length) return;
+    const fresh = els.some((el) => el.dataset.live !== '1');
+    if (!fresh && Math.abs(deg - (this._compassDeg ?? 1e9)) < 0.25) return;
+    this._compassDeg = deg;
+    const r = Math.round(deg * 10) / 10;
+    for (const el of els) {
+      el.dataset.live = '1';
+      el.style.transform = `rotate(${r}deg)`;
+    }
+  }
+
+  /** Klik kompas: putar pandangan supaya menghadap utara (utara di atas layar). */
+  faceNorth() {
+    this._initThree();
+    this.rig.onSpinDone = () => {
+      if (typeof this.onCameraDirectionSettled === 'function') {
+        const liveDir = this.rig.getLiveDirection(this.controls);
+        if (liveDir) this.onCameraDirectionSettled(liveDir);
+      }
+    };
+    // Habiskan sisa inersia putaran (damping) dulu, supaya tidak menggeser hasil setelah berputar.
+    if (this.controls) {
+      const damp = this.controls.enableDamping;
+      this.controls.enableDamping = false;
+      this.controls.update();
+      this.controls.enableDamping = damp;
+    }
+    this.rig.faceNorth(this.controls);
   }
 
   lookAtDirection(direction, opts = {}) {

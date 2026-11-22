@@ -11,7 +11,7 @@
 
 import * as THREE from 'three';
 import { fmtId } from '../ui/escapeHtml.js';
-import { DIRECTION_NAMES, PROJECTION_SHORT, toThreeCoords } from './cameras.js';
+import { DIRECTION_NAMES, PROJECTION_SHORT } from './cameras.js';
 import {
   ORIENTATION_CODES,
   ORIENTATION_NAMES_ID,
@@ -198,19 +198,9 @@ function infoLines(state) {
 }
 
 /** Sudut panah utara di layar (radian, 0 = ke atas), dari kamera aktif. */
-function screenNorthAngle(state) {
+function screenNorthAngle() {
   try {
-    const cam = viewer.rig.getActiveCamera();
-    const bbox = viewer.rig.bbox;
-    const c = bbox?.center || [0, 0, 0];
-    const n = (Number(state.config?.settings?.north_angle_deg || 0) * Math.PI) / 180;
-    const len = Math.max(1, Number(bbox?.max_span || 20) * 0.3);
-    const p0 = toThreeCoords(c[0], c[1], c[2]).project(cam);
-    const p1 = toThreeCoords(c[0] + Math.sin(n) * len, c[1] + Math.cos(n) * len, c[2]).project(cam);
-    const dx = p1.x - p0.x;
-    const dy = p1.y - p0.y;
-    if (Math.hypot(dx, dy) < 1e-6) return 0;
-    return Math.atan2(dx, dy);
+    return (viewer.screenNorthDeg() * Math.PI) / 180;
   } catch {
     return 0;
   }

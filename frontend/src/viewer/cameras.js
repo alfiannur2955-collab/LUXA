@@ -472,7 +472,56 @@ export class CameraRig {
     this.applyControlsConstraints(controls);
   }
 
+  /**
+   * Putar kamera mengelilingi target (sumbu vertikal) sampai pandangan menghadap utara,
+   * jarak dan ketinggian tetap. Pandangan atas: diputar supaya utara di atas layar.
+   */
+  faceNorth(controls) {
+    const tgt = controls ? controls.target.clone() : this._getModelMetrics().center.clone();
+    const rel = this.activeCamera.position.clone().sub(tgt);
+    const hLen = Math.hypot(rel.x, rel.z);
+    if (hLen < 1e-3) {
+      this.lookAtDirection('Atas', controls);
+      return 0;
+    }
+    // Kamera berada di sisi selatan → melihat ke utara.
+    const want = azimuthToThreeHorizontal(180, this.northAngleDeg);
+    const from = Math.atan2(rel.x, rel.z);
+    let to = Math.atan2(want.x, want.z);
+    let delta = to - from;
+    while (delta > Math.PI) delta -= Math.PI * 2;
+    while (delta < -Math.PI) delta += Math.PI * 2;
+    if (Math.abs(delta) < 1e-3) return 0;
+    this.anim = null;
+    this.spin = {
+      startTime: performance.now(),
+      duration: prefersReducedMotion() ? 0 : Math.min(700, 260 + Math.abs(delta) * 140),
+      from,
+      delta,
+      hLen,
+      y: rel.y,
+      target: tgt,
+      controls,
+    };
+    if (this.spin.duration === 0) this.tick(performance.now());
+    return delta;
+  }
+
   tick(now) {
+    if (this.spin) {
+      const sp = this.spin;
+      const rawT = sp.duration > 0 ? Math.min(1, Math.max(0, (now - sp.startTime) / sp.duration)) : 1;
+      const t = rawT < 0.5 ? 4 * rawT * rawT * rawT : 1 - Math.pow(-2 * rawT + 2, 3) / 2;
+      const a = sp.from + sp.delta * t;
+      this.activeCamera.position.set(sp.target.x + Math.sin(a) * sp.hLen, sp.target.y + sp.y, sp.target.z + Math.cos(a) * sp.hLen);
+      if (sp.controls) sp.controls.target.copy(sp.target);
+      else this.activeCamera.lookAt(sp.target);
+      if (rawT >= 1) {
+        this.spin = null;
+        if (typeof this.onSpinDone === 'function') this.onSpinDone();
+      }
+      return;
+    }
     if (!this.anim) return;
     const { startTime, duration, startPos, endPos, startTarget, endTarget, startHalf, endHalf, controls } =
       this.anim;
