@@ -144,7 +144,7 @@ export function renderResultsScreen(state, handlers) {
       gradTicks.innerHTML = smoothLegendTicksHtml(viewer.lastSmoothRange);
       limitMark.style.display = 'none';
       gradWrap.title =
-        'Paparan matahari (W/m²): SF menurut arah hadap tiap titik' +
+        'Paparan matahari (W/m²), kiri rendah, kanan tinggi: SF menurut arah hadap tiap titik' +
         (gran === 'panel' ? ' × faktor peneduh panel.' : '.') +
         ' Hanya tampilan; angka OTTV tidak berubah.';
     } else {

@@ -76,7 +76,7 @@ function _updateSmoothLegend(range) {
 export function smoothLegendTicksHtml(range) {
   if (!range) return '<span>Rendah</span><span>Tinggi</span>';
   // Satuan W/m² ada di tooltip legenda.
-  return `<span>Rendah ${_fmtWm2(range.min)}</span><span>${_fmtWm2(range.max)} Tinggi</span>`;
+  return `<span>${Math.round(range.min)}</span><span class="is-limit">W/m²</span><span>${Math.round(range.max)}</span>`;
 }
 
 function _computeFaceNormalBackend(v0, v1, v2) {
