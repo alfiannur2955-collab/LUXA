@@ -3927,3 +3927,18 @@ body.is-d5-rotating * {
   width: 100% !important;
   max-width: 100% !important;
 }
+
+/* Judul kartu samping Inspeksi tetap satu baris; chip status tidak terlipat */
+.inspect-side-card h2 {
+  white-space: nowrap;
+  font-size: 17px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inspect-side-card .chip,
+.inspect-side-card .inspect-updating {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
