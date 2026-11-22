@@ -16,26 +16,18 @@ Implements:
 from __future__ import annotations
 
 import hashlib
-import json
 import math
 import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-import rhino3dm
-import trimesh
-from ladybug_geometry.geometry3d.face import Face3D
-from ladybug_geometry.geometry3d.mesh import Mesh3D
-from ladybug_geometry.geometry3d.plane import Plane
-from ladybug_geometry.geometry3d.pointvector import Point3D, Vector3D
+from ladybug_geometry.geometry3d.pointvector import Vector3D
 
 from materials_and_epw import (
     INDONESIAN_CITY_PRESETS,
-    SC_TO_SHGC_RATIO,
     get_material_by_id,
     get_material_shgc,
-    migrate_material_id,
 )
 from sni_tables import (
     SNI_DELTA_T_K,
@@ -43,11 +35,9 @@ from sni_tables import (
     SNI_RTTV_LIMIT_WITH_SKYLIGHT_WM2,
     get_sf_for_source,
     get_sf_source_info,
-    get_sf_table8,
     get_sni_city_entry,
     get_tdek_roof,
     get_tdek_wall,
-    lookup_sceff,
     lookup_sceff_detailed,
 )
 from template_method import (
@@ -56,15 +46,10 @@ from template_method import (
 )
 from universal_pipeline import (
     RawGroupMesh,
-    Stage1GeometryAudit,
     assign_panels_to_floors,
     build_dynamic_floor_levels,
-    classify_layer_or_material_role,
-    create_sample_ifc_preset,
     enrich_floor_zones_and_presets,
     load_universal_model_stages_1_and_2,
-    suggest_material_id_for_group,
-    tessellate_nurbs_surface_with_ladybug,
 )
 
 # ============================================================================
@@ -188,14 +173,6 @@ def compute_azimuth_from_normal(
     if math.isclose(azimuth, 360.0, abs_tol=1e-4):
         azimuth = 0.0
     return round(float(azimuth), 2)
-
-
-def compute_tilt_from_normal(nx: float, ny: float, nz: float) -> float:
-    mag = math.sqrt(nx * nx + ny * ny + nz * nz)
-    if mag < 1e-9:
-        return 90.0
-    clamped_nz = max(-1.0, min(1.0, nz / mag))
-    return round(math.degrees(math.acos(clamped_nz)), 1)
 
 
 def classify_sni_orientation(azimuth_deg: float) -> str:
@@ -528,294 +505,6 @@ def compute_panel_exposure_for_date(
         _EXPOSURE_CACHE.clear()
     _EXPOSURE_CACHE[cache_key] = res
     return res
-
-
-# ============================================================================
-# 4. FAST VECTORIZED 3D GEOMETRY EXTRACTION & LADYBUG-GEOMETRY TESSELLATION
-# ============================================================================
-
-def _classify_layer_or_name(label: str) -> str:
-    """
-    Classifies an object/layer/group name into:
-    - 'frame': Mullion, Transom, Ring, Curtain Wall Frame profile
-    - 'shading': Fin, Louver, Sun Shade, Canopy, Overhang, SkyGarden Fins
-    - 'glazing': Vision Glass, Crown Glass, Window, Curtain Wall Glazing
-    - 'roof': Roof, Slab, Floor, Ceiling
-    - 'wall': Spandrel Panel, Opaque Wall, Cladding
-    """
-    s = (label or "").lower()
-    if any(k in s for k in ("shade", "shading", "louver", "louvre", "fin", "fins", "overhang", "brise", "canopy", "sunscreen", "skygarden")):
-        return "shading"
-    if any(k in s for k in ("transom", "mullion", "rings", "_ring", "frame", "rangka", "profile", "stiffener")):
-        return "frame"
-    if any(k in s for k in ("glass", "glaz", "window", "vision", "fenestration", "aperture", "kaca", "jendela")):
-        return "glazing"
-    if any(k in s for k in ("roof", "atap", "slab", "floor", "lantai", "ceiling", "ground")):
-        return "roof"
-    return "wall"
-
-
-def tessellate_nurbs_surface_with_ladybug(
-    surface: rhino3dm.Surface,
-    u_div: int = 4,
-    v_div: int = 2,
-) -> Mesh3D:
-    """Uses `ladybug-geometry` Mesh3D to tessellate a curved/NURBS Rhino surface."""
-    u_domain = surface.Domain(0)
-    v_domain = surface.Domain(1)
-    u_min, u_max = u_domain.T0, u_domain.T1
-    v_min, v_max = v_domain.T0, v_domain.T1
-
-    u_steps = max(2, int(u_div))
-    v_steps = max(2, int(v_div))
-
-    lb_points: List[Point3D] = []
-    for i in range(u_steps + 1):
-        u = u_min + (u_max - u_min) * (i / u_steps)
-        for j in range(v_steps + 1):
-            v = v_min + (v_max - v_min) * (j / v_steps)
-            pt = surface.PointAt(u, v)
-            lb_points.append(Point3D(float(pt.X), float(pt.Y), float(pt.Z)))
-
-    faces: List[Tuple[int, ...]] = []
-    stride = v_steps + 1
-    for i in range(u_steps):
-        for j in range(v_steps):
-            idx0 = i * stride + j
-            idx1 = (i + 1) * stride + j
-            idx2 = (i + 1) * stride + (j + 1)
-            idx3 = i * stride + (j + 1)
-            faces.append((idx0, idx1, idx2, idx3))
-
-    return Mesh3D(lb_points, faces)
-
-
-@dataclass
-class RawGroupMesh:
-    """Stores a named group's vertices and quad/tri faces in fast NumPy arrays."""
-    group_id: str
-    group_name: str
-    default_category: str  # 'wall' | 'glazing' | 'frame' | 'shading' | 'roof'
-    vertices: np.ndarray   # shape (V, 3) float64
-    faces: np.ndarray      # shape (F, 4) int64 (for triangles, col 3 == col 2)
-
-
-# In-memory cache of parsed 3D files for sub-second re-analysis
-_PARSED_FILE_CACHE: Dict[Tuple[str, float, int, int, int], List[RawGroupMesh]] = {}
-
-
-def _rhino_mesh_to_numpy(rh_mesh: rhino3dm.Mesh) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-    n_v = len(rh_mesh.Vertices)
-    n_f = len(rh_mesh.Faces)
-    if n_v < 3 or n_f < 1:
-        return None
-    verts = np.empty((n_v, 3), dtype=np.float64)
-    for i in range(n_v):
-        v = rh_mesh.Vertices[i]
-        verts[i, 0] = v.X
-        verts[i, 1] = v.Y
-        verts[i, 2] = v.Z
-
-    faces = np.empty((n_f, 4), dtype=np.int64)
-    for i in range(n_f):
-        f = rh_mesh.Faces[i]
-        faces[i, 0] = f[0]
-        faces[i, 1] = f[1]
-        faces[i, 2] = f[2]
-        faces[i, 3] = f[3] if len(f) >= 4 else f[2]
-    return verts, faces
-
-
-def _ladybug_mesh_to_numpy(lb_mesh: Mesh3D) -> Optional[Tuple[np.ndarray, np.ndarray]]:
-    verts_lb = lb_mesh.vertices
-    faces_lb = lb_mesh.faces
-    if len(verts_lb) < 3 or len(faces_lb) < 1:
-        return None
-    verts = np.array([[p.x, p.y, p.z] for p in verts_lb], dtype=np.float64)
-    faces = np.array(
-        [[f[0], f[1], f[2], f[3] if len(f) >= 4 else f[2]] for f in faces_lb],
-        dtype=np.int64,
-    )
-    return verts, faces
-
-
-def load_raw_groups_from_file(
-    filepath: str,
-    nurbs_u_div: int = 4,
-    nurbs_v_div: int = 2
-) -> List[RawGroupMesh]:
-    """
-    Loads a .3dm, .obj, .hbjson, .stl, or .ply file into a list of RawGroupMesh objects.
-    Uses an in-memory cache keyed by file modification time so repeated slider/filter
-    changes run in milliseconds.
-    """
-    abs_path = os.path.abspath(filepath)
-    mtime = os.path.getmtime(abs_path) if os.path.exists(abs_path) else 0.0
-    fsize = os.path.getsize(abs_path) if os.path.exists(abs_path) else 0
-    cache_key = (abs_path, mtime, fsize, nurbs_u_div, nurbs_v_div)
-    if cache_key in _PARSED_FILE_CACHE:
-        return _PARSED_FILE_CACHE[cache_key]
-
-    ext = os.path.splitext(filepath.lower())[1]
-    groups_map: Dict[str, List[Tuple[np.ndarray, np.ndarray, str]]] = {}
-
-    def _add_chunk(g_name: str, cat: str, v_arr: np.ndarray, f_arr: np.ndarray) -> None:
-        if g_name not in groups_map:
-            groups_map[g_name] = []
-        groups_map[g_name].append((v_arr, f_arr, cat))
-
-    if ext == ".3dm":
-        model = rhino3dm.File3dm.Read(filepath)
-        if model is None:
-            raise ValueError("Gagal membaca file Rhino .3dm.")
-        layer_names = {i: (l.Name or f"Layer_{i}") for i, l in enumerate(model.Layers)}
-
-        for idx, obj in enumerate(model.Objects):
-            geom = obj.Geometry
-            attr = obj.Attributes
-            layer_name = layer_names.get(attr.LayerIndex, "Default")
-            obj_name = attr.Name or layer_name or f"Object_{idx+1}"
-            cat = _classify_layer_or_name(f"{obj_name} {layer_name}")
-
-            if isinstance(geom, rhino3dm.Mesh):
-                res = _rhino_mesh_to_numpy(geom)
-                if res:
-                    _add_chunk(obj_name, cat, res[0], res[1])
-            elif isinstance(geom, rhino3dm.Extrusion):
-                rh_m = geom.GetMesh(rhino3dm.MeshType.Any)
-                if rh_m and len(rh_m.Faces) > 0:
-                    res = _rhino_mesh_to_numpy(rh_m)
-                    if res:
-                        _add_chunk(obj_name, cat, res[0], res[1])
-                else:
-                    brep = geom.ToBrep(True)
-                    if brep:
-                        geom = brep
-            if isinstance(geom, rhino3dm.Brep):
-                for f_i in range(len(geom.Faces)):
-                    bf = geom.Faces[f_i]
-                    rh_m = bf.GetMesh(rhino3dm.MeshType.Any)
-                    if rh_m and len(rh_m.Faces) > 0:
-                        res = _rhino_mesh_to_numpy(rh_m)
-                        if res:
-                            _add_chunk(obj_name, cat, res[0], res[1])
-                            continue
-                    srf = bf.UnderlyingSurface()
-                    if srf:
-                        u_d = 2 if cat in ("frame", "shading") else nurbs_u_div
-                        v_d = 2 if cat in ("frame", "shading") else nurbs_v_div
-                        lb_m = tessellate_nurbs_surface_with_ladybug(srf, u_d, v_d)
-                        res = _ladybug_mesh_to_numpy(lb_m)
-                        if res:
-                            _add_chunk(obj_name, cat, res[0], res[1])
-            elif isinstance(geom, rhino3dm.Surface):
-                u_d = 2 if cat in ("frame", "shading") else nurbs_u_div
-                v_d = 2 if cat in ("frame", "shading") else nurbs_v_div
-                lb_m = tessellate_nurbs_surface_with_ladybug(geom, u_d, v_d)
-                res = _ladybug_mesh_to_numpy(lb_m)
-                if res:
-                    _add_chunk(obj_name, cat, res[0], res[1])
-
-    elif ext in (".obj", ".stl", ".ply", ".glb", ".gltf"):
-        loaded = trimesh.load(filepath, force="scene", process=False)
-        geoms = loaded.geometry if isinstance(loaded, trimesh.Scene) else {"Model_Body": loaded}
-        for name, tm in geoms.items():
-            if len(tm.vertices) < 3 or len(tm.faces) < 1:
-                continue
-            v_arr = np.asarray(tm.vertices, dtype=np.float64)
-            f_in = np.asarray(tm.faces, dtype=np.int64)
-            if f_in.shape[1] == 3:
-                f_arr = np.column_stack([f_in, f_in[:, 2]])
-            else:
-                f_arr = f_in[:, :4]
-            cat = _classify_layer_or_name(name)
-            _add_chunk(name, cat, v_arr, f_arr)
-
-    elif ext in (".hbjson", ".json"):
-        with open(filepath, "r", encoding="utf-8") as f:
-            hb_data = json.load(f)
-
-        def _hb_f3d_to_chunk(g_name: str, cat: str, geom_dict: Dict[str, Any]) -> None:
-            try:
-                f3d = Face3D.from_dict(geom_dict)
-                lb_m = f3d.mesh_grid(x_dim=4.0, y_dim=4.0) if cat in ("wall", "glazing") else f3d.triangulated_mesh3d
-                res = _ladybug_mesh_to_numpy(lb_m)
-                if res:
-                    _add_chunk(g_name, cat, res[0], res[1])
-            except Exception:
-                pass
-
-        for sh in hb_data.get("orphaned_shades", []) + hb_data.get("shades", []):
-            if sh.get("geometry"):
-                _hb_f3d_to_chunk("HB_Outdoor_Shades", "shading", sh["geometry"])
-
-        all_faces = list(hb_data.get("faces", []))
-        for rm in hb_data.get("rooms", []):
-            for sh in rm.get("outdoor_shades", []):
-                if sh.get("geometry"):
-                    _hb_f3d_to_chunk("HB_Outdoor_Shades", "shading", sh["geometry"])
-            all_faces.extend(rm.get("faces", []))
-
-        for fo in all_faces:
-            f_type = (fo.get("face_type") or "Wall").lower()
-            geom_d = fo.get("geometry")
-            if not geom_d:
-                continue
-            for sh in fo.get("outdoor_shades", []):
-                if sh.get("geometry"):
-                    _hb_f3d_to_chunk("HB_Outdoor_Shades", "shading", sh["geometry"])
-            if "roof" in f_type or "floor" in f_type:
-                _hb_f3d_to_chunk("HB_Roof_Floor", "roof", geom_d)
-                continue
-            aps = fo.get("apertures", [])
-            ap_f3ds = []
-            for ap in aps:
-                for sh in ap.get("outdoor_shades", []):
-                    if sh.get("geometry"):
-                        _hb_f3d_to_chunk("HB_Aperture_Louvers", "shading", sh["geometry"])
-                if ap.get("geometry"):
-                    try:
-                        ap_f = Face3D.from_dict(ap["geometry"])
-                        ap_f3ds.append(ap_f)
-                        _hb_f3d_to_chunk("HB_Vision_Glazing", "glazing", ap["geometry"])
-                    except Exception:
-                        pass
-            try:
-                base_f = Face3D.from_dict(geom_d)
-                if ap_f3ds:
-                    punched = Face3D.from_punched_geometry(base_f, ap_f3ds)
-                    res = _ladybug_mesh_to_numpy(punched.triangulated_mesh3d)
-                else:
-                    res = _ladybug_mesh_to_numpy(base_f.mesh_grid(x_dim=4.0, y_dim=4.0))
-                if res:
-                    _add_chunk("HB_Opaque_Walls", "wall", res[0], res[1])
-            except Exception:
-                _hb_f3d_to_chunk("HB_Opaque_Walls", "wall", geom_d)
-    else:
-        raise ValueError(f"Format file '{ext}' tidak didukung.")
-
-    raw_groups: List[RawGroupMesh] = []
-    for g_idx, (g_name, chunks) in enumerate(groups_map.items()):
-        v_list = []
-        f_list = []
-        v_offset = 0
-        cat = chunks[0][2]
-        for v_arr, f_arr, _ in chunks:
-            v_list.append(v_arr)
-            f_list.append(f_arr + v_offset)
-            v_offset += len(v_arr)
-        raw_groups.append(
-            RawGroupMesh(
-                group_id=f"R-{g_idx + 1}",
-                group_name=g_name,
-                default_category=cat,
-                vertices=np.vstack(v_list),
-                faces=np.vstack(f_list),
-            )
-        )
-
-    _PARSED_FILE_CACHE[cache_key] = raw_groups
-    return raw_groups
 
 
 # ============================================================================
@@ -3727,171 +3416,3 @@ def analyze_building_ottv(
         "shading_elements": _serialize_raw_groups(shading_groups, max_faces=12000),
         "roof_elements": _serialize_raw_groups(roof_groups, max_faces=4000),
     }
-
-
-# ============================================================================
-# 7. SAMPLE ARCHITECTURAL PRESET GENERATORS
-# ============================================================================
-
-def create_sample_rhino_3dm_preset(output_path: str) -> str:
-    model = rhino3dm.File3dm()
-    model.Settings.ModelUnitSystem = rhino3dm.UnitSystem.Meters
-
-    def _add_layer(name: str, r: int, g: int, b: int) -> int:
-        layer = rhino3dm.Layer()
-        layer.Name = name
-        layer.Color = (r, g, b, 255)
-        return model.Layers.Add(layer)
-
-    idx_wall = _add_layer("Wall_Opaque_Spandrel", 148, 163, 184)
-    idx_glass = _add_layer("Glazing_LowE_CurtainWall", 56, 189, 248)
-    idx_shade = _add_layer("Shading_Kinetic_Louvers", 217, 119, 6)
-    idx_roof = _add_layer("Roof_Podium_Slab", 71, 85, 105)
-
-    num_tiers = 5
-    tier_height = 4.2
-    spandrel_h = 2.25
-    num_bays = 8
-    rx_base, ry_base = 14.0, 10.5
-
-    for tier in range(num_tiers):
-        z0 = tier * tier_height
-        z_spandrel = z0 + spandrel_h
-        z1 = z0 + tier_height
-        twist0 = math.radians(tier * 4.5)
-        twist1 = math.radians((tier + 0.4) * 4.5)
-        twist2 = math.radians((tier + 1.0) * 4.5)
-        scale0 = 1.0 - 0.025 * tier
-        scale1 = 1.0 - 0.025 * (tier + 0.4)
-        scale2 = 1.0 - 0.025 * (tier + 1.0)
-
-        for bay in range(num_bays):
-            theta_a = (2.0 * math.pi * bay) / num_bays
-            theta_m = (2.0 * math.pi * (bay + 0.5)) / num_bays
-            theta_b = (2.0 * math.pi * (bay + 1.0)) / num_bays
-
-            def _ring_pt(theta: float, twist: float, sc: float, z_val: float, bulge: float = 0.0) -> rhino3dm.Point3d:
-                ang = theta + twist
-                return rhino3dm.Point3d((rx_base * sc + bulge) * math.sin(ang), (ry_base * sc + bulge) * math.cos(ang), z_val)
-
-            bulge_m = 0.85
-            nurbs_wall = rhino3dm.NurbsSurface.Create(3, False, 3, 2, 3, 2)
-            nurbs_wall.KnotsU[0], nurbs_wall.KnotsU[1], nurbs_wall.KnotsU[2], nurbs_wall.KnotsU[3] = 0.0, 0.0, 1.0, 1.0
-            nurbs_wall.KnotsV[0], nurbs_wall.KnotsV[1] = 0.0, 1.0
-            pts_w_bot = [_ring_pt(theta_a, twist0, scale0, z0, 0.0), _ring_pt(theta_m, twist0, scale0, z0, bulge_m), _ring_pt(theta_b, twist0, scale0, z0, 0.0)]
-            pts_w_top = [_ring_pt(theta_a, twist1, scale1, z_spandrel, 0.0), _ring_pt(theta_m, twist1, scale1, z_spandrel, bulge_m), _ring_pt(theta_b, twist1, scale1, z_spandrel, 0.0)]
-            for u_i in range(3):
-                nurbs_wall.Points[u_i, 0] = rhino3dm.Point4d(pts_w_bot[u_i].X, pts_w_bot[u_i].Y, pts_w_bot[u_i].Z, 1.0)
-                nurbs_wall.Points[u_i, 1] = rhino3dm.Point4d(pts_w_top[u_i].X, pts_w_top[u_i].Y, pts_w_top[u_i].Z, 1.0)
-            attr_w = rhino3dm.ObjectAttributes()
-            attr_w.LayerIndex = idx_wall
-            attr_w.Name = "CW_Spandrel_Wall"
-            model.Objects.AddSurface(nurbs_wall, attr_w)
-
-            nurbs_glass = rhino3dm.NurbsSurface.Create(3, False, 3, 2, 3, 2)
-            nurbs_glass.KnotsU[0], nurbs_glass.KnotsU[1], nurbs_glass.KnotsU[2], nurbs_glass.KnotsU[3] = 0.0, 0.0, 1.0, 1.0
-            nurbs_glass.KnotsV[0], nurbs_glass.KnotsV[1] = 0.0, 1.0
-            pts_g_top = [_ring_pt(theta_a, twist2, scale2, z1, 0.0), _ring_pt(theta_m, twist2, scale2, z1, bulge_m), _ring_pt(theta_b, twist2, scale2, z1, 0.0)]
-            for u_i in range(3):
-                nurbs_glass.Points[u_i, 0] = rhino3dm.Point4d(pts_w_top[u_i].X, pts_w_top[u_i].Y, pts_w_top[u_i].Z, 1.0)
-                nurbs_glass.Points[u_i, 1] = rhino3dm.Point4d(pts_g_top[u_i].X, pts_g_top[u_i].Y, pts_g_top[u_i].Z, 1.0)
-            attr_g = rhino3dm.ObjectAttributes()
-            attr_g.LayerIndex = idx_glass
-            attr_g.Name = "CW_Vision_Glazing"
-            model.Objects.AddSurface(nurbs_glass, attr_g)
-
-            for z_frac in (0.35, 0.70, 1.0):
-                z_louver = z_spandrel + z_frac * (z1 - z_spandrel)
-                tw_l = twist1 + z_frac * (twist2 - twist1)
-                sc_l = scale1 + z_frac * (scale2 - scale1)
-                proj = 1.05 if z_frac == 1.0 else 0.75
-                p_in_a, p_in_m, p_in_b = _ring_pt(theta_a, tw_l, sc_l, z_louver, 0.05), _ring_pt(theta_m, tw_l, sc_l, z_louver, bulge_m + 0.05), _ring_pt(theta_b, tw_l, sc_l, z_louver, 0.05)
-                p_out_a, p_out_m, p_out_b = _ring_pt(theta_a, tw_l, sc_l, z_louver - 0.22, proj), _ring_pt(theta_m, tw_l, sc_l, z_louver - 0.22, bulge_m + proj), _ring_pt(theta_b, tw_l, sc_l, z_louver - 0.22, proj)
-                louver_mesh = rhino3dm.Mesh()
-                for pt in (p_in_a, p_in_m, p_in_b, p_out_b, p_out_m, p_out_a):
-                    louver_mesh.Vertices.Add(pt.X, pt.Y, pt.Z)
-                louver_mesh.Faces.AddFace(0, 1, 4, 5)
-                louver_mesh.Faces.AddFace(1, 2, 3, 4)
-                attr_s = rhino3dm.ObjectAttributes()
-                attr_s.LayerIndex = idx_shade
-                attr_s.Name = "Kinetic_Sun_Louvers"
-                model.Objects.AddMesh(louver_mesh, attr_s)
-
-    model.Write(output_path, 8)
-    return output_path
-
-
-def create_sample_obj_preset(output_path: str) -> str:
-    lines = ["# OTTV 3D Parametric Studio - Sample Bioclimatic Office (.obj)", "o Bioclimatic_Office_SNI6389"]
-    v_idx = 1
-
-    def _add_quad(group: str, p0: Tuple[float, float, float], p1: Tuple[float, float, float], p2: Tuple[float, float, float], p3: Tuple[float, float, float]) -> None:
-        nonlocal v_idx
-        lines.append(f"g {group}")
-        for px, py, pz in (p0, p1, p2, p3):
-            lines.append(f"v {px:.4f} {py:.4f} {pz:.4f}")
-        lines.append(f"f {v_idx} {v_idx+1} {v_idx+2} {v_idx+3}")
-        v_idx += 4
-
-    radius, floors, fh, spandrel = 12.0, 4, 4.0, 1.7
-    for fl in range(floors):
-        z0, zm, z1 = fl * fh, fl * fh + spandrel, (fl + 1) * fh
-        for s in range(8):
-            a0, a1 = math.radians(s * 45.0 - 22.5), math.radians((s + 1) * 45.0 - 22.5)
-            x0, y0, x1, y1 = radius * math.sin(a0), radius * math.cos(a0), radius * math.sin(a1), radius * math.cos(a1)
-            _add_quad("Wall_Spandrel", (x0, y0, z0), (x1, y1, z0), (x1, y1, zm), (x0, y0, zm))
-            _add_quad("Glazing_Vision", (x0, y0, zm), (x1, y1, zm), (x1, y1, z1), (x0, y0, z1))
-            r_out = radius + 0.95
-            xo0, yo0, xo1, yo1 = r_out * math.sin(a0), r_out * math.cos(a0), r_out * math.sin(a1), r_out * math.cos(a1)
-            _add_quad("Shading_Louver", (x0, y0, z1 - 0.1), (x1, y1, z1 - 0.1), (xo1, yo1, z1 - 0.35), (xo0, yo0, z1 - 0.35))
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-    return output_path
-
-
-def create_sample_hbjson_preset(output_path: str) -> str:
-    faces = []
-    radius, floors, fh = 11.5, 3, 4.0
-    for fl in range(floors):
-        z0, z1 = fl * fh, (fl + 1) * fh
-        for s in range(8):
-            a0, a1 = math.radians(s * 45.0 - 22.5), math.radians((s + 1) * 45.0 - 22.5)
-            x0, y0, x1, y1 = radius * math.sin(a0), radius * math.cos(a0), radius * math.sin(a1), radius * math.cos(a1)
-            wall_f3d = Face3D([Point3D(x0, y0, z0), Point3D(x1, y1, z0), Point3D(x1, y1, z1), Point3D(x0, y0, z1)])
-            za0, za1 = z0 + 1.4, z1 - 0.3
-            xa0, ya0, xa1, ya1 = x0 + 0.15 * (x1 - x0), y0 + 0.15 * (y1 - y0), x0 + 0.85 * (x1 - x0), y0 + 0.85 * (y1 - y0)
-            ap_f3d = Face3D([Point3D(xa0, ya0, za0), Point3D(xa1, ya1, za0), Point3D(xa1, ya1, za1), Point3D(xa0, ya0, za1)])
-            r_sh = radius + 0.85
-            xs0, ys0, xs1, ys1 = r_sh * math.sin(a0), r_sh * math.cos(a0), r_sh * math.sin(a1), r_sh * math.cos(a1)
-            sh_f3d = Face3D([Point3D(x0, y0, za1), Point3D(x1, y1, za1), Point3D(xs1, ys1, za1 - 0.25), Point3D(xs0, ys0, za1 - 0.25)])
-            faces.append({
-                "type": "Face",
-                "identifier": f"HB_Wall_F{fl+1}_S{s+1}",
-                "display_name": "HB_Wall_Spandrel",
-                "face_type": "Wall",
-                "geometry": wall_f3d.to_dict(),
-                "apertures": [{
-                    "type": "Aperture",
-                    "identifier": f"HB_Glazing_F{fl+1}_S{s+1}",
-                    "display_name": "HB_Vision_Glazing",
-                    "geometry": ap_f3d.to_dict(),
-                    "outdoor_shades": [{
-                        "type": "Shade",
-                        "identifier": f"HB_Shade_F{fl+1}_S{s+1}",
-                        "display_name": "HB_Overhang_Shade",
-                        "geometry": sh_f3d.to_dict(),
-                    }],
-                }],
-            })
-
-    hb_model = {
-        "type": "Model",
-        "identifier": "SNI6389_Honeybee_Tower",
-        "display_name": "SNI 6389:2020 Honeybee Parametric Model",
-        "units": "Meters",
-        "rooms": [{"type": "Room", "identifier": "Main_Thermal_Zone", "display_name": "Main Thermal Zone", "faces": faces}],
-    }
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(hb_model, f, indent=2)
-    return output_path

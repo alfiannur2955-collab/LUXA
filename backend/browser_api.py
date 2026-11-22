@@ -86,7 +86,7 @@ def _switch_model(model_id: str) -> None:
         return
     _ACTIVE_MODEL = model_id
     for mod in (universal_pipeline, ottv_engine):
-        for name in ("_UNIVERSAL_FILE_CACHE", "_PARSED_FILE_CACHE", "_RAYCAST_TRI_CACHE"):
+        for name in ("_UNIVERSAL_FILE_CACHE", "_RAYCAST_TRI_CACHE"):
             cache = getattr(mod, name, None)
             if hasattr(cache, "clear"):
                 cache.clear()
