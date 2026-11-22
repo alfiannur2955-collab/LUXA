@@ -3,11 +3,15 @@
  * Scoped cleanly for Fase 4a: Model, Material, Lokasi, Tampilan, Bandingkan, Laporan, Bantuan.
  */
 
+import { listSavedProjects } from '../project.js';
+import { computeInitialSunDomeRadiusM, parseDecimalInput } from '../state.js';
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
 import { SNI_GLOSSARY } from '../ui/tooltips.js';
 import { ORIENTATION_CODES, ORIENTATION_NAMES_ID } from '../viewer/modes.js';
 import { computeSolarPosition } from '../viewer/sundome.js';
+
+let renamingProjectId = null;
 
 function makeField(labelText, controlEl, hintText = '') {
   const wrap = document.createElement('div');
@@ -85,6 +89,124 @@ export function createRailPanelBuilders(handlers) {
           row.append(b1, b2);
           container.appendChild(row);
         }
+
+        // Fase 4d D4: Browser-saved projects library (Create, Open, Inline Rename, Duplicate, Delete w/ named confirm)
+        const projSec = document.createElement('div');
+        projSec.className = 'psec';
+        const pHead = document.createElement('div');
+        pHead.style.display = 'flex';
+        pHead.style.justifyContent = 'space-between';
+        pHead.style.alignItems = 'center';
+        const pTitle = document.createElement('h3');
+        pTitle.textContent = 'Proyek tersimpan di browser';
+        pHead.appendChild(pTitle);
+
+        if (state.modelId) {
+          const saveProjBtn = document.createElement('button');
+          saveProjBtn.type = 'button';
+          saveProjBtn.className = 'ghost ghost-sm';
+          saveProjBtn.style.height = '28px';
+          saveProjBtn.textContent = '+ Simpan';
+          saveProjBtn.addEventListener('click', () => handlers.onSaveBrowserProject?.());
+          pHead.appendChild(saveProjBtn);
+        }
+        projSec.appendChild(pHead);
+
+        const savedProjects = listSavedProjects();
+        if (savedProjects.length === 0) {
+          const emptyP = document.createElement('p');
+          emptyP.className = 'lbl';
+          emptyP.style.margin = '0';
+          emptyP.style.fontWeight = '500';
+          emptyP.textContent = 'Belum ada proyek tersimpan di browser. Klik "+ Simpan" untuk menyimpan snapshot proyek aktif.';
+          projSec.appendChild(emptyP);
+        } else {
+          const ul = document.createElement('ul');
+          ul.className = 'views-list';
+          for (const proj of savedProjects) {
+            const li = document.createElement('li');
+            li.className = 'views-item';
+            if (renamingProjectId === proj.id) {
+              const form = document.createElement('form');
+              form.style.display = 'flex';
+              form.style.gap = '4px';
+              form.style.width = '100%';
+              const inp = document.createElement('input');
+              inp.type = 'text';
+              inp.className = 'field-input';
+              inp.style.height = '30px';
+              inp.style.fontSize = '12.5px';
+              inp.value = proj.name;
+              inp.setAttribute('aria-label', 'Nama baru proyek');
+              const ok = document.createElement('button');
+              ok.type = 'submit';
+              ok.className = 'ghost ghost-sm';
+              ok.style.height = '30px';
+              ok.textContent = 'Simpan';
+              form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const nn = inp.value.trim();
+                renamingProjectId = null;
+                if (nn) handlers.onRenameBrowserProject?.(proj.id, nn);
+                else handlers.onRerender?.();
+              });
+              inp.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  renamingProjectId = null;
+                  handlers.onRerender?.();
+                }
+              });
+              form.append(inp, ok);
+              li.appendChild(form);
+              window.requestAnimationFrame(() => {
+                inp.focus();
+                inp.select();
+              });
+            } else {
+              const openBtn = document.createElement('button');
+              openBtn.type = 'button';
+              openBtn.className = 'views-apply-btn';
+              openBtn.textContent = proj.name;
+              openBtn.title = proj.ottv_total_wm2 != null
+                ? `${proj.name} · OTTV ${fmtId(proj.ottv_total_wm2, 2)} W/m²`
+                : proj.name;
+              openBtn.addEventListener('click', () => handlers.onOpenBrowserProject?.(proj));
+
+              const ren = document.createElement('button');
+              ren.type = 'button';
+              ren.className = 'icon-mini-btn';
+              ren.setAttribute('aria-label', `Ganti nama proyek ${proj.name}`);
+              ren.title = 'Ganti nama';
+              ren.innerHTML = icon('edit', 14);
+              ren.addEventListener('click', () => {
+                renamingProjectId = proj.id;
+                handlers.onRerender?.();
+              });
+
+              const dup = document.createElement('button');
+              dup.type = 'button';
+              dup.className = 'icon-mini-btn';
+              dup.setAttribute('aria-label', `Duplikat proyek ${proj.name}`);
+              dup.title = 'Duplikat proyek';
+              dup.innerHTML = icon('copy', 14);
+              dup.addEventListener('click', () => handlers.onDuplicateBrowserProject?.(proj.id));
+
+              const del = document.createElement('button');
+              del.type = 'button';
+              del.className = 'icon-mini-btn st-fail';
+              del.setAttribute('aria-label', `Hapus proyek ${proj.name}`);
+              del.title = 'Hapus proyek';
+              del.innerHTML = icon('trash', 14);
+              del.addEventListener('click', () => handlers.onDeleteBrowserProject?.(proj));
+
+              li.append(openBtn, ren, dup, del);
+            }
+            ul.appendChild(li);
+          }
+          projSec.appendChild(ul);
+        }
+        container.appendChild(projSec);
       },
     },
 
@@ -570,35 +692,76 @@ export function createRailPanelBuilders(handlers) {
           : 'Matahari di bawah ufuk pada jam ini.';
         sunSec.appendChild(sunInfo);
 
-        // Skala kubah slider (50-200%)
+        // Fase 4d D1: Manual sun dome radius (logarithmic slider 0.2x..10x initial radius + numeric "Radius __ m")
+        const bbox = state.analysisData?.summary?.bounding_box || state.inspectData?.bounding_box || null;
+        const initR = Math.max(4, Number(state.sunDomeInitialRadiusM || computeInitialSunDomeRadiusM(bbox)));
+        const curR = Math.max(1, Number(state.sunDomeRadiusM ?? state.config?.settings?.sun_dome_radius_m ?? initR));
+        const minR = Math.max(1, initR * 0.2);
+        const maxR = Math.max(minR * 2, initR * 10);
+        const logVal = Math.round((Math.log(Math.max(minR, Math.min(maxR, curR)) / minR) / Math.log(maxR / minR)) * 1000);
+
         const domeRow = document.createElement('div');
         domeRow.className = 'prow';
         const domeLbl = document.createElement('label');
         domeLbl.className = 'lbl';
-        domeLbl.htmlFor = 'panel-dome-scale';
-        domeLbl.textContent = 'Skala kubah';
+        domeLbl.htmlFor = 'panel-dome-radius-slider';
+        domeLbl.textContent = 'Radius kubah';
 
         const domeSlider = document.createElement('input');
-        domeSlider.id = 'panel-dome-scale';
+        domeSlider.id = 'panel-dome-radius-slider';
         domeSlider.type = 'range';
-        domeSlider.min = '50';
-        domeSlider.max = '200';
-        domeSlider.step = '5';
-        domeSlider.value = String(Math.round(Number(state.sunDomeScale ?? 100)));
+        domeSlider.min = '0';
+        domeSlider.max = '1000';
+        domeSlider.step = '1';
+        domeSlider.value = String(logVal);
         domeSlider.style.accentColor = 'var(--sun)';
         domeSlider.style.width = '100%';
-        domeSlider.addEventListener('input', () => handlers.onChangeSunDomeScale?.(Number(domeSlider.value)));
+        domeSlider.addEventListener('input', () => {
+          const t = Math.max(0, Math.min(1, Number(domeSlider.value) / 1000));
+          const nextR = Math.round(minR * Math.pow(maxR / minR, t) * 10) / 10;
+          handlers.onChangeSunDomeRadius?.(nextR);
+        });
 
-        const domeVal = document.createElement('span');
-        domeVal.className = 'num';
-        domeVal.style.fontWeight = '700';
-        domeVal.style.width = '44px';
-        domeVal.style.textAlign = 'right';
-        domeVal.textContent = `${Math.round(Number(state.sunDomeScale ?? 100))}%`;
-        domeRow.append(domeLbl, domeSlider, domeVal);
+        const domeInpWrap = document.createElement('span');
+        domeInpWrap.style.display = 'inline-flex';
+        domeInpWrap.style.alignItems = 'center';
+        domeInpWrap.style.gap = '4px';
+
+        const domeInp = document.createElement('input');
+        domeInp.id = 'panel-dome-radius-input';
+        domeInp.type = 'text';
+        domeInp.inputMode = 'decimal';
+        domeInp.className = 'field-input num';
+        domeInp.style.width = '64px';
+        domeInp.style.height = '28px';
+        domeInp.style.padding = '0 6px';
+        domeInp.style.textAlign = 'right';
+        domeInp.setAttribute('aria-label', 'Radius kubah dalam meter');
+        domeInp.value = fmtId(curR, curR % 1 ? 1 : 0);
+        const commitTypedR = () => {
+          const parsed = parseDecimalInput(domeInp.value);
+          if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 5000) {
+            handlers.onChangeSunDomeRadius?.(Math.round(parsed * 10) / 10);
+          } else {
+            domeInp.value = fmtId(curR, curR % 1 ? 1 : 0);
+          }
+        };
+        domeInp.addEventListener('change', commitTypedR);
+        domeInp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commitTypedR();
+          }
+        });
+        const domeUnit = document.createElement('span');
+        domeUnit.className = 'lbl';
+        domeUnit.textContent = 'm';
+        domeInpWrap.append(domeInp, domeUnit);
+
+        domeRow.append(domeLbl, domeSlider, domeInpWrap);
         sunSec.appendChild(domeRow);
 
-        // Putar satu hari + Pas ke model
+        // Putar satu hari + Putar arah utara (D2) — NO "Pas ke model" button for sun dome per D1!
         const sunActions = document.createElement('div');
         sunActions.style.display = 'flex';
         sunActions.style.gap = '6px';
@@ -613,15 +776,17 @@ export function createRailPanelBuilders(handlers) {
         }</span>`;
         playDayBtn.addEventListener('click', () => handlers.onToggleSunPlay?.());
 
-        const fitDomeBtn = document.createElement('button');
-        fitDomeBtn.type = 'button';
-        fitDomeBtn.className = 'ghost ghost-sm';
-        fitDomeBtn.style.flex = '1';
-        fitDomeBtn.style.background = 'var(--glass-thin)';
-        fitDomeBtn.textContent = 'Pas ke model';
-        fitDomeBtn.addEventListener('click', () => handlers.onResetSunDomeScale?.());
+        const rotNorthBtn = document.createElement('button');
+        rotNorthBtn.type = 'button';
+        rotNorthBtn.className = `ghost ghost-sm${state.northRotateMode ? ' is-active' : ''}`;
+        rotNorthBtn.style.flex = '1';
+        rotNorthBtn.style.background = state.northRotateMode ? 'var(--surface)' : 'var(--glass-thin)';
+        rotNorthBtn.innerHTML = `${icon('rotateCw', 12)}<span>${
+          state.northRotateMode ? 'Selesai putar (R)' : 'Putar utara (R)'
+        }</span>`;
+        rotNorthBtn.addEventListener('click', () => handlers.onToggleNorthRotateMode?.());
 
-        sunActions.append(playDayBtn, fitDomeBtn);
+        sunActions.append(playDayBtn, rotNorthBtn);
         sunSec.appendChild(sunActions);
         container.appendChild(sunSec);
 

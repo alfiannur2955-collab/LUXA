@@ -142,6 +142,26 @@ export function ottvToThreeColor(ottvWm2, tokens) {
   return out;
 }
 
+function _threeColorToCssRgb(c) {
+  const r = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.r))) * 255);
+  const g = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.g))) * 255);
+  const b = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.b))) * 255);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function _oklabLerpThree(cLo, cHi, t) {
+  const lab0 = _linearRgbToOklab(cLo.r, cLo.g, cLo.b);
+  const lab1 = _linearRgbToOklab(cHi.r, cHi.g, cHi.b);
+  const [lr, lg, lb] = _oklabToLinearRgb(
+    lab0[0] + (lab1[0] - lab0[0]) * t,
+    lab0[1] + (lab1[1] - lab0[1]) * t,
+    lab0[2] + (lab1[2] - lab0[2]) * t,
+  );
+  const out = new THREE.Color();
+  out.setRGB(lr, lg, lb);
+  return out;
+}
+
 export function ottvToHeatCssVar(ottvWm2, tokensOverride = null) {
   const tokens = tokensOverride || readThemeTokens();
   if (!tokens?.heat0) {
@@ -149,54 +169,163 @@ export function ottvToHeatCssVar(ottvWm2, tokensOverride = null) {
     const map = { heat0: 'var(--heat-0)', heat1: 'var(--heat-1)', heat2: 'var(--heat-2)', heat3: 'var(--heat-3)' };
     return map[key];
   }
-  const c = ottvToThreeColor(ottvWm2, tokens);
-  const r = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.r))) * 255);
-  const g = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.g))) * 255);
-  const b = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.b))) * 255);
-  return `rgb(${r}, ${g}, ${b})`;
+  return _threeColorToCssRgb(ottvToThreeColor(ottvWm2, tokens));
 }
 
 /**
- * Neutral-to-warm 8-direction palette derived strictly from theme CSS tokens
- * (zero hardcoded hex) following compass rotation U -> TL -> T -> TG -> S -> BD -> B -> BL.
+ * Fase 4d D3: Soft pastel palette for Heatmap "Halus" mode (`docs/fase4/ref-heatmap-halus.png`),
+ * derived from the same 0-60 W/m² scale and live CSS tokens (zero hardcoded hex).
  */
-export function orientationToThreeColor(code, tokens) {
-  const cGlz = new THREE.Color(tokens.glazing);
-  const cWall = new THREE.Color(tokens.wall);
-  const cShade = new THREE.Color(tokens.shading);
+function _getPastelHeatStops(tokens) {
+  const cLift = new THREE.Color(tokens.surface || tokens.paper || tokens.heat0);
+  const cShade = new THREE.Color(tokens.shading || tokens.ok || tokens.heat0);
   const cH0 = new THREE.Color(tokens.heat0);
   const cH1 = new THREE.Color(tokens.heat1);
   const cH2 = new THREE.Color(tokens.heat2);
   const cH3 = new THREE.Color(tokens.heat3);
 
-  switch (code) {
-    case 'U':
-      return cGlz.clone().lerp(cWall, 0.35);
-    case 'TL':
-      return cShade.clone().lerp(cH0, 0.35);
-    case 'T':
-      return cH1.clone().lerp(cH2, 0.25);
-    case 'TG':
-      return cH0.clone().lerp(cH1, 0.45);
-    case 'S':
-      return cWall.clone().lerp(cH0, 0.35);
-    case 'BD':
-      return cH1.clone().lerp(cH2, 0.65);
-    case 'B':
-      return cH2.clone().lerp(cH3, 0.35);
-    case 'BL':
-      return cGlz.clone().lerp(cH1, 0.50);
-    default:
-      return cWall.clone();
+  // Soft pastel stops: cool sage-cream (0) -> warm pastel amber (25) -> soft coral-peach (35) -> muted rose-terracotta (50+)
+  const s0 = _oklabLerpThree(_oklabLerpThree(cH0, cShade, 0.34), cLift, 0.28);
+  const s1 = _oklabLerpThree(cH1, cLift, 0.28);
+  const s2 = _oklabLerpThree(cH2, cLift, 0.26);
+  const s3 = _oklabLerpThree(cH3, cLift, 0.24);
+  return [
+    { val: 0, color: s0 },
+    { val: 25, color: s1 },
+    { val: 35, color: s2 },
+    { val: 50, color: s3 },
+  ];
+}
+
+export function ottvToPastelThreeColor(ottvWm2, tokens) {
+  const raw = Number(ottvWm2);
+  const v = Number.isFinite(raw) ? Math.max(0, Math.min(60, raw)) : 0;
+  const stops = _getPastelHeatStops(tokens);
+  if (v >= 50) return stops[stops.length - 1].color.clone();
+  for (let i = 0; i < stops.length - 1; i += 1) {
+    if (v >= stops[i].val && v <= stops[i + 1].val) {
+      const t = (v - stops[i].val) / (stops[i + 1].val - stops[i].val);
+      return _oklabLerpThree(stops[i].color, stops[i + 1].color, t);
+    }
   }
+  return stops[0].color.clone();
+}
+
+export function ottvToPastelCss(ottvWm2, tokensOverride = null) {
+  const tokens = tokensOverride || readThemeTokens();
+  return _threeColorToCssRgb(ottvToPastelThreeColor(ottvWm2, tokens));
+}
+
+export function buildPastelGradientCss(tokensOverride = null) {
+  const tokens = tokensOverride || readThemeTokens();
+  const c0 = ottvToPastelCss(0, tokens);
+  const c25 = ottvToPastelCss(25, tokens);
+  const c35 = ottvToPastelCss(35, tokens);
+  const c50 = ottvToPastelCss(50, tokens);
+  return `linear-gradient(90deg, ${c0} 0%, ${c25} 41.7%, ${c35} 58.3%, ${c50} 83.3%, ${c50} 100%)`;
+}
+
+/**
+ * Fase 4d D3: Cyclic 8-direction pastel azimuth palette derived strictly from theme CSS tokens
+ * (zero hardcoded hex), matching `ref-heatmap-halus.png` soft pastel aesthetics.
+ * Order: U (0°) -> TL (45°) -> T (90°) -> TG (135°) -> S (180°) -> BD (225°) -> B (270°) -> BL (315°).
+ */
+function _getCyclicPastelOrientationStops(tokens) {
+  const cLift = new THREE.Color(tokens.surface || tokens.paper || tokens.wall);
+  const cGlz = new THREE.Color(tokens.glazing);
+  const cShade = new THREE.Color(tokens.shading);
+  const cWall = new THREE.Color(tokens.wall);
+  const cH0 = new THREE.Color(tokens.heat0);
+  const cH1 = new THREE.Color(tokens.heat1);
+  const cH2 = new THREE.Color(tokens.heat2);
+  const cFail = new THREE.Color(tokens.fail || tokens.heat3);
+
+  const pastel = (c) => _oklabLerpThree(c, cLift, 0.34);
+
+  return [
+    pastel(_oklabLerpThree(cGlz, cShade, 0.35)),  // 0°  U  (pastel cool cyan-blue)
+    pastel(_oklabLerpThree(cShade, cH0, 0.32)),   // 45° TL (pastel sage-mint)
+    pastel(_oklabLerpThree(cH0, cH1, 0.55)),      // 90° T  (pastel warm yellow-amber)
+    pastel(_oklabLerpThree(cH1, cH2, 0.35)),      // 135° TG (pastel apricot)
+    pastel(_oklabLerpThree(cH2, cFail, 0.28)),    // 180° S  (pastel soft rose-coral)
+    pastel(_oklabLerpThree(cFail, cGlz, 0.38)),   // 225° BD (pastel dusty mauve-pink)
+    pastel(_oklabLerpThree(cGlz, cFail, 0.32)),   // 270° B  (pastel lavender-periwinkle)
+    pastel(_oklabLerpThree(cGlz, cWall, 0.22)),   // 315° BL (pastel sky slate)
+  ];
+}
+
+export function azimuthToPastelThreeColor(azimuthDeg, tokens) {
+  const stops = _getCyclicPastelOrientationStops(tokens);
+  const az = (((Number(azimuthDeg) || 0) % 360) + 360) % 360;
+  const f = az / 45;
+  const idx0 = Math.floor(f) % 8;
+  const idx1 = (idx0 + 1) % 8;
+  const t = f - Math.floor(f);
+  return _oklabLerpThree(stops[idx0], stops[idx1], t);
+}
+
+/**
+ * Neutral color for roofs & horizontal surfaces in Orientasi mode (D3).
+ */
+export function horizontalNeutralColor(tokens) {
+  const cRoof = new THREE.Color(tokens.roof || tokens.wall);
+  const cLift = new THREE.Color(tokens.surface || tokens.paper || tokens.wall);
+  return _oklabLerpThree(cRoof, cLift, 0.30);
+}
+
+export function orientationToThreeColor(code, tokens) {
+  const idx = ORIENTATION_CODES.indexOf(code);
+  if (idx === -1) return horizontalNeutralColor(tokens);
+  return azimuthToPastelThreeColor(idx * 45, tokens);
 }
 
 export function orientationToCssColor(code, tokens) {
   const c = orientationToThreeColor(code, tokens);
-  const r = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.r))) * 255);
-  const g = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.g))) * 255);
-  const b = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.b))) * 255);
-  return `rgb(${r}, ${g}, ${b})`;
+  return _threeColorToCssRgb(c);
+}
+
+/**
+ * Builds the compact SVG compass color ring for Orientasi legend (D3: "Warna menurut arah hadap").
+ */
+export function buildOrientationRingLegendSvg(tokensOverride = null) {
+  const tokens = tokensOverride || readThemeTokens();
+  const r = 13;
+  const cx = 20;
+  const cy = 20;
+  const segs = [];
+  const steps = 16;
+  for (let i = 0; i < steps; i += 1) {
+    const a0 = (i / steps) * 360;
+    const a1 = ((i + 1) / steps) * 360;
+    const aMid = (a0 + a1) * 0.5;
+    const rad0 = ((a0 - 90) * Math.PI) / 180;
+    const rad1 = ((a1 - 90) * Math.PI) / 180;
+    const x0 = cx + r * Math.cos(rad0);
+    const y0 = cy + r * Math.sin(rad0);
+    const x1 = cx + r * Math.cos(rad1);
+    const y1 = cy + r * Math.sin(rad1);
+    const col = _threeColorToCssRgb(azimuthToPastelThreeColor(aMid, tokens));
+    segs.push(
+      `<path d="M ${x0.toFixed(2)} ${y0.toFixed(2)} A ${r} ${r} 0 0 1 ${x1.toFixed(2)} ${y1.toFixed(2)}" fill="none" stroke="${col}" stroke-width="5.5" stroke-linecap="butt"/>`,
+    );
+  }
+  return `
+    <svg width="40" height="40" viewBox="0 0 40 40" class="orient-ring-svg" aria-hidden="true">
+      ${segs.join('')}
+      <text x="20" y="7" text-anchor="middle" font-size="6.5" font-weight="700" fill="var(--ink)">U</text>
+      <text x="34.5" y="22.2" text-anchor="middle" font-size="6.5" font-weight="700" fill="var(--ink-muted)">T</text>
+      <text x="20" y="37.5" text-anchor="middle" font-size="6.5" font-weight="700" fill="var(--ink-muted)">S</text>
+      <text x="5.5" y="22.2" text-anchor="middle" font-size="6.5" font-weight="700" fill="var(--ink-muted)">B</text>
+    </svg>
+  `;
+}
+
+/**
+ * Computes compass azimuth (0=U, 90=T, 180=S, 270=B) from a horizontal normal (nx, ny in backend E, N)
+ * rotated by `northAngleDeg`.
+ */
+export function normalToAzimuthDeg(nx, ny, northAngleDeg = 0) {
+  return ((Math.atan2(nx, ny) * 180) / Math.PI - (Number(northAngleDeg) || 0) + 720) % 360;
 }
 
 /**
@@ -204,7 +333,7 @@ export function orientationToCssColor(code, tokens) {
  * rotated by `northAngleDeg`.
  */
 export function normalToOrientationCode(nx, ny, northAngleDeg = 0) {
-  const az = ((Math.atan2(nx, ny) * 180) / Math.PI - (Number(northAngleDeg) || 0) + 720) % 360;
+  const az = normalToAzimuthDeg(nx, ny, northAngleDeg);
   const idx = Math.floor(((az + 22.5) % 360) / 45);
   return ORIENTATION_CODES[idx] || 'U';
 }

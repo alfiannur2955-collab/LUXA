@@ -52,6 +52,11 @@ export function installShortcuts({ getState, pieMenu, handlers }) {
         handlers.onCloseShortcuts();
         return;
       }
+      if (s.northRotateMode) {
+        e.preventDefault();
+        handlers.onToggleNorthRotateMode?.(false);
+        return;
+      }
       if (s.openPopover) {
         e.preventDefault();
         handlers.onClosePopover();
@@ -122,7 +127,11 @@ export function installShortcuts({ getState, pieMenu, handlers }) {
         currentDirection: s.cameraDirection,
         anchorEl: viewerEl,
         onSelect: (code) => handlers.onSelectDirection(code),
+        onSelectOrientationMode: () => handlers.onChangeViewerMode?.('orientation'),
       });
+    } else if (e.key.toLowerCase() === 'r') {
+      e.preventDefault();
+      handlers.onToggleNorthRotateMode?.();
     } else if (e.key.toLowerCase() === 'f') {
       e.preventDefault();
       handlers.onFitCamera();

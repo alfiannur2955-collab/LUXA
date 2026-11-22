@@ -364,7 +364,8 @@ def test_sf_source_template_prodi_default_and_honest_labeling():
         assert ori_map["T"]["sni_sf_wm2"] == 179.0
         assert ori_map["S"]["sni_sf_wm2"] == 111.0
         assert ori_map["B"]["sni_sf_wm2"] == 219.0
-        exp_u = 8.84 + 152.0 * 0.40 * 0.35
+        # SC_TO_SHGC_RATIO = 0.87 derives SHGC = 0.35 * 0.87, while template_prodi.xlsx divides D32 / 0.86
+        exp_u = 8.84 + 152.0 * 0.40 * (round(0.35 * 0.87, 4) / 0.86)
         assert abs(ori_map["U"]["ottv_orientation_wm2"] - exp_u) <= 0.01
 
         xlsx_bytes = generate_excel_report(res)

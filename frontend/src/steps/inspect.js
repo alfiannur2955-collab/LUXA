@@ -9,7 +9,13 @@ import { collectAcceptedProvisionalFlags, evaluateConfirmGate } from '../state.j
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
 import { renderInteractiveCompass } from '../viewer/compass.js';
-import { CATEGORY_LABELS, categorySwatchStyle, ORIENTATION_CODES, orientationToCssColor, readThemeTokens } from '../viewer/modes.js';
+import {
+  CATEGORY_LABELS,
+  buildOrientationRingLegendSvg,
+  categorySwatchStyle,
+  horizontalNeutralColor,
+  readThemeTokens,
+} from '../viewer/modes.js';
 import { renderViewerModeBar } from '../viewer/modeBar.js';
 import { renderViewerBottomBar } from '../viewer/vbar.js';
 import { viewer } from '../viewer/viewer.js';
@@ -101,9 +107,15 @@ export function renderInspectScreen(state, handlers) {
   legend.className = `legend legend-lifted num${state.activeRailCard ? ' legend-shifted' : ''}`;
   if (activeInspectMode === 'orientation') {
     const tokens = readThemeTokens();
-    legend.innerHTML = ORIENTATION_CODES.map(
-      (c) => `<span class="legend-item"><i class="swatch" style="background:${orientationToCssColor(c, tokens)};"></i>${c}</span>`,
-    ).join('');
+    const cHoriz = horizontalNeutralColor(tokens);
+    const hRgb = `rgb(${Math.round(Math.pow(cHoriz.r, 1 / 2.2) * 255)}, ${Math.round(Math.pow(cHoriz.g, 1 / 2.2) * 255)}, ${Math.round(Math.pow(cHoriz.b, 1 / 2.2) * 255)})`;
+    legend.innerHTML = `
+      <span class="legend-item" style="gap:8px;">
+        ${buildOrientationRingLegendSvg(tokens)}
+        <span>Warna menurut arah hadap</span>
+      </span>
+      <span class="legend-item"><i class="swatch" style="background:${hRgb};"></i>Atap / datar</span>
+    `;
   } else if (activeInspectMode === 'anomalies') {
     legend.innerHTML = `
       <span class="legend-item"><i class="swatch" style="background:var(--warn);"></i>Perlu diperiksa</span>

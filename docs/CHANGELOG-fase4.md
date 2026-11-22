@@ -139,6 +139,32 @@ Dokumen ini mencatat perubahan arsitektur antarmuka dan pendukung backend pada F
 - **T3 (`frontend/src/steps/results.js`, `inspect.js`, `compare.js`, `confirm.js`, `theme.css`)**: Menambahkan pembungkus `.viewer-stage` sehingga pada lebar ≤ 860 px (termasuk `768×1024`, tema terang & gelap), kanvas 3D tetap terbuka bersih minimal 420 px (`440 px`) sementara baris mode, legenda, pil bawah, dan strip selisih Bandingkan berpindah rapi ke bawah kanvas tanpa *scroll* horizontal.
 - **T4 (`frontend/src/steps/compare.js`, `theme.css`)**: Memperbaiki kolom Bandingkan (300 px) dengan grid `minmax(0, 1fr)`, nama alternatif dua baris (`line-clamp: 2`) dilengkapi `title` nama penuh, tombol hapus tetap berada di dalam kartu, dan tombol `Tambah alternatif` penuh selebar kolom tanpa terpotong.
 
+---
+
+## Fase 4-sisa & Fase 4d — Koreksi Z1–Z2, Kontrol Gaya D5, Heatmap Halus, & Audit CRUD (`fase-4-sisa`, `fase-4d-kontrol`)
+
+### 1. Sisa Review 4c-akhir (`fase-4-sisa`)
+- **Z1 (`frontend/src/theme.css`)**: Breakpoint `@media (max-width: 1320px)` menurunkan pil rumus ke baris kedua (`top: 72px; right: 16px;`) agar ujung kanan baris mode (`X-ray`) tidak pernah menabrak pil rumus pada lebar 1280 px.
+- **Z2 (`tests/test_heatmap_color_fidelity.py`)**: Menghapus path Windows ArchiCAD yang ditulis keras; pencarian biner Node kini hanya memakai `NODE_EXE` atau `shutil.which("node")`, dengan `timeout=60` dan pencetakan penuh `stderr` bila gagal.
+
+### 2. Penyamakan Faktor SC/SHGC ke `0,87`
+- **`backend/materials_and_epw.py`**: Menyamakan `SC_TO_SHGC_RATIO = 0.87` sesuai standar ISO 9050 / AGC / Guardian (`SC = SHGC / 0,87`).
+- **`backend/template_method.py`**: Memisahkan `TEMPLATE_PRODI_SHGC_DIVISOR = 0.86` khusus untuk rumus sel Excel tetap `UTARA!T32 = D32/0.86` pada file eksternal `template_prodi.xlsx`, sehingga paritas rekalkulasi LibreOffice (≤ 0,05 W/m²) tetap terjaga.
+
+### 3. Kontrol Kubah & Rotasi Utara Gaya D5 (D1–D2)
+- **D1 (`frontend/src/state.js`, `backend/config_schema.py`, `viewer/sundome.js`, `viewer/vbar.js`, `panels/railPanels.js`)**: Menghapus tombol *Pas ke model* khusus kubah dan batas 50–200%. Menambahkan `sunDomeRadiusM` (meter, diinisialisasi sekali saat model dimuat sebesar `round(1,6 × setengah diagonal denah)`, tersimpan di `config.settings.sun_dome_radius_m` pada `.ottv.json`), slider logaritmik `0,2×–10×` + kolom ketik `"Radius __ m"` (koma/titik), serta pegangan bulat gaya D5 di cincin horizon kubah yang menghadap kamera (tahan `Shift` = langkah 5 m, mengunci orbit & seleksi saat ditarik, kursor ubah ukuran, label radius mengambang).
+- **D2 (`frontend/src/viewer/compass.js`, `viewer/northRing.js`, `viewer/vbar.js`, `ui/shortcuts.js`, `ui/shortcutsModal.js`, `ui/commandPalette.js`)**: Kompas diubah menjadi indikator saja (`aria-label="Utara di …°"`). Menambahkan mode rotasi utara lewat ikon pil bawah / panel Tampilan / pintasan `R`: cincin lantai `1,15 × setengah diagonal denah` dengan satu pegangan D5 (`1°`, tahan `Shift` = `15°`), label sudut yang bisa diklik untuk mengetik `0–359,9°` (`Enter` terapkan, `Esc` batal), keluar via `Esc` / klik di luar cincin / `R`, dan memunculkan chip **Hitung ulang** setelah pegangan dilepas tanpa hitung ulang otomatis.
+
+### 4. Heatmap Halus & Mode Orientasi (D3)
+- **`frontend/src/viewer/modes.js`, `viewer.js`, `steps/results.js`, `steps/inspect.js`, `viewer/pieMenu.js`, `tests/test_heatmap_color_fidelity.py`**: Mengikuti referensi `docs/fase4/ref-heatmap-halus.png`:
+  - Mode **Orientasi** (baris mode + pie menu tahan `V` + `Ctrl K`): pewarnaan per-vertex dengan palet siklik 8 arah bernada pastel dari token, normal halus untuk sudut antar-bidang `< 30°`, warna netral khusus atap/bidang datar, dan legenda cincin kompas SVG berlabel `"Warna menurut arah hadap"`.
+  - Sakelar **Halus** pada Heatmap OTTV: pengelompokan vertex berdasarkan posisi dibulatkan ke **1 mm** (mesh tidak ter-weld tetap menyambung), rata-rata tertimbang luas, normal halus `< 30°`, palet pastel lembut (legenda ikut menyesuaikan), serta garis grid panel tipis (opasitas `0,30`) di atas warna. Nilai klik panel tetap angka asli per panel.
+  - Tes `tests/test_heatmap_color_fidelity.py` diperluas mencakup Heatmap standar, Heatmap Halus pastel, dan Orientasi siklik pastel (semua ΔE ≤ 10 pada tema terang & gelap).
+
+### 5. Audit Tambah-Ubah-Hapus (D4)
+- **`docs/AUDIT_CRUD.md`, `ui/toast.js`, `ui/dialogs.js`, `project.js`, `viewer/views.js`, `steps/compare.js`, `panels/railPanels.js`, `main.js`**: Menambahkan `showUndoToast` (8 detik) untuk penghapusan view tersimpan, alternatif, override klasifikasi/material, dan EPW kustom; dialog konfirmasi bernama untuk hapus proyek tersimpan di browser (`luxa.projects.v1`); dialog pengganti material aktif (`showReplaceMaterialDialog`); serta aksi *inline rename* dan *duplikat* untuk view, alternatif, dan proyek tersimpan.
+
+
 
 
 

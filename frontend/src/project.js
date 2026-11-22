@@ -8,7 +8,81 @@
 import { mergeConfig } from './state.js';
 
 const STORAGE_PROJECT_KEY = 'luxa.project.v1';
+const STORAGE_PROJECTS_LIST_KEY = 'luxa.projects.v1';
 const STORAGE_THEME_KEY = 'luxa.theme.v1';
+
+export function listSavedProjects() {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_PROJECTS_LIST_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((p) => ({
+      ...p,
+      config: mergeConfig(p.config),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function writeSavedProjects(list) {
+  try {
+    window.localStorage.setItem(STORAGE_PROJECTS_LIST_KEY, JSON.stringify(list || []));
+  } catch {
+    // ignore quota errors
+  }
+}
+
+export function saveNamedProject(state, customName = '') {
+  if (!state?.modelId) return null;
+  const list = listSavedProjects();
+  const baseName =
+    String(customName || '').trim() ||
+    (state.filename || 'Proyek LUXA').replace(/\.[^.]+$/, '');
+  const now = new Date().toISOString();
+  const rec = {
+    id: `proj_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    name: baseName,
+    modelId: state.modelId,
+    filename: state.filename || baseName,
+    config: mergeConfig(state.config),
+    confirm: state.confirm ? { ...state.confirm } : null,
+    ottv_total_wm2: state.analysisData?.ottv_total_wm2 ?? null,
+    saved_at: now,
+  };
+  writeSavedProjects([rec, ...list]);
+  return rec;
+}
+
+export function renameSavedProject(projectId, newName) {
+  const clean = String(newName || '').trim();
+  if (!clean) return listSavedProjects();
+  const next = listSavedProjects().map((p) => (p.id === projectId ? { ...p, name: clean } : p));
+  writeSavedProjects(next);
+  return next;
+}
+
+export function duplicateSavedProject(projectId) {
+  const list = listSavedProjects();
+  const src = list.find((p) => p.id === projectId);
+  if (!src) return null;
+  const copy = {
+    ...src,
+    id: `proj_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    name: `${src.name} (Salinan)`,
+    config: mergeConfig(src.config),
+    saved_at: new Date().toISOString(),
+  };
+  writeSavedProjects([copy, ...list]);
+  return copy;
+}
+
+export function deleteSavedProject(projectId) {
+  const next = listSavedProjects().filter((p) => p.id !== projectId);
+  writeSavedProjects(next);
+  return next;
+}
 
 export function loadSavedTheme() {
   try {

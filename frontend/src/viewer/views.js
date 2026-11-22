@@ -40,6 +40,19 @@ export function renameSavedViewInList(views, viewId, newName) {
   return (views || []).map((v) => (v.id === viewId ? { ...v, name: clean } : v));
 }
 
+export function duplicateSavedViewInList(views, viewId) {
+  const src = (views || []).find((v) => v.id === viewId);
+  if (!src) return { views, copy: null };
+  const copy = {
+    ...src,
+    id: `view_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    name: `${src.name} (Salinan)`,
+    camera: src.camera ? { ...src.camera } : null,
+    created_at: new Date().toISOString(),
+  };
+  return { views: [...(views || []), copy], copy };
+}
+
 export function deleteSavedViewInList(views, viewId) {
   return (views || []).filter((v) => v.id !== viewId);
 }

@@ -51,6 +51,7 @@ export function createDefaultConfig() {
       custom_floor_zones: [],
       section_floor_min: null,
       section_floor_max: null,
+      sun_dome_radius_m: null,
     },
     advanced: {
       nurbs_u_div: 4,
@@ -147,12 +148,14 @@ const initialState = {
   selectedPanelIds: [],
   needsRecompute: false,
 
-  // Fase 4b-2: Sun dome, exposure filter & formula pill
+  // Fase 4b-2 + 4d: Sun dome (D1 manual radius in meters), north rotation mode (D2), exposure filter & formula pill
   sunDate: '2026-09-23', // '2026-06-21' | '2026-09-23' | '2026-12-21' | YYYY-MM-DD
   sunHour: 13, // 6..18
   sunPlaying: false,
   sunDomeVisible: true,
-  sunDomeScale: 100, // 50..200 (%)
+  sunDomeRadiusM: null, // D1: meters, initialized once on model load and saved in .ottv.json
+  sunDomeInitialRadiusM: null, // D1: reference initial radius (1.6 * halfPlanDiag rounded to 1 m) for log slider 0.2x..10x
+  northRotateMode: false, // D2: floor ring + D5 drag handle active (toggle with R)
   facadeFilter: 'all', // 'all' | 'selected_orientation' | 'sunlit_now'
   exposureData: null,
   exposureLoading: false,
@@ -317,6 +320,21 @@ export function buildUserAnswers(s = state) {
     no_glazing_choice: s.confirm.noGlazingChoice || null,
     default_wall_wwr: s.config.settings.default_wall_wwr,
   };
+}
+
+export function computeInitialSunDomeRadiusM(bbox) {
+  if (!bbox) return 24;
+  const spanX = Math.max(2, Number(bbox.span?.[0] || 15));
+  const spanY = Math.max(2, Number(bbox.span?.[1] || 15));
+  const halfPlanDiag = 0.5 * Math.hypot(spanX, spanY);
+  return Math.max(4, Math.round(1.6 * halfPlanDiag));
+}
+
+export function parseDecimalInput(raw) {
+  const s = String(raw ?? '').trim().replace(',', '.');
+  if (!s) return NaN;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : NaN;
 }
 
 export const STEP_TITLES = {

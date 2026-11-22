@@ -42,9 +42,14 @@ def _extract_theme_tokens() -> dict[str, dict[str, str]]:
     def _parse(block: str) -> dict[str, str]:
         raw = dict(re.findall(r"--([a-z0-9-]+)\s*:\s*([^;]+);", block))
         return {
+            "paper": raw["paper"].strip(),
+            "surface": raw["surface"].strip(),
+            "ok": raw["ok"].strip(),
+            "fail": raw["fail"].strip(),
             "glazing": raw["data-glazing"].strip(),
             "wall": raw["data-wall"].strip(),
             "shading": raw["data-shading"].strip(),
+            "roof": raw["data-roof"].strip(),
             "heat0": raw["heat-0"].strip(),
             "heat1": raw["heat-1"].strip(),
             "heat2": raw["heat-2"].strip(),
@@ -91,11 +96,14 @@ def test_heatmap_and_orientation_material_matches_legend_delta_e_under_10() -> N
     script = r"""
 import {
   ORIENTATION_CODES,
+  azimuthToPastelThreeColor,
   computeColorAccurateShade,
   makeColorAccurateMaterial,
   orientationToCssColor,
   orientationToThreeColor,
   ottvToHeatCssVar,
+  ottvToPastelCss,
+  ottvToPastelThreeColor,
   ottvToThreeColor,
 } from './src/viewer/modes.js';
 
@@ -139,8 +147,21 @@ for (const [themeName, tokens] of Object.entries(themes)) {
       ],
     };
   });
-  const orientations = ORIENTATION_CODES.map((code) => {
+  const pastelHeatmap = testValues.map((v) => {
+    const c = ottvToPastelThreeColor(v, tokens);
+    return {
+      val: v,
+      legendCss: ottvToPastelCss(v, tokens),
+      frontRgb: [
+        Math.round(linToSrgb(c.r * shadeFront) * 255),
+        Math.round(linToSrgb(c.g * shadeFront) * 255),
+        Math.round(linToSrgb(c.b * shadeFront) * 255),
+      ],
+    };
+  });
+  const orientations = ORIENTATION_CODES.map((code, idx) => {
     const c = orientationToThreeColor(code, tokens);
+    const cAz = azimuthToPastelThreeColor(idx * 45, tokens);
     return {
       code,
       legendCss: orientationToCssColor(code, tokens),
@@ -149,9 +170,14 @@ for (const [themeName, tokens] of Object.entries(themes)) {
         Math.round(linToSrgb(c.g * shadeFront) * 255),
         Math.round(linToSrgb(c.b * shadeFront) * 255),
       ],
+      azRgb: [
+        Math.round(linToSrgb(cAz.r * shadeFront) * 255),
+        Math.round(linToSrgb(cAz.g * shadeFront) * 255),
+        Math.round(linToSrgb(cAz.b * shadeFront) * 255),
+      ],
     };
   });
-  out.results[themeName] = { heatmap, orientations };
+  out.results[themeName] = { heatmap, pastelHeatmap, orientations };
 }
 
 console.log(JSON.stringify(out));
@@ -200,13 +226,22 @@ console.log(JSON.stringify(out));
         de_s_vs_t = _delta_e76(by_val[14.76], by_val[21.08])
         assert de_s_vs_t >= 5.0, f"[{theme_name}] S 14.76 vs T 21.08 too similar: ΔE={de_s_vs_t:.2f}"
 
+        for row in theme_res["pastelHeatmap"]:
+            legend_rgb = _parse_rgb_css(row["legendCss"])
+            de_front = _delta_e76(legend_rgb, tuple(row["frontRgb"]))
+            assert de_front <= 10.0, (
+                f"[{theme_name}] Pastel Heatmap Halus v={row['val']}: front ΔE={de_front:.2f} > 10"
+            )
+
         for row in theme_res["orientations"]:
             legend_rgb = _parse_rgb_css(row["legendCss"])
             de_front = _delta_e76(legend_rgb, tuple(row["frontRgb"]))
+            de_az = _delta_e76(legend_rgb, tuple(row["azRgb"]))
             assert de_front <= 10.0, (
                 f"[{theme_name}] Orientation {row['code']}: front ΔE={de_front:.2f} > 10 "
                 f"(legend={legend_rgb}, front={row['frontRgb']})"
             )
+            assert de_az <= 10.0, f"[{theme_name}] Orientation azimuth {row['code']} mismatch: ΔE={de_az:.2f}"
 
 
 def test_viewer_wires_color_accurate_material_for_heatmap_and_orientation() -> None:

@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple
 # Material bermerek hanya diperbolehkan bila memiliki URL datasheet resmi di
 # field `sumber` dan diberi label `Contoh produk`.
 
-SC_TO_SHGC_RATIO: float = 0.86  # Konversi template prodi & ASHRAE: SHGC = SC * 0.86
+SC_TO_SHGC_RATIO: float = 0.87  # Konversi standar ISO 9050 / AGC / Guardian: SHGC = SC * 0.87
 
 BUILTIN_MATERIALS: List[Dict[str, Any]] = [
     # ------------------------------------------------------------------------
@@ -489,7 +489,7 @@ def migrate_material_id(mat_id: Optional[str]) -> Optional[str]:
 
 
 def get_material_shgc(mat: Optional[Dict[str, Any]], fallback_sc: float = 0.23) -> float:
-    """Mengembalikan SHGC kaca: pakai field `shgc` jika ada, jika tidak hitung `SC * 0.86`."""
+    """Mengembalikan SHGC kaca: pakai field `shgc` jika ada, jika tidak hitung `SC * 0.87`."""
     if isinstance(mat, dict):
         shgc_val = mat.get("shgc")
         if shgc_val is not None:

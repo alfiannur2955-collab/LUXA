@@ -147,6 +147,7 @@ class SettingsConfig(BaseModel):
     custom_floor_zones: List[Dict[str, Any]] = Field(default_factory=list)
     section_floor_min: Optional[int] = None
     section_floor_max: Optional[int] = None
+    sun_dome_radius_m: Optional[float] = Field(default=None, ge=1.0, le=5000.0)
 
 
 class AdvancedConfig(BaseModel):

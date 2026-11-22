@@ -12,6 +12,9 @@ import { renderInteractiveCompass } from '../viewer/compass.js';
 import { renderFormulaPill } from '../viewer/formulaPill.js';
 import {
   ORIENTATION_CODES,
+  buildOrientationRingLegendSvg,
+  buildPastelGradientCss,
+  horizontalNeutralColor,
   orientationToCssColor,
   ottvToHeatCssVar,
   readThemeTokens,
@@ -126,6 +129,9 @@ export function renderResultsScreen(state, handlers) {
     const gradBar = document.createElement('span');
     gradBar.className = 'heat-grad-bar';
     gradBar.setAttribute('aria-hidden', 'true');
+    if (isSmooth) {
+      gradBar.style.background = buildPastelGradientCss(readThemeTokens());
+    }
     const limitMark = document.createElement('i');
     limitMark.className = 'heat-grad-limit';
     gradBar.appendChild(limitMark);
@@ -162,9 +168,15 @@ export function renderResultsScreen(state, handlers) {
     }
   } else if (activeMode === 'orientation') {
     const tokens = readThemeTokens();
-    legend.innerHTML = ORIENTATION_CODES.map(
-      (c) => `<span class="legend-item"><i class="swatch" style="background:${orientationToCssColor(c, tokens)};"></i>${c}</span>`,
-    ).join('');
+    const cHoriz = horizontalNeutralColor(tokens);
+    const hRgb = `rgb(${Math.round(Math.pow(cHoriz.r, 1 / 2.2) * 255)}, ${Math.round(Math.pow(cHoriz.g, 1 / 2.2) * 255)}, ${Math.round(Math.pow(cHoriz.b, 1 / 2.2) * 255)})`;
+    legend.innerHTML = `
+      <span class="legend-item" style="gap:8px;">
+        ${buildOrientationRingLegendSvg(tokens)}
+        <span>Warna menurut arah hadap</span>
+      </span>
+      <span class="legend-item"><i class="swatch" style="background:${hRgb};"></i>Atap / datar</span>
+    `;
   } else if (activeMode === 'anomalies') {
     legend.innerHTML = `
       <span class="legend-item"><i class="swatch" style="background:var(--warn);"></i>Perlu diperiksa</span>
