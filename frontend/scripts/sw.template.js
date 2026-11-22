@@ -37,8 +37,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (req.mode === 'navigate' || url.pathname.includes('/assets/')) {
+    // Halaman selalu dicek ulang ke server (cache HTTP GitHub Pages bisa menahan index.html
+    // sampai 10 menit); file di /assets/ bernama hash jadi aman dari cache biasa.
+    const fresh = req.mode === 'navigate' ? fetch(req, { cache: 'no-cache' }) : fetch(req);
     event.respondWith(
-      fetch(req)
+      fresh
         .then((res) => {
           if (res.ok) caches.open(SHELL_CACHE).then((c) => c.put(req, res.clone()));
           return res;
