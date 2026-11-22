@@ -143,6 +143,7 @@ const initialState = {
   openPopover: null, // null | 'direction' | 'views' | 'capture'
   commandPaletteOpen: false,
   shortcutsModalOpen: false,
+  materialCatalog: null, // null | { open: true, mode: 'browse'|'pick', tab: 'catalog'|'recommend', lockedCategory, targetField, targetOrientCode, targetLabel }
   selectedGroup: null,
   selectedOrientation: null,
   selectedPanelIds: [],
@@ -176,12 +177,16 @@ const initialState = {
   dockCustomizerOpen: false,
 
   // Catalog caches
+  serverMaterialsCatalog: null,
   materials: {
     materials: [],
     glazing_materials: [],
     wall_materials: [],
     frame_materials: [],
     roof_materials: [],
+    brands: [],
+    alpha_table_1: [],
+    alpha_table_2: [],
   },
   locations: {
     cities: [],

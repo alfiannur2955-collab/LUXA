@@ -12,7 +12,9 @@ Provides:
 
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -500,17 +502,62 @@ def get_material_shgc(mat: Optional[Dict[str, Any]], fallback_sc: float = 0.23) 
     return round(float(fallback_sc) * SC_TO_SHGC_RATIO, 4)
 
 
-# Dynamic runtime store for user-added custom materials
-CUSTOM_MATERIALS: List[Dict[str, Any]] = []
+_DEFAULT_CATEGORY_HEX = {
+    "glazing": "#6898ba",
+    "wall": "#c4bdb2",
+    "frame": "#5c5a54",
+    "roof": "#8e877c",
+}
+
+
+def _enrich_generic_builtin_materials() -> None:
+    """Marks every generic SNI built-in with origin='sni_generic' and default swatch hex."""
+    for m in BUILTIN_MATERIALS:
+        m.setdefault("origin", "sni_generic")
+        m.setdefault("origin_label", "Bawaan SNI")
+        m.setdefault("color_hex", _DEFAULT_CATEGORY_HEX.get(m.get("category", "wall"), "#b9b2a6"))
+        m.setdefault("product_line", "")
+        m.setdefault("configuration", m.get("technology", ""))
+        m.setdefault("standar_data", "SNI 6389:2020")
+        m.setdefault("catatan", m.get("description", ""))
+
+
+def _load_brand_material_library() -> List[Dict[str, Any]]:
+    """Loads verified brand reference entries from backend/data/material_library.json."""
+    lib_path = Path(__file__).resolve().parent / "data" / "material_library.json"
+    if not lib_path.is_file():
+        return []
+    raw = json.loads(lib_path.read_text(encoding="utf-8"))
+    entries = raw.get("materials") if isinstance(raw, dict) else raw
+    if not isinstance(entries, list):
+        return []
+    loaded: List[Dict[str, Any]] = []
+    for item in entries:
+        if not isinstance(item, dict) or not item.get("id"):
+            continue
+        rec = dict(item)
+        rec.setdefault("origin", "brand_reference")
+        rec.setdefault("origin_label", "Referensi brand")
+        rec.setdefault("status", "datasheet")
+        rec.setdefault("color_hex", _DEFAULT_CATEGORY_HEX.get(rec.get("category", "glazing"), "#5a86a8"))
+        loaded.append(rec)
+    return loaded
+
+
+_enrich_generic_builtin_materials()
+BRAND_MATERIALS: List[Dict[str, Any]] = _load_brand_material_library()
 
 
 def get_all_materials(extra_materials: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
-    mats = list(BUILTIN_MATERIALS) + list(CUSTOM_MATERIALS)
+    mats = list(BUILTIN_MATERIALS) + list(BRAND_MATERIALS)
     if extra_materials:
         by_id = {m["id"]: m for m in mats}
         for em in extra_materials:
             if isinstance(em, dict) and em.get("id"):
-                by_id[em["id"]] = em
+                rec = dict(em)
+                rec.setdefault("origin", "user")
+                rec.setdefault("origin_label", "Buatan saya")
+                by_id[rec["id"]] = rec
         return list(by_id.values())
     return mats
 
@@ -537,15 +584,26 @@ def get_material_by_id(
     return None
 
 
-def add_custom_material(data: Dict[str, Any]) -> Dict[str, Any]:
+def validate_custom_material(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Stateless validator for user-created materials (returns computed TD_EK, SC, and SHGC)."""
     from sni_tables import get_tdek_roof, get_tdek_wall
 
-    mat_id = data.get("id") or f"custom_{data.get('category', 'mat')}_{len(CUSTOM_MATERIALS) + 1:03d}"
-    cat = data.get("category", "glazing").lower()
+    cat = str(data.get("category", "glazing") or "glazing").lower().strip()
     if cat not in ("glazing", "wall", "frame", "roof"):
-        cat = "glazing"
+        raise ValueError(f"Kategori material tidak dikenal: {cat}")
+
+    name = str(data.get("name") or "").strip()
+    if not name:
+        raise ValueError("Nama material wajib diisi.")
+
+    u_val = float(data.get("u_value", 2.0))
+    if not (0.05 <= u_val <= 10.0):
+        raise ValueError("Nilai U harus berada di rentang 0,05 hingga 10,0 W/m²K.")
 
     massa = float(data.get("massa_kg_m2", 150.0 if cat == "wall" else (250.0 if cat == "roof" else 25.0)))
+    if not (1.0 <= massa <= 2000.0):
+        raise ValueError("Massa jenis luas harus berada di rentang 1 hingga 2000 kg/m².")
+
     sumber = str(data.get("sumber", "") or "").strip()
     has_url = sumber.lower().startswith(("http://", "https://"))
     status = str(data.get("status") or ("datasheet" if has_url else "nilai_tipikal"))
@@ -561,46 +619,76 @@ def add_custom_material(data: Dict[str, Any]) -> Dict[str, Any]:
 
     sc_val: Optional[float] = None
     shgc_val: Optional[float] = None
+    vlt_val: Optional[float] = None
+    alpha_val: Optional[float] = None
+
     if cat == "glazing":
         if data.get("sc") is not None:
-            sc_val = float(data["sc"])
+            sc_val = round(float(data["sc"]), 4)
         elif data.get("shgc") is not None:
             sc_val = round(float(data["shgc"]) / SC_TO_SHGC_RATIO, 4)
         else:
             sc_val = 0.35
+        if not (0.05 <= sc_val <= 1.0):
+            raise ValueError("Nilai SC kaca harus berada di rentang 0,05 hingga 1,0.")
+
         if data.get("shgc") is not None:
             shgc_val = round(float(data["shgc"]), 4)
         else:
             shgc_val = round(sc_val * SC_TO_SHGC_RATIO, 4)
+        if not (0.04 <= shgc_val <= 1.0):
+            raise ValueError("Nilai SHGC kaca harus berada di rentang 0,04 hingga 1,0.")
 
-    new_mat: Dict[str, Any] = {
+        vlt_raw = data.get("vlt", 0.50)
+        vlt_val = round(float(vlt_raw), 4) if vlt_raw is not None else 0.50
+        if not (0.0 <= vlt_val <= 1.0):
+            raise ValueError("Nilai VLT kaca harus berada di rentang 0 hingga 1,0.")
+    else:
+        alpha_raw = data.get("alpha", 0.50)
+        alpha_val = round(float(alpha_raw), 4) if alpha_raw is not None else 0.50
+        if not (0.05 <= alpha_val <= 0.98):
+            raise ValueError("Nilai absorbtansi α harus berada di rentang 0,05 hingga 0,98.")
+
+    mat_id = str(data.get("id") or "").strip() or f"usr_{cat}_{abs(hash(name)) % 100000:05d}"
+
+    return {
         "id": mat_id,
-        "name": data.get("name", "Custom Material"),
-        "brand": data.get("brand", "Spesifikasi Proyek"),
+        "name": name,
+        "brand": str(data.get("brand") or "Buatan saya").strip() or "Buatan saya",
+        "product_line": str(data.get("product_line") or "").strip(),
         "category": cat,
-        "technology": data.get("technology", "Custom Specification"),
-        "u_value": float(data.get("u_value", 2.0)),
+        "technology": str(data.get("technology") or data.get("configuration") or "Spesifikasi Kustom").strip(),
+        "configuration": str(data.get("configuration") or "").strip(),
+        "u_value": round(u_val, 3),
+        "u_value_nfrc_summer": (
+            round(float(data["u_value_nfrc_summer"]), 3)
+            if data.get("u_value_nfrc_summer") is not None
+            else None
+        ),
         "sc": sc_val,
         "shgc": shgc_val,
-        "vlt": float(data.get("vlt", 0.50)) if cat == "glazing" else None,
-        "alpha": float(data.get("alpha", 0.45)) if cat != "glazing" else None,
-        "massa_kg_m2": massa,
+        "vlt": vlt_val,
+        "vlr_ext": (
+            round(float(data["vlr_ext"]), 4)
+            if data.get("vlr_ext") is not None
+            else None
+        ),
+        "alpha": alpha_val,
+        "massa_kg_m2": round(massa, 2),
         "td_ek": td_ek_val,
+        "thickness_mm": round(float(data.get("thickness_mm", 24.0 if cat == "glazing" else 100.0)), 1),
+        "color_hex": str(data.get("color_hex") or _DEFAULT_CATEGORY_HEX.get(cat, "#888888")).strip(),
         "sumber": sumber,
+        "sumber_judul": str(data.get("sumber_judul") or "").strip(),
+        "tanggal_akses": str(data.get("tanggal_akses") or "").strip(),
+        "standar_data": str(data.get("standar_data") or "Input pengguna").strip(),
         "status": status,
-        "thickness_mm": float(data.get("thickness_mm", 24.0)),
-        "market_availability": data.get("market_availability", "Custom Project Spec"),
-        "description": data.get("description", "Material kustom yang ditambahkan oleh pengguna."),
+        "origin": "user",
+        "origin_label": "Buatan saya",
+        "catatan": str(data.get("catatan") or data.get("description") or "").strip(),
+        "description": str(data.get("catatan") or data.get("description") or "").strip(),
         "is_custom": True,
     }
-    if has_url and data.get("brand") and "generik" not in str(data.get("brand")).lower():
-        new_mat["label"] = "Contoh produk"
-    for i, existing in enumerate(CUSTOM_MATERIALS):
-        if existing["id"] == mat_id:
-            CUSTOM_MATERIALS[i] = new_mat
-            return new_mat
-    CUSTOM_MATERIALS.append(new_mat)
-    return new_mat
 
 
 # ============================================================================
@@ -868,112 +956,4 @@ def generate_sample_epw_file(output_path: str, city_key: str = "jakarta") -> str
     return output_path
 
 
-# ============================================================================
-# 3. INTELLIGENT MATERIAL OPTIMIZATION & BRAND RECOMMENDER (INDONESIA)
-# ============================================================================
-
-def generate_material_recommendations(
-    current_ottv_wm2: float,
-    effective_wwr: float,
-    total_envelope_area_m2: float,
-    current_heat_kw: float,
-) -> List[Dict[str, Any]]:
-    """
-    Evaluates the building's current OTTV and WWR and recommends concrete,
-    market-ready Indonesian architectural material combinations (Glazing + Wall/Spandrel + Frame)
-    with projected OTTV and thermal load savings.
-    """
-    packages = [
-        {
-            "package_id": "pkg_sni_compliant_value",
-            "tier": "Paket 1 — Standar Kepatuhan SNI 6389:2020 (Generik Ekonomis)",
-            "badge": "Rekomendasi Ekonomis <= 35 W/m²",
-            "glazing_material_id": "glz_kaca_lowe_single_8",
-            "wall_material_id": "wal_bata_ringan_aac_100",
-            "frame_material_id": "frm_aluminium_standar",
-            "glazing_brand": "Kaca Low-E Hard-Coat Tunggal 8mm (Generik)",
-            "wall_brand": "Dinding Bata Ringan AAC 100mm + Cat Muda (Generik)",
-            "frame_brand": "Rangka Aluminium Non-Thermal Break (Generik)",
-            "specs": {
-                "sc_glass": 0.41,
-                "u_fenestration": 3.60,
-                "u_wall": 1.42,
-                "alpha_wall": 0.47,
-                "td_ek": 12.0,
-                "u_frame": 5.80,
-            },
-            "highlights": [
-                "Cocok untuk gedung dengan WWR menengah (<= 50%) tanpa biaya IGU kaca ganda",
-                "Nilai tipikal generik sesuai Tabel 1/2/3/7 SNI 6389:2020",
-            ],
-        },
-        {
-            "package_id": "pkg_high_rise_curtain_wall",
-            "tier": "Paket 2 — High-Rise Curtain Wall (Generik Performa Tinggi)",
-            "badge": "Rekomendasi untuk Tower Curtain Wall",
-            "glazing_material_id": "glz_igu_lowe_selektif",
-            "wall_material_id": "wal_spandrel_insulasi_50",
-            "frame_material_id": "frm_aluminium_thermal_break",
-            "glazing_brand": "Kaca Ganda (IGU) Double-Silver Low-E 6+12Ar+6mm (Generik)",
-            "wall_brand": "Spandrel Curtain Wall + Insulasi Mineral Wool 50mm (Generik)",
-            "frame_brand": "Rangka Aluminium Curtain Wall + Thermal Break (Generik)",
-            "specs": {
-                "sc_glass": 0.25,
-                "u_fenestration": 1.45,
-                "u_wall": 0.62,
-                "alpha_wall": 0.40,
-                "td_ek": 15.0,
-                "u_frame": 2.10,
-            },
-            "highlights": [
-                "Dirancang untuk fasad Curtain Wall WWR menengah-tinggi (50%–80%)",
-                "Menurunkan OTTV ke kisaran 19–25 W/m² sekaligus menjaga transmisi cahaya alami (VLT ~50%)",
-            ],
-        },
-        {
-            "package_id": "pkg_net_zero_smart_facade",
-            "tier": "Paket 3 — Fasad Ultra-Low OTTV (Generik Selektivitas Tertinggi)",
-            "badge": "Performa Termal Tertinggi (Ultra-Low OTTV)",
-            "glazing_material_id": "glz_igu_triple_silver",
-            "wall_material_id": "wal_acp_insulasi_aac",
-            "frame_material_id": "frm_sirip_peneduh_aluminium",
-            "glazing_brand": "Kaca Ganda (IGU) Triple-Silver Ultra-Selective (Generik)",
-            "wall_brand": "Cladding ACP 4mm + Insulasi 50mm + Bata Ringan AAC (Generik)",
-            "frame_brand": "Rangka Thermal Break + Sirip Peneduh Aluminium (Generik)",
-            "specs": {
-                "sc_glass": 0.23,
-                "u_fenestration": 1.10,
-                "u_wall": 0.55,
-                "alpha_wall": 0.40,
-                "td_ek": 12.0,
-                "u_frame": 1.80,
-            },
-            "highlights": [
-                "Memangkas radiasi surya & konduksi kaca signifikan dibanding kaca tinted standar",
-                "Nilai tipikal generik untuk target efisiensi energi selubung bangunan tinggi",
-            ],
-        },
-    ]
-
-    results: List[Dict[str, Any]] = []
-    wwr = max(0.15, min(0.88, effective_wwr))
-    avg_sf = 148.0
-
-    for pkg in packages:
-        sp = pkg["specs"]
-        q_w = sp["alpha_wall"] * sp["u_wall"] * (1.0 - wwr) * sp["td_ek"]
-        q_gc = sp["u_fenestration"] * wwr * 5.0
-        q_sol = avg_sf * wwr * (sp["sc_glass"] * 0.76)
-        est_ottv = round(q_w + q_gc + q_sol, 2)
-        est_kw = round((est_ottv * total_envelope_area_m2) / 1000.0, 2)
-        saved_kw = round(max(0.0, current_heat_kw - est_kw), 2)
-
-        results.append({
-            **pkg,
-            "estimated_ottv_wm2": est_ottv,
-            "estimated_heat_kw": est_kw,
-            "saved_heat_kw": saved_kw,
-            "compliant_sni": est_ottv <= 35.0,
-        })
-
-    return results
+# Material recommendations moved to `backend/recommender.py` (Fase 4e).

@@ -22,14 +22,14 @@ import hashlib
 import os
 import re
 import shutil
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 import uuid
 
 from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from adapters import (
     EXPORT_TIPS_BY_SOURCE,
@@ -44,10 +44,11 @@ from adapters import (
 from config_schema import InspectRequest, ProjectConfig
 from materials_and_epw import (
     INDONESIAN_CITY_PRESETS,
-    add_custom_material,
+    SC_TO_SHGC_RATIO,
     generate_sample_epw_file,
     get_all_materials,
     parse_epw_content,
+    validate_custom_material,
 )
 from ottv_engine import (
     ORIENTATION_BASE_SF,
@@ -60,6 +61,11 @@ from ottv_engine import (
     create_sample_ifc_preset,
     create_sample_obj_preset,
     create_sample_rhino_3dm_preset,
+)
+from recommender import (
+    optimize_material_combinations,
+    recommend_for_target,
+    rematerial_analysis,
 )
 from report_exporter import (
     generate_csv_report,
@@ -456,21 +462,31 @@ app.add_middleware(
 )
 
 
-class CustomMaterialRequest(BaseModel):
+class ValidateMaterialRequest(BaseModel):
+    id: Optional[str] = None
     name: str
-    brand: str = "Spesifikasi Kustom Proyek"
+    brand: str = "Buatan saya"
+    product_line: str = ""
     category: str = "glazing"  # 'glazing' | 'wall' | 'frame' | 'roof'
-    technology: str = "Custom Specification"
+    technology: str = "Spesifikasi Kustom"
+    configuration: str = ""
     u_value: float = 1.80
-    sc: Optional[float] = 0.32
+    u_value_nfrc_summer: Optional[float] = None
+    sc: Optional[float] = None
+    shgc: Optional[float] = None
     vlt: Optional[float] = 0.50
+    vlr_ext: Optional[float] = None
     alpha: Optional[float] = 0.45
     massa_kg_m2: float = 150.0
-    sumber: str = ""
-    status: str = "nilai_tipikal"
     thickness_mm: float = 24.0
-    market_availability: str = "Tersedia di Indonesia"
-    description: str = "Material kustom yang ditambahkan melalui Studio."
+    color_hex: str = ""
+    sumber: str = ""
+    sumber_judul: str = ""
+    tanggal_akses: str = ""
+    standar_data: str = ""
+    status: str = "nilai_tipikal"
+    catatan: str = ""
+    description: str = ""
 
 
 @app.on_event("startup")
@@ -505,20 +521,37 @@ def list_export_tips() -> Dict[str, Any]:
 
 @app.get("/api/materials")
 def list_materials() -> Dict[str, Any]:
+    from sni_tables import SNI_TABLE_1_ABSORPTANCE_MATERIALS, SNI_TABLE_2_ABSORPTANCE_PAINTS
+
     mats = get_all_materials()
+    brands = sorted({str(m.get("brand") or "").strip() for m in mats if m.get("brand")})
     return {
         "materials": mats,
         "glazing_materials": [m for m in mats if m["category"] == "glazing"],
         "wall_materials": [m for m in mats if m["category"] == "wall"],
         "frame_materials": [m for m in mats if m["category"] == "frame"],
         "roof_materials": [m for m in mats if m["category"] == "roof"],
+        "brands": brands,
+        "sc_to_shgc_ratio": SC_TO_SHGC_RATIO,
+        "alpha_table_1": SNI_TABLE_1_ABSORPTANCE_MATERIALS,
+        "alpha_table_2": SNI_TABLE_2_ABSORPTANCE_PAINTS,
     }
 
 
-@app.post("/api/materials/custom")
-def create_custom_material_endpoint(req: CustomMaterialRequest) -> Dict[str, Any]:
-    mat = add_custom_material(req.model_dump())
-    return {"status": "ok", "material": mat, "all_materials": get_all_materials()}
+@app.post("/api/materials/validate")
+def validate_material_endpoint(req: ValidateMaterialRequest) -> Dict[str, Any]:
+    """Stateless custom material validator: returns normalized material with computed TD_EK, SC, and SHGC."""
+    try:
+        mat = validate_custom_material(req.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "material": mat,
+        "td_ek": mat.get("td_ek"),
+        "sc": mat.get("sc"),
+        "shgc": mat.get("shgc"),
+    }
 
 
 @app.get("/api/locations")
@@ -829,6 +862,111 @@ def analyze_model(
 
     _store_analysis_record(analysis_id, payload)
     return payload
+
+
+class RematerialRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    glazing_material_id: Optional[str] = None
+    wall_material_id: Optional[str] = None
+    frame_material_id: Optional[str] = None
+    roof_material_id: Optional[str] = None
+    orientation_material_overrides: Optional[Dict[str, str]] = None
+    group_material_map: Optional[Dict[str, str]] = None
+    custom_materials: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class RecommendRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    mode: Literal["target", "optimize"] = "target"
+    target_type: str = "glazing_all"
+    target_key: Optional[str] = None
+    target_ottv_wm2: float = Field(default=35.0, ge=5.0, le=120.0)
+    custom_materials: List[Dict[str, Any]] = Field(default_factory=list)
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    constraints: Dict[str, Any] = Field(default_factory=dict)
+
+
+@app.post("/api/analyses/{analysis_id}/rematerial")
+def rematerial_analysis_endpoint(
+    analysis_id: str,
+    req: RematerialRequest,
+) -> Dict[str, Any]:
+    """
+    Fast material swap recomputation reusing geometry & per-panel SF from `analysis_id`
+    without reloading 3D geometry or raytracing (< 300 ms).
+    """
+    base = ANALYSIS_STORE.get(analysis_id)
+    if base is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Analisis '{analysis_id}' tidak ditemukan atau sudah kedaluwarsa.",
+        )
+
+    updated = rematerial_analysis(
+        base,
+        glazing_material_id=req.glazing_material_id,
+        wall_material_id=req.wall_material_id,
+        frame_material_id=req.frame_material_id,
+        roof_material_id=req.roof_material_id,
+        orientation_material_overrides=req.orientation_material_overrides,
+        group_material_map=req.group_material_map,
+        custom_materials=req.custom_materials,
+    )
+    # Keep stored config in sync for exports & follow-up calls
+    if isinstance(updated.get("config"), dict):
+        cfg_s = updated["config"].setdefault("settings", {})
+        if req.glazing_material_id is not None:
+            cfg_s["glazing_material_id"] = req.glazing_material_id
+        if req.wall_material_id is not None:
+            cfg_s["wall_material_id"] = req.wall_material_id
+        if req.frame_material_id is not None:
+            cfg_s["frame_material_id"] = req.frame_material_id
+        if req.roof_material_id is not None:
+            cfg_s["roof_material_id"] = req.roof_material_id
+        if req.orientation_material_overrides is not None:
+            cfg_s["orientation_material_overrides"] = dict(req.orientation_material_overrides)
+        if req.custom_materials:
+            cfg_s["custom_materials"] = list(req.custom_materials)
+
+    new_id = str(updated["analysis_id"])
+    _store_analysis_record(new_id, updated)
+    return updated
+
+
+@app.post("/api/analyses/{analysis_id}/recommend")
+def recommend_materials_endpoint(
+    analysis_id: str,
+    req: RecommendRequest,
+) -> Dict[str, Any]:
+    """
+    Engine-accurate material recommender (per-group ranking or optimal multi-orientation combinations).
+    Never accepts or stores user prices on the server (prices stay strictly client-side in luxa.prices.v1).
+    """
+    base = ANALYSIS_STORE.get(analysis_id)
+    if base is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Analisis '{analysis_id}' tidak ditemukan atau sudah kedaluwarsa.",
+        )
+
+    if req.mode == "optimize":
+        return optimize_material_combinations(
+            base,
+            target_ottv_wm2=req.target_ottv_wm2,
+            extra_materials=req.custom_materials,
+            prices_map=None,
+            constraints=req.constraints,
+        )
+    return recommend_for_target(
+        base,
+        target_type=req.target_type,
+        target_key=req.target_key,
+        extra_materials=req.custom_materials,
+        prices_map=None,
+        filters=req.filters,
+    )
 
 
 @app.get("/api/analyses/{analysis_id}/exposure")
