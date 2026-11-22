@@ -52,6 +52,7 @@ export function createDefaultConfig() {
       section_floor_min: null,
       section_floor_max: null,
       sun_dome_radius_m: null,
+      exposure_scale: { mode: 'sni', min: 80, max: 250 }, // tampilan Matahari sepanjang tahun saja
     },
     advanced: {
       nurbs_u_div: 4,

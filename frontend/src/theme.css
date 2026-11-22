@@ -4365,3 +4365,66 @@ body.is-d5-rotating * {
 .has-rail-card .viewer-dock .pill .b.b-icon {
   width: 32px;
 }
+
+/* Skala warna mode Matahari sepanjang tahun */
+.legend-scale-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.legend-scale-btn:hover,
+.legend-scale-btn.on {
+  background: var(--glass-thin);
+  border-color: var(--line-strong);
+}
+
+.viewer-dock .exp-scale-pop {
+  width: 320px;
+  max-width: 320px;
+  display: grid;
+  gap: 8px;
+}
+
+.exp-scale-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.exp-scale-row .field-input {
+  width: 72px;
+  height: 32px;
+}
+
+.exp-scale-err {
+  margin: 0;
+  color: var(--fail);
+  min-height: 0;
+}
+
+.exp-scale-err:empty {
+  display: none;
+}
+
+.exp-scale-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+/* Popover di atas dok lebih pekat supaya label kubah di belakangnya tidak tembus. */
+.viewer-dock .vbar-popover {
+  background: color-mix(in srgb, var(--paper) 94%, transparent);
+}

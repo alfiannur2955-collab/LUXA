@@ -172,6 +172,8 @@ class SettingsConfig(BaseModel):
     section_floor_min: Optional[int] = None
     section_floor_max: Optional[int] = None
     sun_dome_radius_m: Optional[float] = Field(default=None, ge=1.0, le=5000.0)
+    # Tampilan saja (skala warna mode Matahari sepanjang tahun); tidak dipakai perhitungan.
+    exposure_scale: Optional[Dict[str, Any]] = None
 
 
 class AdvancedConfig(BaseModel):

@@ -126,10 +126,10 @@ function buildLegendSpec(state, tokens, mode) {
   if (mode === 'exposure') {
     const r = viewer.lastSmoothRange;
     return {
-      title: `Matahari sepanjang tahun (W/m²)${state.exposureShading !== false ? ' · dengan peneduh' : ''}`,
+      title: `Matahari sepanjang tahun (W/m²)${state.exposureShading !== false ? ' · dengan peneduh' : ''}${r?.mode === 'auto' ? ' · skala otomatis' : r?.mode === 'custom' ? ' · skala kustom' : ''}`,
       kind: 'gradient',
       stops: [0, 0.25, 0.5, 0.75, 1].map((t) => css(exposureToThreeColor(t, tokens))),
-      ticks: [`${Math.round(r?.min ?? 80)}`, `${Math.round(r?.max ?? 250)}+`],
+      ticks: [`${Math.round(r?.min ?? 80)}`, `${Math.round(r?.max ?? 250)}${!r || r.mode === 'sni' ? '+' : ''}`],
       note: 'Hanya tampilan; angka OTTV tidak berubah',
     };
   }
@@ -190,7 +190,7 @@ function infoLines(state) {
   const third = [
     sunShown ? `Matahari ${hourLabel(state.sunHour)}, ${fmtDateId(state.sunDate)}` : null,
     `Utara ${fmtId(Number(state.config?.settings?.north_angle_deg || 0), 0)}°`,
-    `Dibuat ${fmtDateId(new Date().toISOString().slice(0, 10))}`,
+    `Dibuat ${fmtDateId(localYmd())}`,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -498,6 +498,11 @@ function drawDiffTable(d, k, tokens, rows, x, y, dry = false) {
 // Utama
 // ---------------------------------------------------------------------------
 
+/** Tanggal lokal pengguna (bukan UTC), YYYY-MM-DD. */
+function localYmd(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 const MODE_FILE_PART = {
   sunlit: 'matahari_jam',
   heatmap: 'ottv',
@@ -652,7 +657,7 @@ export async function captureViewerPng(state, { scale = 2, layout = 'panel', inc
     drawInfoBlock(ctx, d, k, tokens, logoImg, inc.info ? info.lines : [info.lines[0]], infoX, top, Math.max(220 * k, infoX - x));
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localYmd();
   const modelPart = sanitizeFilePart(state.filename, 'luxa_model');
   const viewPart = sanitizeFilePart(isCompare ? `bandingkan_${compareAlt?.code || ''}` : info.viewLabel, 'view');
   const modePart = isCompare ? '' : `_${MODE_FILE_PART[state.facadeFilter === 'sunlit_now' ? 'sunlit' : mode] || 'model'}`;

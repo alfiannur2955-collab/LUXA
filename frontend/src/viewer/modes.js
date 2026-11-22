@@ -628,6 +628,36 @@ function _themeIsDark(tokens) {
 export const EXPOSURE_SCALE = { min: 80, max: 250 };
 
 /**
+ * Skala warna mode Matahari sepanjang tahun (tampilan saja).
+ * settings.exposure_scale = { mode: 'sni' | 'auto' | 'custom', min, max }.
+ * - sni    : 80–250 W/m² (bawaan, bisa dibandingkan antar model)
+ * - auto   : rentang nilai model ini (kontras tertinggi)
+ * - custom : batas yang diisi pengguna
+ */
+export function resolveExposureScale(settingsScale, dataRange = null) {
+  const sc = settingsScale && typeof settingsScale === 'object' ? settingsScale : {};
+  const mode = sc.mode === 'auto' || sc.mode === 'custom' ? sc.mode : 'sni';
+  if (mode === 'auto' && dataRange && Number.isFinite(dataRange.min) && Number.isFinite(dataRange.max)) {
+    let lo = dataRange.min;
+    let hi = dataRange.max;
+    if (hi - lo < 1) {
+      const mid = (hi + lo) / 2;
+      lo = mid - 0.5;
+      hi = mid + 0.5;
+    }
+    return { mode, min: lo, max: hi };
+  }
+  if (mode === 'custom') {
+    const lo = Number(sc.min);
+    const hi = Number(sc.max);
+    if (Number.isFinite(lo) && Number.isFinite(hi) && hi - lo >= 1) return { mode, min: lo, max: hi };
+  }
+  return { mode: mode === 'auto' ? 'auto' : mode === 'custom' ? 'custom' : 'sni', min: EXPOSURE_SCALE.min, max: EXPOSURE_SCALE.max, fallback: mode !== 'sni' };
+}
+
+export const EXPOSURE_SCALE_LABELS = { sni: 'Tetap SNI', auto: 'Otomatis', custom: 'Kustom' };
+
+/**
  * Warna paparan matahari memakai keluarga warna hangat yang sama dengan Heatmap
  * (krem → oranye → merah bata), supaya semua tampilan energi selaras.
  */

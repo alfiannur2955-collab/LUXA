@@ -32,6 +32,7 @@ import {
   readThemeTokens,
   resolveViewerMode,
   EXPOSURE_SCALE,
+  resolveExposureScale,
 } from './modes.js';
 import { populateSelectionHighlightGroup, summarizeSelectedPanels } from './selection.js';
 
@@ -79,7 +80,9 @@ function _updateSmoothLegend(range) {
 export function smoothLegendTicksHtml(range) {
   const lo = range ? Math.round(range.min) : EXPOSURE_SCALE.min;
   const hi = range ? Math.round(range.max) : EXPOSURE_SCALE.max;
-  return `<span>${lo}</span><span class="is-limit">W/m²</span><span>${hi}+</span>`;
+  const mode = range?.mode || 'sni';
+  // Jenis skala ditampilkan di tombol "Skala: ..." di sebelahnya.
+  return `<span>${lo}</span><span class="is-limit">W/m²</span><span>${hi}${mode === 'sni' ? '+' : ''}</span>`;
 }
 
 function _computeFaceNormalBackend(v0, v1, v2) {
@@ -810,6 +813,7 @@ class LuxaViewer {
       check: view.check,
       heatmapGranularity: state.heatmapGranularity || 'orientation',
       exposureShading: state.exposureShading !== false,
+      exposureScale: mode === 'exposure' ? JSON.stringify(state.config?.settings?.exposure_scale || null) : null,
       facadeFilter: state.facadeFilter || 'all',
       expKey,
       hasAnalysis,
@@ -1170,13 +1174,16 @@ class LuxaViewer {
         smoothMin = mid - 0.25;
         smoothMax = mid + 0.25;
       }
-      // Skala tetap (80–250 W/m², rentang SF fasad SNI) supaya warna bisa dibandingkan antar model.
-      this.lastSmoothRange = { min: EXPOSURE_SCALE.min, max: EXPOSURE_SCALE.max, dataMin: smoothMin, dataMax: smoothMax };
+      // Skala warna: Tetap SNI (80–250 W/m², bawaan), Otomatis (rentang model), atau Kustom.
+      const sc = resolveExposureScale(state.config?.settings?.exposure_scale, { min: smoothMin, max: smoothMax });
+      this.lastSmoothRange = { min: sc.min, max: sc.max, mode: sc.mode, dataMin: smoothMin, dataMax: smoothMax };
       _updateSmoothLegend(this.lastSmoothRange);
     } else {
       this.lastSmoothRange = null;
     }
-    const relColor = (v) => exposureToThreeColor((v - EXPOSURE_SCALE.min) / (EXPOSURE_SCALE.max - EXPOSURE_SCALE.min), tokens);
+    const scaleLo = this.lastSmoothRange ? this.lastSmoothRange.min : EXPOSURE_SCALE.min;
+    const scaleHi = this.lastSmoothRange ? this.lastSmoothRange.max : EXPOSURE_SCALE.max;
+    const relColor = (v) => exposureToThreeColor((v - scaleLo) / (scaleHi - scaleLo), tokens);
 
     const cHeat1 = new THREE.Color(tokens.heat1);
     const cWall = new THREE.Color(tokens.wall);
