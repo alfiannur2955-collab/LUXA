@@ -249,4 +249,4 @@ console.log(JSON.stringify(out));
 def test_viewer_wires_color_accurate_material_for_heatmap_and_orientation() -> None:
     viewer_src = VIEWER_JS.read_text(encoding="utf-8")
     assert "makeColorAccurateMaterial" in viewer_src
-    assert "mode === 'heatmap' || mode === 'orientation'" in viewer_src
+    assert "mode === 'heatmap' || mode === 'exposure' || mode === 'orientation'" in viewer_src

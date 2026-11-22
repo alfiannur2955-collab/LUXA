@@ -80,12 +80,13 @@ export function renderInspectScreen(state, handlers) {
 
   // Mode bar (Klasifikasi, Orientasi, Heatmap [disabled until analyzed] | Kejanggalan, X-ray)
   const activeInspectMode =
-    state.viewerMode === 'heatmap' && !state.analysisData
+    (state.viewerMode === 'heatmap' || state.viewerMode === 'exposure') && !state.analysisData
       ? 'classification'
       : state.viewerMode || 'classification';
   const modeBarEl = renderViewerModeBar({ ...state, viewerMode: activeInspectMode }, (modeId) => {
-    if (modeId === 'heatmap' && state.analysisData) {
+    if ((modeId === 'heatmap' || modeId === 'exposure') && state.analysisData) {
       handlers.onGoToResults();
+      if (modeId === 'exposure') handlers.onChangeViewerMode(modeId);
     } else {
       handlers.onChangeViewerMode(modeId);
     }

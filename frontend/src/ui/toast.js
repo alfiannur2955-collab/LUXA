@@ -6,13 +6,38 @@
 let stackEl = null;
 
 function ensureStack() {
-  if (stackEl && document.body.contains(stackEl)) return stackEl;
-  stackEl = document.createElement('div');
-  stackEl.className = 'toast-stack';
-  stackEl.setAttribute('aria-live', 'polite');
-  stackEl.setAttribute('aria-atomic', 'false');
-  document.body.appendChild(stackEl);
+  if (!(stackEl && document.body.contains(stackEl))) {
+    stackEl = document.createElement('div');
+    stackEl.className = 'toast-stack';
+    stackEl.setAttribute('aria-live', 'polite');
+    stackEl.setAttribute('aria-atomic', 'false');
+    document.body.appendChild(stackEl);
+  }
+  positionStack();
   return stackEl;
+}
+
+/**
+ * Toast diletakkan di pojok kanan bawah area 3D, tepat di atas bar bawah viewer, supaya hanya
+ * menutupi model dan tidak pernah menutupi tombol, kartu, atau kolom kanan. Tanpa viewer
+ * (mis. halaman Unggah), toast ada di pojok kanan atas di bawah topbar.
+ */
+function positionStack() {
+  if (!stackEl) return;
+  const viewerEl = [...document.querySelectorAll('.viewer')].find((v) => v.offsetParent);
+  const st = stackEl.style;
+  if (!viewerEl) {
+    st.top = '72px';
+    st.right = '16px';
+    st.bottom = 'auto';
+    return;
+  }
+  const vr = viewerEl.getBoundingClientRect();
+  const stack = viewerEl.querySelector('.viewer-bottom-stack');
+  const floorY = stack ? stack.getBoundingClientRect().top : vr.bottom - 16;
+  st.top = 'auto';
+  st.right = `${Math.max(16, window.innerWidth - vr.right + 16)}px`;
+  st.bottom = `${Math.max(16, window.innerHeight - floorY + 10)}px`;
 }
 
 export function showToast(message, tone = 'ok', durationMs = 4200) {

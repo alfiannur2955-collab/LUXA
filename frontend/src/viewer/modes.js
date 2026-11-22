@@ -16,6 +16,7 @@ export const VIEWER_MODES = [
   { id: 'classification', label: 'Klasifikasi', icon: 'grid', group: 'view' },
   { id: 'orientation', label: 'Orientasi', icon: 'compass', group: 'view' },
   { id: 'heatmap', label: 'Heatmap', icon: 'thermometer', group: 'view' },
+  { id: 'exposure', label: 'Paparan', icon: 'sun', group: 'view', hint: 'Paparan matahari per titik (tampilan saja)' },
   { id: 'anomalies', label: 'Kejanggalan', icon: 'warn', group: 'check' },
   { id: 'xray', label: 'X-ray', icon: 'xray', group: 'check' },
 ];

@@ -139,6 +139,8 @@ export function renderViewerBottomBar(state, handlers) {
     hourTxt.style.padding = '0 4px';
     hourTxt.style.whiteSpace = 'nowrap';
     hourTxt.textContent = `${String(Math.round(Number(state.sunHour ?? 13))).padStart(2, '0')}.00`;
+    hourTxt.setAttribute('data-luxa-sun-hour', '');
+    slider.setAttribute('data-luxa-sun-hour', '');
 
     leftPill.append(div2, playBtn, slider, hourTxt);
 

@@ -97,7 +97,6 @@ export function renderResultsScreen(state, handlers) {
     `;
   } else if (activeMode === 'heatmap') {
     const gran = state.heatmapGranularity || 'orientation';
-    const isSmooth = Boolean(state.heatmapSmooth);
     legend.title = 'Heatmap OTTV (W/m²): per arah atau per panel';
     legend.setAttribute('aria-label', 'Legenda heatmap OTTV');
 
@@ -105,7 +104,6 @@ export function renderResultsScreen(state, handlers) {
     toggleWrap.className = 'legend-toggle';
     toggleWrap.setAttribute('role', 'radiogroup');
     toggleWrap.setAttribute('aria-label', 'Skala heatmap');
-
     for (const [id, lbl] of [
       ['orientation', 'Arah'],
       ['panel', 'Panel'],
@@ -115,63 +113,55 @@ export function renderResultsScreen(state, handlers) {
       b.setAttribute('role', 'radio');
       b.className = gran === id ? 'on' : '';
       b.setAttribute('aria-checked', gran === id ? 'true' : 'false');
-      b.setAttribute('aria-pressed', gran === id ? 'true' : 'false');
       b.textContent = lbl;
       b.title = id === 'orientation' ? 'Warna rata-rata per arah' : 'Warna per panel';
       b.addEventListener('click', () => handlers.onChangeHeatmapGranularity(id));
       toggleWrap.appendChild(b);
     }
 
-    // S4: Continuous 168 px gradient bar with 0, 25, "35 batas" (ink mark at 58.3%), 60
     const gradWrap = document.createElement('span');
     gradWrap.className = 'heat-grad-wrap';
-
     const gradBar = document.createElement('span');
     gradBar.className = 'heat-grad-bar';
     gradBar.setAttribute('aria-hidden', 'true');
-    if (isSmooth) {
-      gradBar.style.background = buildExposureGradientCss(readThemeTokens());
-    }
     const limitMark = document.createElement('i');
     limitMark.className = 'heat-grad-limit';
     gradBar.appendChild(limitMark);
-
     const gradTicks = document.createElement('span');
     gradTicks.className = 'heat-grad-ticks num';
-    if (isSmooth) {
-      // Halus: paparan matahari (W/m²) relatif terhadap model ini; tidak mengubah hasil hitung.
-      gradTicks.setAttribute('data-luxa-smooth-legend', '');
-      gradTicks.innerHTML = smoothLegendTicksHtml(viewer.lastSmoothRange);
-      limitMark.style.display = 'none';
-      gradWrap.title =
-        'Paparan matahari (W/m²), kiri rendah, kanan tinggi: SF menurut arah hadap tiap titik' +
-        (gran === 'panel' ? ' × faktor peneduh panel.' : '.') +
-        ' Hanya tampilan; angka OTTV tidak berubah.';
-    } else {
-      gradTicks.innerHTML = '<span>0</span><span>25</span><span class="is-limit">35 batas</span><span>60</span>';
-    }
+    gradTicks.innerHTML = '<span>0</span><span>25</span><span class="is-limit">35 batas</span><span>60</span>';
+    gradWrap.append(gradBar, gradTicks);
+    legend.append(toggleWrap, gradWrap);
+  } else if (activeMode === 'exposure') {
+    // Paparan matahari per titik (W/m²), skala relatif model. Hanya tampilan; angka OTTV tidak berubah.
+    legend.title =
+      'Paparan matahari (W/m²): SF menurut arah hadap tiap titik' +
+      (state.exposureShading !== false ? ' × peneduh 3D' : '') +
+      '. Kiri rendah, kanan tinggi. Hanya tampilan; angka OTTV tidak berubah.';
+    legend.setAttribute('aria-label', 'Legenda paparan matahari');
+
+    const gradWrap = document.createElement('span');
+    gradWrap.className = 'heat-grad-wrap';
+    const gradBar = document.createElement('span');
+    gradBar.className = 'heat-grad-bar';
+    gradBar.setAttribute('aria-hidden', 'true');
+    gradBar.style.background = buildExposureGradientCss(readThemeTokens());
+    const gradTicks = document.createElement('span');
+    gradTicks.className = 'heat-grad-ticks num';
+    gradTicks.setAttribute('data-luxa-smooth-legend', '');
+    gradTicks.innerHTML = smoothLegendTicksHtml(viewer.lastSmoothRange);
     gradWrap.append(gradBar, gradTicks);
 
-    // S4: Halus vertex-smoothing toggle switch (default off)
-    const smoothLbl = document.createElement('label');
-    smoothLbl.className = 'legend-smooth-lbl';
-    const smoothCb = document.createElement('input');
-    smoothCb.type = 'checkbox';
-    smoothCb.setAttribute('role', 'switch');
-    smoothCb.checked = isSmooth;
-    smoothCb.setAttribute('aria-checked', isSmooth ? 'true' : 'false');
-    smoothCb.addEventListener('change', () => handlers.onToggleHeatmapSmooth?.(smoothCb.checked));
-    smoothLbl.append(smoothCb, document.createTextNode(' Halus'));
-
-    legend.append(toggleWrap, gradWrap, smoothLbl);
-
-    if (isSmooth) {
-      const smNote = document.createElement('span');
-      smNote.className = 'legend-smooth-note';
-      smNote.textContent = 'paparan matahari';
-      smNote.title = 'Warna dihitung per titik: SF diinterpolasi di antara 8 arah sesuai arah hadap fasad';
-      legend.appendChild(smNote);
-    }
+    const shadeLbl = document.createElement('label');
+    shadeLbl.className = 'legend-smooth-lbl';
+    shadeLbl.title = 'Hitung bayangan sirip, overhang, dan bagian bangunan sendiri';
+    const shadeCb = document.createElement('input');
+    shadeCb.type = 'checkbox';
+    shadeCb.setAttribute('role', 'switch');
+    shadeCb.checked = state.exposureShading !== false;
+    shadeCb.addEventListener('change', () => handlers.onToggleExposureShading?.(shadeCb.checked));
+    shadeLbl.append(shadeCb, document.createTextNode(' Peneduh'));
+    legend.append(gradWrap, shadeLbl);
   } else if (activeMode === 'orientation') {
     const tokens = readThemeTokens();
     const cHoriz = horizontalNeutralColor(tokens);
