@@ -147,7 +147,7 @@ export function renderViewerBottomBar(state, handlers) {
       domeBtn.type = 'button';
       domeBtn.className = `b${state.openPopover === 'sundome' ? ' on' : ''}`;
       domeBtn.style.padding = '0 7px';
-      domeBtn.title = 'Atur radius kubah matahari (meter)';
+      domeBtn.title = 'Kubah matahari: garis oranye = lintasan matahari. Klik untuk atur radius (meter)';
       domeBtn.setAttribute('aria-haspopup', 'dialog');
       domeBtn.setAttribute('aria-expanded', state.openPopover === 'sundome' ? 'true' : 'false');
       domeBtn.setAttribute('aria-label', 'Atur radius kubah matahari');
