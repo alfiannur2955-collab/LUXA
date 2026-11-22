@@ -144,6 +144,23 @@ export function renderViewerBottomBar(state, handlers) {
 
     leftPill.append(div2, playBtn, slider, hourTxt);
 
+    // Tampilkan bidang yang terkena matahari langsung pada jam aktif (bayangan dihitung per jam).
+    if (handlers.onToggleSunlit) {
+      const isOn = state.facadeFilter === 'sunlit_now';
+      const sunBtn = document.createElement('button');
+      sunBtn.type = 'button';
+      sunBtn.className = `b b-icon${isOn ? ' on' : ''}`;
+      sunBtn.setAttribute('aria-pressed', isOn ? 'true' : 'false');
+      sunBtn.setAttribute('aria-label', 'Tampilkan fasad yang terkena matahari pada jam ini');
+      sunBtn.title = isOn
+        ? 'Sembunyikan tampilan terkena matahari'
+        : 'Tampilkan fasad yang terkena matahari pada jam ini (bayangan ikut dihitung)';
+      sunBtn.innerHTML =
+        isOn && state.exposureLoading ? '<span class="spin spin-sm" aria-hidden="true"></span>' : icon('sunFacade', 17);
+      sunBtn.addEventListener('click', () => handlers.onToggleSunlit());
+      leftPill.appendChild(sunBtn);
+    }
+
     if (handlers.onChangeSunDomeRadius) {
       const domeBtn = document.createElement('button');
       domeBtn.type = 'button';

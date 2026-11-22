@@ -30,6 +30,7 @@ export function icon(name, size = 18) {
     projTwoPoint: '<path d="M12 4v16"/><path d="M12 4L3.5 7.5v9L12 20"/><path d="M12 4l8.5 3.5v9L12 20"/>',
     projAxo: '<path d="M12 3.5l7.5 4.3v8.4L12 20.5l-7.5-4.3V7.8z"/><path d="M12 12l7.5-4.2M12 12v8.5M12 12L4.5 7.8"/>',
     projElev: '<rect x="5" y="3.5" width="14" height="17" rx="1"/><path d="M5 9.2h14M5 14.8h14M12 3.5v17"/>',
+    sunFacade: '<rect x="3.5" y="9" width="10" height="11.5" rx="1"/><path d="M8.5 9v11.5"/><circle cx="17.5" cy="6.5" r="2.6"/><path d="M17.5 1.6v1.1M22.4 6.5h-1.1M21 3l-.8.8M14 3l.8.8"/>',
     bookmarkPlus: '<path d="M7 3.5h10v17l-5-3.5-5 3.5z"/><path d="M12 8v5M9.5 10.5h5"/>',
     pause: '<path d="M8 5.5v13M16 5.5v13"/>',
     grip: '<circle cx="9" cy="7" r="1"/><circle cx="15" cy="7" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="17" r="1"/><circle cx="15" cy="17" r="1"/>',

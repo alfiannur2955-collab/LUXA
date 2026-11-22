@@ -574,6 +574,7 @@ async function pinMainAnalysis(state) {
 }
 
 const vbarHandlers = {
+  onToggleSunlit: () => handleChangeFacadeFilter(getState().facadeFilter === 'sunlit_now' ? 'all' : 'sunlit_now'),
   onSetProjection: handleSetProjection,
   onSelectDirection: handleSelectDirection,
   onTogglePopover: (pop) => setState({ openPopover: pop }),

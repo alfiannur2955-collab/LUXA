@@ -3942,3 +3942,20 @@ body.is-d5-rotating * {
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* Legenda terkena matahari: gradasi pucat (sinar miring) -> pekat (tegak lurus) */
+.sunlit-grad-swatch {
+  width: 28px !important;
+  background: linear-gradient(90deg, var(--heat-0), var(--heat-2), var(--heat-3)) !important;
+}
+
+.sunlit-stat {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+@media (max-width: 1400px) {
+  .viewer-bottom-stack .vbar input[type='range'] {
+    width: 44px !important;
+  }
+}

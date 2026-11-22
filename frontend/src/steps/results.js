@@ -12,6 +12,8 @@ import { renderInteractiveCompass } from '../viewer/compass.js';
 import { renderFormulaPill } from '../viewer/formulaPill.js';
 import {
   ORIENTATION_CODES,
+  ORIENTATION_NAMES_ID,
+  normalToOrientationCode,
   buildOrientationRingLegendSvg,
   buildExposureGradientCss,
   horizontalNeutralColor,
@@ -91,10 +93,40 @@ export function renderResultsScreen(state, handlers) {
 
   if (state.facadeFilter === 'sunlit_now') {
     const hLabel = `${String(Math.round(Number(state.sunHour ?? 13))).padStart(2, '0')}.00`;
-    legend.innerHTML = `
-      <span class="legend-item"><i class="swatch" style="background:var(--heat-1);"></i>Terkena matahari, ${hLabel}</span>
-      <span class="legend-item"><i class="swatch" style="background:var(--data-wall);"></i>Tidak terkena</span>
-    `;
+    legend.setAttribute('aria-label', 'Legenda fasad terkena matahari');
+    legend.title =
+      'Bidang terkena sinar matahari langsung pada jam ini (bayangan bangunan sendiri, peneduh, dan bangunan sekitar ikut dihitung). ' +
+      'Oranye pekat = sinar hampir tegak lurus. Hanya tampilan; angka OTTV tidak berubah.';
+    if (state.exposureLoading) {
+      legend.innerHTML = '<span class="legend-item"><span class="spin spin-sm" aria-hidden="true"></span>Menghitung bayangan per jam...</span>';
+    } else {
+      const set = viewer._getSunlitPanelIdSet(state);
+      const north = Number(state.config?.settings?.north_angle_deg || 0);
+      const aNorth = Number(state.analysisData?.summary?.north_angle_deg || 0);
+      let tot = 0;
+      let lit = 0;
+      const byOri = {};
+      for (const p of state.analysisData?.panels || []) {
+        if (!p.active) continue;
+        const a = Number(p.area_m2 || 0);
+        tot += a;
+        if (set && set.has(p.id)) {
+          lit += a;
+          let code = p.orientation_code || 'U';
+          if (Math.abs(north - aNorth) > 0.05 && Array.isArray(p.normal)) code = normalToOrientationCode(p.normal[0], p.normal[1], north);
+          byOri[code] = (byOri[code] || 0) + a;
+        }
+      }
+      const pct = tot > 0 ? (lit / tot) * 100 : 0;
+      const top = Object.entries(byOri).sort((x, y) => y[1] - x[1])[0];
+      const topName = top ? ORIENTATION_NAMES_ID[top[0] === 'TGR' ? 'TG' : top[0]] || top[0] : null;
+      legend.innerHTML = `
+        <span class="legend-item"><i class="swatch sunlit-grad-swatch" aria-hidden="true"></i>Terkena</span>
+        <span class="legend-item"><i class="swatch" style="background:var(--data-wall);"></i>Bayangan</span>
+        <span class="legend-item num sunlit-stat"></span>`;
+      legend.querySelector('.sunlit-stat').textContent =
+        `${hLabel} · ${fmtId(pct, 0)}% fasad terkena${topName ? ` · terbanyak: ${topName}` : ''}`;
+    }
   } else if (activeMode === 'heatmap') {
     const gran = state.heatmapGranularity || 'orientation';
     legend.title = 'Heatmap OTTV (W/m²): per arah atau per panel';
