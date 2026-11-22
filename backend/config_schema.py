@@ -600,3 +600,31 @@ def resolve_material(
         "wall": DEFAULT_WALL_MAT_ID,
     }.get(expected_mat_cat, DEFAULT_WALL_MAT_ID)
     return {"material_id": fb_id, "material": get_material_by_id(fb_id, extra_materials=extra_mats), "source": "fallback"}
+
+
+# Shared by main.py (POST /api/materials/validate) and browser_api.validate_material
+class ValidateMaterialRequest(BaseModel):
+    id: Optional[str] = None
+    name: str
+    brand: str = "Buatan saya"
+    product_line: str = ""
+    category: str = "glazing"  # 'glazing' | 'wall' | 'frame' | 'roof'
+    technology: str = "Spesifikasi Kustom"
+    configuration: str = ""
+    u_value: float = 1.80
+    u_value_nfrc_summer: Optional[float] = None
+    sc: Optional[float] = None
+    shgc: Optional[float] = None
+    vlt: Optional[float] = 0.50
+    vlr_ext: Optional[float] = None
+    alpha: Optional[float] = 0.45
+    massa_kg_m2: float = 150.0
+    thickness_mm: float = 24.0
+    color_hex: str = ""
+    sumber: str = ""
+    sumber_judul: str = ""
+    tanggal_akses: str = ""
+    standar_data: str = ""
+    status: str = "nilai_tipikal"
+    catatan: str = ""
+    description: str = ""

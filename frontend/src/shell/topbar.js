@@ -25,7 +25,7 @@ export function renderTopbar(state, handlers) {
 
   const mark = document.createElement('img');
   mark.className = 'brand-mark';
-  mark.src = state.theme === 'dark' ? '/brand/luxa-mark-dark.svg' : '/brand/luxa-mark.svg';
+  mark.src = state.theme === 'dark' ? `${import.meta.env.BASE_URL}brand/luxa-mark-dark.svg` : `${import.meta.env.BASE_URL}brand/luxa-mark.svg`;
   mark.alt = '';
   mark.setAttribute('aria-hidden', 'true');
   mark.width = 30;

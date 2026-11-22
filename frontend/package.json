@@ -5,8 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
+    "dev:server": "vite --mode server --host 127.0.0.1 --port 5173",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 5173"
+    "build:server": "vite build --mode server",
+    "preview": "vite preview --host 127.0.0.1 --port 5173",
+    "engine:fetch": "bash scripts/fetch_engine_assets.sh",
+    "engine:assets": "node scripts/build_engine_assets.mjs"
   },
   "dependencies": {
     "chart.js": "^4.4.4",

@@ -149,6 +149,10 @@ const initialState = {
   selectedPanelIds: [],
   needsRecompute: false,
 
+  // Fase 5b: in-browser engine loading status {phase: idle|boot|lazy|ready|error, label, progress}
+  engineMode: 'browser',
+  engineStatus: { phase: 'idle', label: '', progress: 0 },
+
   // Fase 4b-2 + 4d: Sun dome (D1 manual radius in meters), north rotation mode (D2), exposure filter & formula pill
   sunDate: '2026-09-23', // '2026-06-21' | '2026-09-23' | '2026-12-21' | YYYY-MM-DD
   sunHour: 13, // 6..18

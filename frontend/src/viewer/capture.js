@@ -76,7 +76,7 @@ export async function captureViewerPng(state, { scale = 2 } = {}) {
   ctx.drawImage(glCanvas, 0, 0, width, height);
 
   // 3. Corner stamp (bottom-right) with LUXA logo + model, view, OTTV, and date
-  const logoSrc = isDark ? '/brand/luxa-logo-dark.svg' : '/brand/luxa-logo.svg';
+  const logoSrc = isDark ? `${import.meta.env.BASE_URL}brand/luxa-logo-dark.svg` : `${import.meta.env.BASE_URL}brand/luxa-logo.svg`;
   const logoImg = await loadLogoImage(logoSrc);
 
   const today = new Date().toISOString().slice(0, 10);

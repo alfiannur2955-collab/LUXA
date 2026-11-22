@@ -26,3 +26,9 @@ Thumbs.db
 
 # Korpus uji model (lisensi pihak ketiga / model mahasiswa) — jangan di-commit
 corpus/
+
+# Engine browser (Fase 5b): biner hasil unduhan & salinan otomatis ke public/
+frontend/.engine-cache/
+frontend/public/luxa-engine/
+frontend/public/samples/
+frontend/public/sw.js
