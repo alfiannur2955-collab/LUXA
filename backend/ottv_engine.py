@@ -33,7 +33,6 @@ from ladybug_geometry.geometry3d.pointvector import Point3D, Vector3D
 from materials_and_epw import (
     INDONESIAN_CITY_PRESETS,
     SC_TO_SHGC_RATIO,
-    generate_material_recommendations,
     get_material_by_id,
     get_material_shgc,
     migrate_material_id,
@@ -3445,12 +3444,7 @@ def analyze_building_ottv(
         return out
 
     compliant = ottv_total_wm2 <= SNI_6389_LIMIT_WM2
-    recommendations = generate_material_recommendations(
-        current_ottv_wm2=ottv_total_wm2,
-        effective_wwr=eff_wwr,
-        total_envelope_area_m2=total_envelope_area,
-        current_heat_kw=total_heat_w / 1000.0,
-    )
+    recommendations: List[Dict[str, Any]] = []
 
     # Build 5-Stage Gatekeeper Pipeline Status Summary
     stage_gates = {

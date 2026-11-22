@@ -49,10 +49,22 @@ class CustomMaterialSpec(BaseModel):
     sc: Optional[float] = Field(default=None, ge=0.05, le=1.0)
     shgc: Optional[float] = Field(default=None, ge=0.04, le=1.0)
     alpha: Optional[float] = Field(default=None, ge=0.05, le=0.98)
+    vlt: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    vlr_ext: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    u_value_nfrc_summer: Optional[float] = Field(default=None, ge=0.05, le=10.0)
     massa_kg_m2: float = Field(default=150.0, ge=1.0, le=2000.0)
+    thickness_mm: Optional[float] = Field(default=None, ge=0.5, le=1000.0)
+    product_line: str = ""
+    configuration: str = ""
+    color_hex: str = ""
     sumber: str = ""
+    sumber_judul: str = ""
+    tanggal_akses: str = ""
+    standar_data: str = ""
+    catatan: str = ""
+    origin: Literal["sni_generic", "brand_reference", "user"] = "user"
     status: Literal["datasheet", "nilai_tipikal"] = "nilai_tipikal"
-    brand: str = "Spesifikasi Kustom Proyek"
+    brand: str = "Buatan saya"
 
     def to_catalog_dict(self) -> Dict[str, Any]:
         if self.category == "wall":
@@ -75,14 +87,26 @@ class CustomMaterialSpec(BaseModel):
             "id": self.id,
             "name": self.name,
             "brand": self.brand,
+            "product_line": self.product_line,
             "category": self.category,
+            "configuration": self.configuration,
             "u_value": float(self.u_value),
+            "u_value_nfrc_summer": self.u_value_nfrc_summer,
             "sc": sc_val,
             "shgc": shgc_val,
+            "vlt": float(self.vlt) if self.vlt is not None else (0.50 if self.category == "glazing" else None),
+            "vlr_ext": self.vlr_ext,
             "alpha": float(self.alpha) if self.alpha is not None else (0.50 if self.category != "glazing" else None),
             "massa_kg_m2": float(self.massa_kg_m2),
+            "thickness_mm": self.thickness_mm,
             "td_ek": td_ek,
+            "color_hex": self.color_hex,
             "sumber": self.sumber,
+            "sumber_judul": self.sumber_judul,
+            "tanggal_akses": self.tanggal_akses,
+            "standar_data": self.standar_data,
+            "catatan": self.catatan,
+            "origin": self.origin,
             "status": self.status if self.sumber else "nilai_tipikal",
             "is_custom": True,
         }
