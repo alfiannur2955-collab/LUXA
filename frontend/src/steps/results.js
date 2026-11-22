@@ -22,12 +22,148 @@ import {
   readThemeTokens,
 } from '../viewer/modes.js';
 import { renderViewerModeBar } from '../viewer/modeBar.js';
-import { resolveViewerMode } from '../viewer/modes.js';
+import { EXPOSURE_SCALE_LABELS, resolveExposureScale, resolveViewerMode } from '../viewer/modes.js';
 import { summarizeSelectedPanels } from '../viewer/selection.js';
 import { renderViewerBottomBar } from '../viewer/vbar.js';
 import { smoothLegendTicksHtml, viewer } from '../viewer/viewer.js';
 
 const CANONICAL_ORIENTATIONS = ['U', 'TL', 'T', 'TG', 'S', 'BD', 'B', 'BL'];
+
+
+/** Popover skala warna mode Matahari sepanjang tahun. */
+function renderExposureScalePopover(state, handlers) {
+  const cur = state.config?.settings?.exposure_scale || {};
+  const resolved = resolveExposureScale(cur, viewer.lastSmoothRange ? { min: viewer.lastSmoothRange.dataMin, max: viewer.lastSmoothRange.dataMax } : null);
+  const pop = document.createElement('div');
+  pop.className = 'glass vbar-popover exp-scale-pop';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', 'Skala warna Matahari sepanjang tahun');
+
+  const ttl = document.createElement('div');
+  ttl.className = 'lbl';
+  ttl.style.color = 'var(--ink)';
+  ttl.textContent = 'Skala warna';
+
+  const seg = document.createElement('div');
+  seg.className = 'vbar-date-seg';
+  seg.setAttribute('role', 'radiogroup');
+  seg.setAttribute('aria-label', 'Jenis skala');
+  const desc = {
+    sni: 'Tetap 80–250 W/m² (rentang faktor surya fasad SNI). Warna bisa dibandingkan antar model dan alternatif.',
+    auto: 'Direntangkan dari nilai terendah sampai tertinggi model ini. Kontras paling tinggi, tidak untuk membandingkan model.',
+    custom: 'Isi batas sendiri, misalnya untuk menonjolkan beda antar arah di satu kota.',
+  };
+  for (const id of ['sni', 'auto', 'custom']) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    const on = resolved.mode === id;
+    b.className = on ? 'on' : '';
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', on ? 'true' : 'false');
+    b.textContent = EXPOSURE_SCALE_LABELS[id];
+    b.addEventListener('click', () => {
+      const next = { ...cur, mode: id };
+      if (id === 'custom' && !(Number(cur.max) - Number(cur.min) >= 1)) {
+        next.min = Math.round(resolved.min);
+        next.max = Math.round(resolved.max);
+      }
+      handlers.onSetExposureScale?.(next);
+    });
+    seg.appendChild(b);
+  }
+
+  const note = document.createElement('p');
+  note.className = 'lbl';
+  note.style.margin = '0';
+  note.style.fontWeight = '500';
+  note.textContent = desc[resolved.mode];
+
+  pop.append(ttl, seg, note);
+
+  if (resolved.mode === 'custom') {
+    const row = document.createElement('div');
+    row.className = 'exp-scale-row';
+    const mk = (id, label, val) => {
+      const wrap = document.createElement('label');
+      wrap.className = 'lbl';
+      wrap.htmlFor = id;
+      wrap.textContent = label;
+      const inp = document.createElement('input');
+      inp.id = id;
+      inp.type = 'number';
+      inp.step = '1';
+      inp.min = '0';
+      inp.max = '600';
+      inp.className = 'field-input num';
+      inp.value = String(Math.round(Number(val)));
+      return [wrap, inp];
+    };
+    const [l1, iMin] = mk('exp-scale-min', 'Bawah', cur.min ?? resolved.min);
+    const [l2, iMax] = mk('exp-scale-max', 'Atas', cur.max ?? resolved.max);
+    const unit = document.createElement('span');
+    unit.className = 'lbl';
+    unit.textContent = 'W/m²';
+    const err = document.createElement('p');
+    err.className = 'lbl exp-scale-err';
+    err.setAttribute('role', 'alert');
+    const apply = () => {
+      const lo = Number(iMin.value);
+      const hi = Number(iMax.value);
+      if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo < 0 || hi > 600) {
+        err.textContent = 'Isi angka 0–600.';
+        return;
+      }
+      if (hi - lo < 1) {
+        err.textContent = 'Batas atas harus lebih besar dari batas bawah.';
+        return;
+      }
+      err.textContent = '';
+      handlers.onSetExposureScale?.({ mode: 'custom', min: Math.round(lo), max: Math.round(hi) });
+    };
+    for (const inp of [iMin, iMax]) {
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          apply();
+        }
+      });
+      inp.addEventListener('input', () => {
+        err.textContent = '';
+      });
+    }
+    row.append(l1, iMin, l2, iMax, unit);
+    const actions = document.createElement('div');
+    actions.className = 'exp-scale-actions';
+    const fromModel = document.createElement('button');
+    fromModel.type = 'button';
+    fromModel.className = 'ghost ghost-sm';
+    fromModel.textContent = 'Pakai rentang model';
+    const r = viewer.lastSmoothRange;
+    fromModel.disabled = !(r && Number.isFinite(r.dataMin));
+    fromModel.addEventListener('click', () => {
+      if (!r) return;
+      iMin.value = String(Math.floor(r.dataMin));
+      iMax.value = String(Math.ceil(r.dataMax));
+    });
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'ghost ghost-sm on';
+    okBtn.textContent = 'Terapkan';
+    okBtn.addEventListener('click', apply);
+    actions.append(fromModel, okBtn);
+    pop.append(row, err, actions);
+  }
+
+  if (viewer.lastSmoothRange && Number.isFinite(viewer.lastSmoothRange.dataMin)) {
+    const info = document.createElement('p');
+    info.className = 'lbl num';
+    info.style.margin = '0';
+    info.style.fontWeight = '500';
+    info.textContent = `Nilai di model ini: ${Math.round(viewer.lastSmoothRange.dataMin)}–${Math.round(viewer.lastSmoothRange.dataMax)} W/m². Hanya tampilan; angka OTTV tidak berubah.`;
+    pop.appendChild(info);
+  }
+  return pop;
+}
 
 const SUN_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 function fmtSunDateShort(ymd) {
@@ -229,7 +365,18 @@ export function renderResultsScreen(state, handlers) {
     shadeCb.checked = state.exposureShading !== false;
     shadeCb.addEventListener('change', () => handlers.onToggleExposureShading?.(shadeCb.checked));
     shadeLbl.append(shadeCb, document.createTextNode(' Peneduh'));
-    legend.append(gradWrap, shadeLbl);
+
+    // Skala warna (Tetap SNI / Otomatis / Kustom) — tampilan saja.
+    const scMode = resolveExposureScale(state.config?.settings?.exposure_scale).mode;
+    const scaleBtn = document.createElement('button');
+    scaleBtn.type = 'button';
+    scaleBtn.className = `legend-scale-btn${state.openPopover === 'expscale' ? ' on' : ''}`;
+    scaleBtn.setAttribute('aria-haspopup', 'dialog');
+    scaleBtn.setAttribute('aria-expanded', state.openPopover === 'expscale' ? 'true' : 'false');
+    scaleBtn.title = 'Atur skala warna';
+    scaleBtn.innerHTML = `<span>Skala: ${EXPOSURE_SCALE_LABELS[scMode]}</span>${icon('chevronDown', 12)}`;
+    scaleBtn.addEventListener('click', () => handlers.onTogglePopover?.(state.openPopover === 'expscale' ? null : 'expscale'));
+    legend.append(gradWrap, scaleBtn, shadeLbl);
   } else if (activeMode === 'orientation') {
     const tokens = readThemeTokens();
     const cHoriz = horizontalNeutralColor(tokens);
@@ -276,6 +423,9 @@ export function renderResultsScreen(state, handlers) {
 
   if (handlers.vbarHandlers) {
     dock.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
+  }
+  if (activeMode === 'exposure' && !sunNow && state.openPopover === 'expscale') {
+    dock.appendChild(renderExposureScalePopover(state, handlers));
   }
   viewerSec.appendChild(bottomStack);
 

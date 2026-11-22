@@ -1713,6 +1713,13 @@ function renderApp(state) {
         onChangeHeatmapGranularity: (gran) => setState({ heatmapGranularity: gran }),
         onToggleHeatmapSmooth: (enabled) => setState({ heatmapSmooth: Boolean(enabled) }),
         onToggleExposureShading: (enabled) => setState({ exposureShading: Boolean(enabled) }),
+        onTogglePopover: (id) => setState({ openPopover: id }),
+        onSetExposureScale: (sc) => {
+          updateConfig((cfg) => {
+            cfg.settings.exposure_scale = { mode: 'sni', min: 80, max: 250, ...(cfg.settings.exposure_scale || {}), ...sc };
+          });
+          saveProjectAutosave(getState());
+        },
         onPickPanel: (panel, additive) => {
           if (!panel) {
             setState({ selectedPanelIds: [], selectedOrientation: null });
