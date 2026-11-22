@@ -3544,3 +3544,24 @@ body.is-d5-rotating * {
   padding: 0;
   justify-content: center;
 }
+
+.viewer-bottom-stack > .legend {
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.viewer-bottom-stack .pill {
+  gap: 2px;
+  padding: 0 5px;
+}
+
+.viewer-bottom-stack .vbar input[type='range'] {
+  width: 56px !important;
+}
+
+@media (max-width: 1400px) {
+  .viewer-bottom-stack .heat-grad-bar,
+  .viewer-bottom-stack .heat-grad-ticks {
+    width: 104px;
+  }
+}
