@@ -24,13 +24,11 @@ git log --all --stat -- "*.pdf"
 
 > **Catatan:** Jangan jalankan `git filter-repo` di tengah pengembangan aktif sebelum seluruh branch kerja digabungkan (`merge`), karena perintah ini menulis ulang seluruh hash commit.
 
-## 2. Izin Publikasi `docs/templates/template_prodi.xlsx`
+## 2. Template laporan (selesai di Fase 5c)
 
-- File `docs/templates/template_prodi.xlsx` merupakan template kerja milik program studi / penyusun asli.
-- **Wajib meminta izin tertulis** dari pemilik/prodi sebelum menyertakan file tersebut di repositori publik.
-- Bila belum memperoleh izin publikasi:
-  - Hapus `docs/templates/template_prodi.xlsx` dari indeks dan riwayat git (menggunakan `git filter-repo --invert-paths --path docs/templates/template_prodi.xlsx`), lalu tambahkan ke `.gitignore`.
-  - Biarkan pengguna mengunggah template `.xlsx` lokal mereka sendiri saat mengekspor (`backend/template_filler.py` dan `backend/report_template_map.py` sudah mendukung path/bytes template dinamis).
+- Form "Building Envelope Compliance Form V2.0" sudah beredar luas (PUPR, dipakai juga di UGM), jadi tidak ada masalah izin.
+- Sejak Fase 5c LUXA tidak lagi menyertakan file template itu. Laporan Excel dibuat sendiri oleh `backend/luxa_report.py`, dengan struktur yang meniru form lama dan kesalahannya diperbaiki.
+- Tabel SF lama dari form itu tetap ada di `sni_tables.TEMPLATE_PRODI_SF_TABLE` sebagai pilihan "Tabel SF lama (template PUPR)".
 
 ## 3. Pemeriksaan Data Material & Sumber
 
