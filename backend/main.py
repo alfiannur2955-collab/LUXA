@@ -41,7 +41,7 @@ from adapters import (
     save_project_config,
     unpack_zip_bundle_if_needed,
 )
-from config_schema import InspectRequest, ProjectConfig
+from config_schema import InspectRequest, ProjectConfig, ValidateMaterialRequest
 from materials_and_epw import (
     INDONESIAN_CITY_PRESETS,
     SC_TO_SHGC_RATIO,
@@ -460,33 +460,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-class ValidateMaterialRequest(BaseModel):
-    id: Optional[str] = None
-    name: str
-    brand: str = "Buatan saya"
-    product_line: str = ""
-    category: str = "glazing"  # 'glazing' | 'wall' | 'frame' | 'roof'
-    technology: str = "Spesifikasi Kustom"
-    configuration: str = ""
-    u_value: float = 1.80
-    u_value_nfrc_summer: Optional[float] = None
-    sc: Optional[float] = None
-    shgc: Optional[float] = None
-    vlt: Optional[float] = 0.50
-    vlr_ext: Optional[float] = None
-    alpha: Optional[float] = 0.45
-    massa_kg_m2: float = 150.0
-    thickness_mm: float = 24.0
-    color_hex: str = ""
-    sumber: str = ""
-    sumber_judul: str = ""
-    tanggal_akses: str = ""
-    standar_data: str = ""
-    status: str = "nilai_tipikal"
-    catatan: str = ""
-    description: str = ""
 
 
 @app.on_event("startup")

@@ -477,7 +477,10 @@ export function renderInspectScreen(state, handlers) {
     note.textContent =
       'Hasil akan berstatus Sementara selama kejanggalan di atas belum diperbaiki.';
   } else {
-    note.textContent = 'Konfigurasi proyek disimpan ke server saat kamu menekan Hitung OTTV.';
+    note.textContent =
+      state.engineMode === 'browser'
+        ? 'Konfigurasi proyek disimpan di browser ini saat kamu menekan Hitung OTTV.'
+        : 'Konfigurasi proyek disimpan ke server saat kamu menekan Hitung OTTV.';
   }
 
   ctaWrap.append(calcBtn, note);

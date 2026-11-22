@@ -1,7 +1,7 @@
 /**
  * Screen 1: Unggah (`docs/FASE4_UI_SPEC.md` §3.1 + mockup 1-unggah.html).
  * Note per spec §3.1: Before Fase 5, disclaimer explicitly states
- * "Model diproses di server LUXA dan tidak dibagikan." (never claims browser-only yet).
+ * Disclaimer wording follows the engine mode (browser: the model never leaves the device).
  */
 
 import { icon } from '../ui/icons.js';
@@ -91,6 +91,23 @@ export function renderUploadScreen(state, handlers) {
   sizeHint.textContent = 'File di atas 50 MB bisa butuh lebih dari satu menit.';
 
   inner.append(iconBox, title, desc, btnRow, fmtHint, sizeHint);
+
+  // Fase 5b: browser mode — files never leave the device; show engine readiness.
+  if (state.engineMode === 'browser') {
+    const es = state.engineStatus || {};
+    const engLine = document.createElement('p');
+    engLine.className = 'lbl engine-status';
+    engLine.setAttribute('aria-live', 'polite');
+    engLine.style.margin = '6px 0 0';
+    let txt;
+    if (es.phase === 'ready') txt = 'Engine siap. File diproses di browser kamu dan tidak diunggah ke mana pun.';
+    else if (es.phase === 'error') txt = es.label || 'Engine gagal dimuat. Muat ulang halaman.';
+    else if (es.phase === 'boot' || es.phase === 'lazy')
+      txt = `Menyiapkan engine${Number.isFinite(es.progress) && es.phase === 'boot' ? ` ${Math.round(es.progress * 100)}%` : ''}. File tetap diproses di browser kamu.`;
+    else txt = 'File diproses di browser kamu dan tidak diunggah ke mana pun.';
+    engLine.textContent = txt;
+    inner.appendChild(engLine);
+  }
 
   if (handlers.savedAutosave?.modelId) {
     const resumeBtn = document.createElement('button');
@@ -209,7 +226,10 @@ export function renderUploadScreen(state, handlers) {
   discBody.style.fontSize = '13px';
   discBody.style.lineHeight = '20px';
   discBody.textContent =
-    'LUXA adalah alat bantu belajar dan simulasi berdasarkan SNI 6389:2020. Hasilnya bukan dokumen kepatuhan resmi. Model diproses di server LUXA dan tidak dibagikan.';
+    'LUXA adalah alat bantu belajar dan simulasi berdasarkan SNI 6389:2020. Hasilnya bukan dokumen kepatuhan resmi. ' +
+    (state.engineMode === 'browser'
+      ? 'Model diproses di browser kamu dan tidak diunggah ke server mana pun.'
+      : 'Model diproses di server LUXA dan tidak dibagikan.');
 
   const logoWrap = document.createElement('div');
   logoWrap.style.marginTop = '12px';
@@ -218,7 +238,7 @@ export function renderUploadScreen(state, handlers) {
   logoWrap.style.gap = '8px';
 
   const logoImg = document.createElement('img');
-  logoImg.src = state.theme === 'dark' ? '/brand/luxa-logo-dark.svg' : '/brand/luxa-logo.svg';
+  logoImg.src = state.theme === 'dark' ? `${import.meta.env.BASE_URL}brand/luxa-logo-dark.svg` : `${import.meta.env.BASE_URL}brand/luxa-logo.svg`;
   logoImg.alt = 'LUXA by Alf Studio';
   logoImg.style.height = '24px';
   logoImg.style.width = 'auto';

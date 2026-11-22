@@ -7,7 +7,7 @@
 
 import './theme.css';
 
-import { engine } from './engine.js';
+import { engine, engineMode, isEngineReady, onEngineStatus, warmUpEngine } from './engine.js';
 import { renderMaterialCatalogOverlay } from './materials/catalog.js';
 import {
   countMaterialUsage,
@@ -605,9 +605,20 @@ async function handleUploadFile(file) {
     activeRailCard: null,
     loading: {
       title: `Memproses ${file.name}`,
-      subtitle: `${fmtFileSize(file.size)} · mengunggah ke server LUXA`,
+      subtitle:
+        engineMode === 'browser'
+          ? `${fmtFileSize(file.size)} · diproses di browser kamu, tidak diunggah`
+          : `${fmtFileSize(file.size)} · mengunggah ke server LUXA`,
       stages: [
-        { label: 'Mengunggah file model', status: 'running' },
+        {
+          label:
+            engineMode !== 'browser'
+              ? 'Mengunggah file model'
+              : isEngineReady()
+                ? 'Membaca file model'
+                : 'Menyiapkan engine dan membaca file',
+          status: 'running',
+        },
         { label: 'Membaca satuan, sumbu, dan grup', status: 'pending' },
         { label: 'Menjalankan pemeriksaan awal', status: 'pending' },
       ],
@@ -629,10 +640,12 @@ async function handleUploadFile(file) {
       loading: null,
       error: {
         title: 'File tidak dapat diunggah',
-        detail: err.message || 'Server tidak dapat memproses file ini.',
+        detail: err.message || (engineMode === 'browser' ? 'Engine tidak dapat memproses file ini.' : 'Server tidak dapat memproses file ini.'),
         tips: [
           'Pastikan ekstensi file didukung (.3dm, .ifc, .obj, .glb, .zip, .hbjson).',
-          'Pastikan server LUXA sedang berjalan.',
+          engineMode === 'browser'
+            ? 'Bila engine gagal dimuat, periksa koneksi lalu muat ulang halaman.'
+            : 'Pastikan server LUXA sedang berjalan.',
         ],
         primaryAction: {
           label: 'Pilih file lain',
@@ -1732,6 +1745,13 @@ async function bootstrap() {
     advancedMode: savedWs.preset === 'lanjut',
   });
 
+  setState({ engineMode });
+  onEngineStatus((st) => setState({ engineStatus: { ...st } }));
+  if (engineMode === 'browser') {
+    registerServiceWorker();
+    warmUpEngine().catch(() => {});
+  }
+
   try {
     const [mats, locs] = await Promise.all([engine.listMaterials(), engine.listLocations()]);
     setState({
@@ -1742,6 +1762,14 @@ async function bootstrap() {
   } catch {
     // Catalogs will retry naturally when backend is reachable
   }
+}
+
+/** Fase 5b: cache the in-browser engine for later visits (production builds only). */
+function registerServiceWorker() {
+  if (!import.meta.env.PROD || !('serviceWorker' in navigator)) return;
+  const reg = () => navigator.serviceWorker.register(new URL('sw.js', document.baseURI)).catch(() => {});
+  if (document.readyState === 'complete') reg();
+  else window.addEventListener('load', reg, { once: true });
 }
 
 bootstrap();

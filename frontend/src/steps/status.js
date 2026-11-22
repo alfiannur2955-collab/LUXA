@@ -44,6 +44,18 @@ export function renderLoadingScreen(state) {
 
   headWrap.append(h1, sub);
 
+  // Fase 5b: while the in-browser engine downloads or loads a reader, say what is happening.
+  const es = state.engineStatus;
+  if (state.engineMode === 'browser' && es && (es.phase === 'boot' || es.phase === 'lazy')) {
+    const note = document.createElement('p');
+    note.className = 'lbl';
+    note.setAttribute('aria-live', 'polite');
+    note.style.margin = '6px 0 0';
+    const pct = es.phase === 'boot' && Number.isFinite(es.progress) ? ` · ${Math.round(es.progress * 100)}%` : '';
+    note.textContent = `${es.label}${pct}. Hanya sekali; kunjungan berikutnya lebih cepat.`;
+    headWrap.appendChild(note);
+  }
+
   const ol = document.createElement('ol');
   ol.className = 'stage-list';
   ol.setAttribute('aria-live', 'polite');
