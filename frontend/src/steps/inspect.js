@@ -153,7 +153,7 @@ export function renderInspectScreen(state, handlers) {
 
   // Right Top: Grup terdeteksi
   const groupsCard = document.createElement('section');
-  groupsCard.className = 'box';
+  groupsCard.className = 'box inspect-side-card inspect-groups-card';
   groupsCard.setAttribute('aria-labelledby', 'gr-title');
 
   const grHead = document.createElement('div');
@@ -171,28 +171,26 @@ export function renderInspectScreen(state, handlers) {
 
   grHead.append(grTitle, grCount);
 
-  const tableWrap = document.createElement('div');
-  tableWrap.className = 'inspect-groups-wrap';
+  if (state.inspectBusy) {
+    const upd = document.createElement('span');
+    upd.className = 'lbl inspect-updating';
+    upd.innerHTML = '<span class="spin spin-sm" aria-hidden="true"></span>memperbarui';
+    grCount.replaceWith(upd);
+    upd.after(grCount);
+    grCount.style.display = 'none';
+  }
 
-  const table = document.createElement('table');
-  table.className = 'data-table';
-  table.innerHTML = `
-    <colgroup>
-      <col style="width: 39%;" />
-      <col style="width: 39%;" />
-      <col style="width: 22%;" />
-    </colgroup>
-    <thead>
-      <tr>
-        <th scope="col">Grup</th>
-        <th scope="col">Klasifikasi</th>
-        <th scope="col" style="text-align:right;">Luas</th>
-      </tr>
-    </thead>
-  `;
+  // Daftar grup: baris 1 = nama (bagian setelah '::' tebal, layer kecil) + luas; baris 2 = klasifikasi.
+  const list = document.createElement('div');
+  list.className = 'inspect-groups-wrap group-list';
+  list.setAttribute('role', 'list');
+  list.setAttribute('aria-label', 'Grup terdeteksi');
 
-  const tbody = document.createElement('tbody');
-  tbody.className = 'num';
+  const splitName = (full) => {
+    const parts = String(full || '').split('::').map((x) => x.trim()).filter(Boolean);
+    if (parts.length < 2) return { main: String(full || ''), sub: '' };
+    return { main: parts[parts.length - 1], sub: parts.slice(0, -1).join(' :: ') };
+  };
 
   const renderedNames = new Set();
 
@@ -200,41 +198,52 @@ export function renderInspectScreen(state, handlers) {
     renderedNames.add(g.group_name);
     const effCat = overrides[g.group_name] || g.category || 'wall';
     const isSelected = state.selectedGroup === g.group_name;
-    const tr = document.createElement('tr');
-    if (isSelected) {
-      tr.classList.add('is-selected');
-    }
-    tr.setAttribute('aria-selected', isSelected ? 'true' : 'false');
 
-    const tdName = document.createElement('td');
+    const row = document.createElement('div');
+    row.className = `group-row${isSelected ? ' is-selected' : ''}`;
+    row.setAttribute('role', 'listitem');
+
     const nameBtn = document.createElement('button');
     nameBtn.type = 'button';
-    nameBtn.className = 'group-pick-btn';
+    nameBtn.className = 'group-row-name';
     nameBtn.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-    nameBtn.title = g.group_name;
-    nameBtn.textContent = g.group_name;
-    nameBtn.addEventListener('click', () => {
-      handlers.onSelectGroup(isSelected ? null : g.group_name);
-    });
-    tdName.appendChild(nameBtn);
-
-    const tdRole = document.createElement('td');
-    const roleWrap = document.createElement('div');
-    roleWrap.style.display = 'inline-flex';
-    roleWrap.style.alignItems = 'center';
-    roleWrap.style.gap = '6px';
-
+    nameBtn.title = `${g.group_name} (klik untuk sorot di model)`;
+    const nm = splitName(g.group_name);
     const sw = categorySwatchStyle(effCat);
     const dot = document.createElement('i');
     dot.className = sw.className;
     if (sw.bg) dot.style.background = sw.bg;
+    const nmWrap = document.createElement('span');
+    nmWrap.className = 'group-row-text';
+    const nmMain = document.createElement('span');
+    nmMain.className = 'group-row-main';
+    nmMain.textContent = nm.main;
+    nmWrap.appendChild(nmMain);
+    if (nm.sub) {
+      const nmSub = document.createElement('span');
+      nmSub.className = 'group-row-sub';
+      nmSub.textContent = nm.sub;
+      nmWrap.appendChild(nmSub);
+    }
+    nameBtn.append(dot, nmWrap);
+    nameBtn.addEventListener('click', () => {
+      handlers.onSelectGroup(isSelected ? null : g.group_name);
+    });
+
+    const area = document.createElement('span');
+    area.className = 'group-row-area num';
+    if (effCat === 'frame' || effCat === 'shading' || effCat === 'ignore') {
+      area.classList.add('muted');
+      area.textContent = '–';
+      area.title = 'Tidak dihitung sebagai luas selubung';
+    } else {
+      area.textContent = `${fmtId(g.outer_area_m2 || 0, 1)} m²`;
+    }
 
     const sel = document.createElement('select');
-    sel.className = 'field-select field-select-sm';
-    sel.style.width = 'auto';
-    sel.style.maxWidth = '110px';
+    sel.className = 'field-select field-select-sm group-row-select';
     sel.setAttribute('aria-label', `Klasifikasi untuk ${g.group_name}`);
-
+    sel.disabled = Boolean(state.inspectBusy);
     if (effCat === 'unknown') {
       const unkOpt = document.createElement('option');
       unkOpt.value = 'unknown';
@@ -253,50 +262,34 @@ export function renderInspectScreen(state, handlers) {
       handlers.onChangeGroupCategory(g.group_name, sel.value);
     });
 
-    roleWrap.append(dot, sel);
-    tdRole.appendChild(roleWrap);
-
-    const tdArea = document.createElement('td');
-    tdArea.style.textAlign = 'right';
-    tdArea.style.whiteSpace = 'nowrap';
-    if (effCat === 'frame' || effCat === 'shading' || effCat === 'ignore') {
-      tdArea.className = 'muted';
-      tdArea.textContent = '–';
-    } else {
-      tdArea.textContent = `${fmtId(g.outer_area_m2 || 0, 1)} m²`;
-    }
-
-    tr.append(tdName, tdRole, tdArea);
-    tbody.appendChild(tr);
+    row.append(nameBtn, area, sel);
+    list.appendChild(row);
   }
 
-  // Append missing-mesh-only layers (no render mesh)
+  // Layer tanpa render mesh
   for (const mm of missingMesh) {
     const mName = typeof mm === 'object' ? mm.layer || mm.name || 'Objek tanpa mesh' : String(mm);
     if (renderedNames.has(mName)) continue;
-    const tr = document.createElement('tr');
-
-    const tdName = document.createElement('td');
-    tdName.textContent = mName;
-
-    const tdRole = document.createElement('td');
+    const row = document.createElement('div');
+    row.className = 'group-row';
+    row.setAttribute('role', 'listitem');
+    const nm = splitName(mName);
+    const nameEl = document.createElement('span');
+    nameEl.className = 'group-row-name';
+    nameEl.title = mName;
+    nameEl.innerHTML = '<span class="group-row-text"><span class="group-row-main"></span></span>';
+    nameEl.querySelector('.group-row-main').textContent = nm.main;
+    const area = document.createElement('span');
+    area.className = 'group-row-area st-warn';
+    area.textContent = 'tanpa mesh';
     const chip = document.createElement('span');
-    chip.className = 'chip';
+    chip.className = 'chip group-row-select';
     chip.textContent = 'Rangka';
-    tdRole.appendChild(chip);
-
-    const tdArea = document.createElement('td');
-    tdArea.style.textAlign = 'right';
-    tdArea.className = 'st-warn';
-    tdArea.textContent = 'tanpa mesh';
-
-    tr.append(tdName, tdRole, tdArea);
-    tbody.appendChild(tr);
+    row.append(nameEl, area, chip);
+    list.appendChild(row);
   }
 
-  table.appendChild(tbody);
-  tableWrap.appendChild(table);
-  groupsCard.append(grHead, tableWrap);
+  groupsCard.append(grHead, list);
 
   // Right Bottom: Daftar kejanggalan + Hitung OTTV
   const flagsCard = document.createElement('section');

@@ -170,6 +170,8 @@ const initialState = {
   // Fase 4c: Compare mode, design history & Workspace v1
   alternatives: [], // [{ id, code, name, kind: 'settings'|'model', config, analysisData, modelId?, filename?, createdAt }]
   compareModelDraft: null, // Bandingkan: model kedua yang sedang disiapkan
+  proceedBusy: false, // Konfirmasi -> Inspeksi sedang memproses
+  inspectBusy: false, // inspeksi sedang dibaca ulang
   activeAlternativeId: null,
   compareSplitRatio: 0.5, // 0.10 .. 0.90
   compareBusy: false,

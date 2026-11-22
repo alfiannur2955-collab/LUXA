@@ -3781,3 +3781,164 @@ body.is-d5-rotating * {
   cursor: pointer;
   border-radius: 12px;
 }
+
+/* Indikator proses: spinner + tombol sibuk */
+.spin {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: luxa-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.spin-sm {
+  width: 11px;
+  height: 11px;
+  border-width: 1.5px;
+}
+
+@keyframes luxa-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.cta.is-busy {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: progress;
+  opacity: 1;
+}
+
+.cta.is-busy::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.22) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: luxa-sheen 1.3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes luxa-sheen {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.inspect-updating {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--sun);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin,
+  .cta.is-busy::after {
+    animation-duration: 2.4s;
+  }
+}
+
+/* Daftar grup Inspeksi */
+.group-list {
+  display: grid;
+  gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  padding-right: 2px;
+}
+
+.group-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'name area'
+    'role role';
+  align-items: center;
+  gap: 6px 8px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: var(--glass-thin);
+}
+
+.group-row.is-selected {
+  border-color: var(--sun);
+  background: var(--glass);
+}
+
+.group-row-name {
+  grid-area: name;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.group-row-name > i {
+  flex-shrink: 0;
+}
+
+.group-row-text {
+  display: grid;
+  min-width: 0;
+}
+
+.group-row-main {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-row-sub {
+  font-size: 11px;
+  color: var(--ink-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-row-area {
+  grid-area: area;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.group-row-select {
+  grid-area: role;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Judul kartu samping Inspeksi tetap satu baris; chip status tidak terlipat */
+.inspect-side-card h2 {
+  white-space: nowrap;
+  font-size: 17px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inspect-side-card .chip,
+.inspect-side-card .inspect-updating {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
