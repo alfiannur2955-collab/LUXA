@@ -13,7 +13,7 @@ import { renderFormulaPill } from '../viewer/formulaPill.js';
 import {
   ORIENTATION_CODES,
   buildOrientationRingLegendSvg,
-  buildPastelGradientCss,
+  buildExposureGradientCss,
   horizontalNeutralColor,
   orientationToCssColor,
   ottvToHeatCssVar,
@@ -130,7 +130,7 @@ export function renderResultsScreen(state, handlers) {
     gradBar.className = 'heat-grad-bar';
     gradBar.setAttribute('aria-hidden', 'true');
     if (isSmooth) {
-      gradBar.style.background = buildPastelGradientCss(readThemeTokens());
+      gradBar.style.background = buildExposureGradientCss(readThemeTokens());
     }
     const limitMark = document.createElement('i');
     limitMark.className = 'heat-grad-limit';
@@ -139,18 +139,14 @@ export function renderResultsScreen(state, handlers) {
     const gradTicks = document.createElement('span');
     gradTicks.className = 'heat-grad-ticks num';
     if (isSmooth) {
-      // Halus: skala relatif model (Rendah -> Tinggi); garis = batas 35 bila masuk rentang.
-      const rng = viewer.lastSmoothRange;
+      // Halus: paparan matahari (W/m²) relatif terhadap model ini; tidak mengubah hasil hitung.
       gradTicks.setAttribute('data-luxa-smooth-legend', '');
-      gradTicks.innerHTML = smoothLegendTicksHtml(rng);
-      limitMark.setAttribute('data-luxa-smooth-limit', '');
-      limitMark.title = 'Batas SNI 35 W/m²';
-      if (rng) {
-        const t = (35 - rng.min) / (rng.max - rng.min);
-        limitMark.style.display = t >= 0 && t <= 1 ? 'block' : 'none';
-        limitMark.style.left = `${Math.max(0, Math.min(1, t)) * 100}%`;
-      }
-      gradWrap.title = 'Halus: warna direntangkan dari nilai terendah ke tertinggi model ini';
+      gradTicks.innerHTML = smoothLegendTicksHtml(viewer.lastSmoothRange);
+      limitMark.style.display = 'none';
+      gradWrap.title =
+        'Paparan matahari (W/m²): SF menurut arah hadap tiap titik' +
+        (gran === 'panel' ? ' × faktor peneduh panel.' : '.') +
+        ' Hanya tampilan; angka OTTV tidak berubah.';
     } else {
       gradTicks.innerHTML = '<span>0</span><span>25</span><span class="is-limit">35 batas</span><span>60</span>';
     }
@@ -172,7 +168,7 @@ export function renderResultsScreen(state, handlers) {
     if (isSmooth) {
       const smNote = document.createElement('span');
       smNote.className = 'legend-smooth-note';
-      smNote.textContent = 'skala relatif';
+      smNote.textContent = 'paparan matahari';
       smNote.title = 'Warna dihitung per titik: SF diinterpolasi di antara 8 arah sesuai arah hadap fasad';
       legend.appendChild(smNote);
     }
