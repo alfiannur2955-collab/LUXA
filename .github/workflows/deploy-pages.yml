@@ -1,0 +1,58 @@
+# Build LUXA as a static site (in-browser engine, no server) and publish it to GitHub Pages.
+# Runs only when started by hand (Actions tab -> "Deploy LUXA" -> Run workflow).
+# Before the first run: Settings -> Pages -> Source: "GitHub Actions".
+name: Deploy LUXA (GitHub Pages)
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_template:
+        description: "Sertakan template laporan prodi (hanya setelah ada izin prodi)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Cache engine binaries (Pyodide, wheels, rhino3dm)
+        uses: actions/cache@v4
+        with:
+          path: frontend/.engine-cache
+          key: luxa-engine-${{ hashFiles('frontend/scripts/fetch_engine_assets.sh') }}
+      - run: bash scripts/fetch_engine_assets.sh
+      - run: npm run build
+        env:
+          LUXA_INCLUDE_TEMPLATE: ${{ inputs.include_template && '1' || '0' }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

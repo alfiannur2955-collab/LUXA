@@ -275,8 +275,11 @@ def export_report(analysis_id: str, fmt: str) -> Dict[str, Any]:
 
         try:
             tpl_bytes, tpl_warnings, _ = export_template_prodi_xlsx(data)
-        except FileNotFoundError as exc:
-            raise EngineError(str(exc), 500) from exc
+        except FileNotFoundError:
+            # Public builds may ship without the prodi template (LUXA_INCLUDE_TEMPLATE=0).
+            out = export_report(analysis_id, "xlsx")
+            out["warnings"] = ["Template laporan prodi tidak disertakan di versi ini, jadi yang diunduh laporan Excel umum."]
+            return out
         return {"bytes": tpl_bytes, "filename": f"Template_Prodi_OTTV_{base}_{short_id}.xlsx",
                 "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 "warnings": list(tpl_warnings or [])}

@@ -21,6 +21,9 @@ if [ ! -f "$DEST/pyodide/pyodide.asm.wasm" ]; then
   cp .tmp-engine/pyodide/* "$DEST/pyodide/"
 fi
 pypi() { python3 -c "import json,urllib.request as u;d=json.load(u.urlopen('https://pypi.org/pypi/$1/json'));print([x['url'] for x in d['urls'] if x['filename'].endswith('none-any.whl')][0])"; }
+if ls "$DEST"/wheels/ifcopenshell-0.9.1* >/dev/null 2>&1 && [ -f "$DEST/rhino3dm/rhino3dm.wasm" ]; then
+  echo "Aset engine sudah ada di $DEST"; rm -rf .tmp-engine; exit 0
+fi
 for spec in trimesh/5.2.1 ladybug-geometry/1.35.10 openpyxl/3.1.5 et-xmlfile/2.0.0; do
   (cd "$DEST/wheels" && curl -sL -O "$(pypi "$spec")")
 done

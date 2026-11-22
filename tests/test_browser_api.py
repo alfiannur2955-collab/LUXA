@@ -104,3 +104,19 @@ def test_analysis_store_is_bounded_and_switching_model_clears(both):
     with pytest.raises(browser_api.EngineError) as e:
         browser_api.exposure(ids[0])
     assert e.value.status == 404
+
+
+def test_template_prodi_falls_back_to_generic_excel_when_missing(both, monkeypatch):
+    client, work = both
+    _upload_both(client, work)
+    aid = browser_api.analyze("m1")["analysis_id"]
+    import report_template_map
+
+    def _missing(*a, **k):
+        raise FileNotFoundError("template_prodi.xlsx tidak ada")
+
+    monkeypatch.setattr(report_template_map, "export_template_prodi_xlsx", _missing)
+    out = browser_api.export_report(aid, "template_prodi")
+    assert out["filename"].endswith(".xlsx") and len(out["bytes"]) > 1000
+    assert out["warnings"] and "Template laporan prodi" in out["warnings"][0]
+

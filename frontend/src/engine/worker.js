@@ -148,7 +148,8 @@ self.onmessage = async (e) => {
     if (op === 'upload') {
       json = await upload(args);
     } else {
-      if (args.op === 'export_report' && args.args?.fmt === 'xlsx') await ensureXlsx();
+      const fmt = args.op === 'export_report' ? args.args?.fmt : null;
+      if (fmt === 'xlsx' || (fmt === 'template_prodi' && !manifest.template)) await ensureXlsx();
       json = call(args.op, args.args);
     }
     // Send the JSON string as-is: parsing on the main thread avoids a second structured clone.

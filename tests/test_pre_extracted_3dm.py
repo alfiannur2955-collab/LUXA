@@ -37,6 +37,11 @@ def test_pre_extracted_3dm_matches_native(tmp_path, fixture_dir, payload_name) -
     assert audit_b.detected_unit == audit_n.detected_unit
     assert len(audit_b.missing_mesh) == len(audit_n.missing_mesh)
 
+    from adapters import detect_file_signature
+
+    shutil.copy(native, tmp_path / "model.3dm")
+    assert detect_file_signature(str(payload))["detected_software_label"] == detect_file_signature(str(native))["detected_software_label"]
+
     params = ProjectConfig().to_envelope_parameters()
     res_n = analyze_building_ottv(str(native), "model.3dm", params)
     res_b = analyze_building_ottv(str(payload), "model.3dm", params)

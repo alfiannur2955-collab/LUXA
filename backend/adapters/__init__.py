@@ -171,7 +171,13 @@ def detect_file_signature(filepath: str) -> Dict[str, Any]:
     Inspects file header/magic bytes to detect the actual authoring software & format
     automatically — no pre-upload `source_software` form required.
     """
-    ext = os.path.splitext(filepath.lower())[1]
+    if filepath.lower().endswith(".3dm.json"):
+        # Browser engine: rhino3dm.js output; detect from the original .3dm kept beside it.
+        original = filepath[: -len(".json")]
+        filepath = original if os.path.isfile(original) else filepath
+        ext = ".3dm"
+    else:
+        ext = os.path.splitext(filepath.lower())[1]
     sig: Dict[str, Any] = {
         "actual_ext": ext,
         "detected_software": None,
@@ -201,6 +207,8 @@ def detect_file_signature(filepath: str) -> Dict[str, Any]:
         elif ext == ".3dm":
             sig["detected_software"] = "rhino"
             sig["detected_software_label"] = "Rhinoceros 3D (.3dm)"
+            if not filepath.lower().endswith(".3dm"):
+                return sig
             with open(filepath, "rb") as f:
                 raw_chunk = f.read(65536).decode("latin-1", errors="ignore").lower()
             if "archicad" in raw_chunk or "graphisoft" in raw_chunk:

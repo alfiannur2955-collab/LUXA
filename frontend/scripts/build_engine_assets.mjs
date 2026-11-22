@@ -87,6 +87,7 @@ export function buildEngineAssets({ quiet = false } = {}) {
   for (const f of ['rhino3dm.module.js', 'rhino3dm.wasm']) copy(path.join(cache, 'rhino3dm', f), path.join(OUT, 'rhino3dm', f));
 
   const bundle = { files: backendBundle() };
+  manifest.template = bundle.files.some((f) => f.path.endsWith('template_prodi.xlsx'));
   const bundleJson = JSON.stringify(bundle);
   fs.writeFileSync(path.join(OUT, 'backend_bundle.json'), bundleJson);
 
