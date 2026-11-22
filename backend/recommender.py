@@ -433,7 +433,8 @@ def rematerial_analysis(
             alpha_r = float(rf_mat.get("alpha", rttv.get("alpha_roof", 0.50)))
             massa_r = float(rf_mat.get("massa_kg_m2", 250.0))
             tdek_r = float(get_tdek_roof(massa_r)) if is_sni_mode else float(rf_mat.get("td_ek") or get_tdek_roof(massa_r))
-            sf_sky = float(rttv.get("sf_skylight_wm2", 342.0) or 342.0)
+            # SF atap/horizontal kota (Tabel 8, kolom Roof/Horisontal) dari hasil engine.
+            sf_sky = float(rttv.get("sf_roof_wm2") or rttv.get("sf_skylight_wm2") or 342.0)
             u_s = float(glz_mat["u_value"]) if glz_mat else float(rttv.get("u_skylight", fallback_u_f))
             _, sc_s = _glazing_sc_and_shgc(glz_mat, fallback_sc, is_template_method)
             q_ro = alpha_r * u_r * roof_opaque_a * tdek_r
@@ -444,6 +445,10 @@ def rematerial_analysis(
             rttv["u_roof"] = round(u_r, 3)
             rttv["alpha_roof"] = round(alpha_r, 3)
             rttv["td_ek_roof"] = round(tdek_r, 2)
+            rttv["td_eq_k"] = round(tdek_r, 1)
+            rttv["q_roof_conduction_wm2"] = round(q_ro / total_r_a, 2)
+            rttv["q_skylight_conduction_wm2"] = round(q_sc / total_r_a, 2)
+            rttv["q_skylight_solar_wm2"] = round(q_ss / total_r_a, 2)
             rttv["rttv_wm2"] = rttv_val
             rttv["limit_wm2"] = lim_r
             rttv["compliant"] = rttv_val <= lim_r

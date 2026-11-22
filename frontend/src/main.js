@@ -355,6 +355,26 @@ function handleToggleOverlay(id, on) {
   else if (id === 'check') setState({ overlayCheck: Boolean(on) });
 }
 
+/** RTTV opsional (Mode lanjut). Mengubahnya perlu hitung ulang; OTTV tidak terpengaruh. */
+function handleToggleRttv(on) {
+  updateConfig((cfg) => {
+    cfg.settings.compute_rttv = Boolean(on);
+  });
+  setState({ needsRecompute: Boolean(getState().analysisData) });
+  saveProjectAutosave(getState());
+}
+
+function handleToggleSkylightGroup(groupName, on) {
+  updateConfig((cfg) => {
+    const set = new Set(cfg.settings.rttv_skylight_groups || []);
+    if (on) set.add(groupName);
+    else set.delete(groupName);
+    cfg.settings.rttv_skylight_groups = [...set];
+  });
+  setState({ needsRecompute: Boolean(getState().analysisData) });
+  saveProjectAutosave(getState());
+}
+
 function handleChangeFacadeFilter(filterMode) {
   setState({ facadeFilter: filterMode });
   if (filterMode === 'sunlit_now' && getState().analysisData) {
@@ -938,7 +958,7 @@ async function handleCalculateOttv() {
       stages: [
         { label: 'Menyimpan konfigurasi proyek', status: 'running' },
         { label: 'Mencari sisi luar fasad dan mengukur peneduh', status: 'pending' },
-        { label: 'Menghitung OTTV per arah dan RTTV', status: 'pending' },
+        { label: 'Menghitung OTTV per arah', status: 'pending' },
       ],
       onCancel: () => cancelActiveOperation(prevStep),
     },
@@ -954,7 +974,7 @@ async function handleCalculateOttv() {
         stages: [
           { label: 'Menyimpan konfigurasi proyek', status: 'done' },
           { label: 'Mencari sisi luar fasad dan mengukur peneduh', status: 'running' },
-          { label: 'Menghitung OTTV per arah dan RTTV', status: 'pending' },
+          { label: 'Menghitung OTTV per arah', status: 'pending' },
         ],
         onCancel: () => cancelActiveOperation(prevStep),
       },
@@ -1412,6 +1432,8 @@ const panelBuilders = createRailPanelBuilders({
   onSelectDirection: handleSelectDirection,
   onChangeViewerMode: handleChangeViewerMode,
     onToggleOverlay: handleToggleOverlay,
+    onToggleRttv: handleToggleRttv,
+    onToggleSkylightGroup: handleToggleSkylightGroup,
     onSetSunView: handleSetSunView,
   onFitCamera: handleFitCamera,
   onToggleTheme: toggleTheme,
@@ -1595,6 +1617,8 @@ function renderApp(state) {
         vbarHandlers,
         onChangeViewerMode: handleChangeViewerMode,
     onToggleOverlay: handleToggleOverlay,
+    onToggleRttv: handleToggleRttv,
+    onToggleSkylightGroup: handleToggleSkylightGroup,
     onSetSunView: handleSetSunView,
         onChangeNorth: handleChangeNorthAngle,
         onSelectGroup: (groupName) => setState({ selectedGroup: groupName }),
@@ -1706,6 +1730,8 @@ function renderApp(state) {
         vbarHandlers,
         onChangeViewerMode: handleChangeViewerMode,
     onToggleOverlay: handleToggleOverlay,
+    onToggleRttv: handleToggleRttv,
+    onToggleSkylightGroup: handleToggleSkylightGroup,
     onSetSunView: handleSetSunView,
         onChangeNorth: handleChangeNorthAngle,
         onToggleFormulaPill: (open) => setState({ formulaPillExpanded: Boolean(open) }),
@@ -1864,6 +1890,8 @@ function renderApp(state) {
     onToggleNorthRotateMode: () => handleToggleNorthRotateMode(),
     onChangeViewerMode: handleChangeViewerMode,
     onToggleOverlay: handleToggleOverlay,
+    onToggleRttv: handleToggleRttv,
+    onToggleSkylightGroup: handleToggleSkylightGroup,
     onSetSunView: handleSetSunView,
     onSaveView: handleSaveView,
     onApplyView: handleApplyView,
@@ -1951,6 +1979,8 @@ installShortcuts({
     onToggleNorthRotateMode: (force) => handleToggleNorthRotateMode(force === undefined ? null : force),
     onChangeViewerMode: handleChangeViewerMode,
     onToggleOverlay: handleToggleOverlay,
+    onToggleRttv: handleToggleRttv,
+    onToggleSkylightGroup: handleToggleSkylightGroup,
     onSetSunView: handleSetSunView,
     onSaveView: handleSaveView,
     onCapturePng: handleCapturePng,

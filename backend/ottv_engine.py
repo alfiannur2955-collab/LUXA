@@ -103,6 +103,9 @@ class EnvelopeParameters:
     custom_floor_zones: List[Dict[str, Any]] = field(default_factory=list)
     section_floor_min: Optional[int] = None
     section_floor_max: Optional[int] = None
+    # RTTV opsional (None = dihitung, perilaku lama) & grup skylight eksplisit (None = otomatis)
+    compute_rttv: Optional[bool] = None
+    rttv_skylight_groups: Optional[List[str]] = None
 
     # Stage 4: Layer-Bound Material Assignment & Orientation Overrides (resolved via config_schema.resolve_material)
     orientation_material_overrides: Dict[str, str] = field(default_factory=dict)
@@ -2003,6 +2006,9 @@ def analyze_building_ottv(
             # SNI Pasal 4.4: Upward-facing glazing (nz > 0.50) counts as RTTV skylight ONLY if
             # shortest in-plane dimension > 0.30 m; thinner faces are recorded as 'sisi_tebal_panel'.
             if panel_cat == "glazing" and float(normals_v[i, 2]) > 0.50:
+                # Skylight hanya dari grup yang ditandai pengguna (bila daftar diisi); selain itu
+                # kaca menghadap atas tetap dikeluarkan dari OTTV tetapi tidak masuk RTTV.
+                sky_allowed = params.rttv_skylight_groups is None or rg.group_name in set(params.rttv_skylight_groups)
                 min_d_i = float(_compute_face_shortest_dims(
                     p0_v[i:i + 1],
                     p1_v[i:i + 1],
@@ -2012,7 +2018,7 @@ def analyze_building_ottv(
                     normals_v[i:i + 1],
                 )[0])
                 if min_d_i > 0.30:
-                    if (not group_disabled) and (not is_below_ground) and (not face_non_envelope):
+                    if sky_allowed and (not group_disabled) and (not is_below_ground) and (not face_non_envelope):
                         pm_sky = get_material_by_id(eff_panel_mat_id, extra_materials=extra_mats) or glz_mat or {}
                         a_sky_i = float(areas_v[i])
                         skylight_area_m2 += a_sky_i
@@ -3275,15 +3281,33 @@ def analyze_building_ottv(
         eff_status_label = "MELEBIHI BATAS SNI 6389:2020 (> 35 W/m²)"
         eff_compliant = False
 
-    rttv_result = _compute_sni_rttv(
-        roof_groups=roof_groups,
-        skylight_area_m2=skylight_area_m2,
-        skylight_u_weighted=skylight_u_weighted,
-        skylight_sc_weighted=skylight_sc_weighted,
-        params=params,
-        sni_city_key=sni_city_key,
-        z_max_bldg=z_max_bldg,
-    )
+    if params.compute_rttv is False:
+        rttv_result = {
+            "applicable": False,
+            "disabled": True,
+            "rttv_wm2": 0.0,
+            "limit_wm2": SNI_RTTV_LIMIT_OPAQUE_ONLY_WM2,
+            "compliant": None,
+            "opaque_roof_area_m2": 0.0,
+            "skylight_area_m2": 0.0,
+            "total_roof_area_m2": 0.0,
+            "srr": 0.0,
+            "sf_roof_wm2": get_sf_for_source(params.city_preset, "ROOF", params.sf_source),
+            "delta_t_k": SNI_DELTA_T_K,
+            "q_roof_conduction_wm2": 0.0,
+            "q_skylight_conduction_wm2": 0.0,
+            "q_skylight_solar_wm2": 0.0,
+        }
+    else:
+        rttv_result = _compute_sni_rttv(
+            roof_groups=roof_groups,
+            skylight_area_m2=skylight_area_m2,
+            skylight_u_weighted=skylight_u_weighted,
+            skylight_sc_weighted=skylight_sc_weighted,
+            params=params,
+            sni_city_key=sni_city_key,
+            z_max_bldg=z_max_bldg,
+        )
 
     from adapters import detect_file_signature
     file_sig = detect_file_signature(filepath)

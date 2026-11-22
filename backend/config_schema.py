@@ -174,6 +174,10 @@ class SettingsConfig(BaseModel):
     sun_dome_radius_m: Optional[float] = Field(default=None, ge=1.0, le=5000.0)
     # Tampilan saja (skala warna mode Matahari sepanjang tahun); tidak dipakai perhitungan.
     exposure_scale: Optional[Dict[str, Any]] = None
+    # RTTV (Pasal 4.4) opsional. None = perilaku lama (selalu dihitung, deteksi skylight otomatis).
+    compute_rttv: Optional[bool] = None
+    # Grup kaca yang ditandai pengguna sebagai skylight. None = deteksi otomatis (kaca menghadap atas).
+    rttv_skylight_groups: Optional[List[str]] = None
 
 
 class AdvancedConfig(BaseModel):
@@ -246,6 +250,10 @@ class ProjectConfig(BaseModel):
             custom_floor_zones=copy.deepcopy(self.settings.custom_floor_zones),
             section_floor_min=self.settings.section_floor_min,
             section_floor_max=self.settings.section_floor_max,
+            compute_rttv=self.settings.compute_rttv,
+            rttv_skylight_groups=(
+                list(self.settings.rttv_skylight_groups) if self.settings.rttv_skylight_groups is not None else None
+            ),
             nurbs_u_div=self.advanced.nurbs_u_div,
             nurbs_v_div=self.advanced.nurbs_v_div,
             enable_parametric_louvers=self.advanced.enable_parametric_louvers,

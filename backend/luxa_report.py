@@ -515,12 +515,17 @@ def _sheet_summary(ws, analysis: Dict[str, Any], refs: Dict[str, Dict[str, str]]
     _set(ws, f"B{r}", f"=E{tr}", F_RESULT, FILL_TOTAL, NUM2, border=True)
     _set(ws, f"C{r}", f'=IF(B{r}<=OTTV_LIMIT,"Memenuhi (≤ "&TEXT(OTTV_LIMIT,"0")&" W/m²)","Tidak memenuhi (batas "&TEXT(OTTV_LIMIT,"0")&" W/m²)")', F_OK)
     ws.merge_cells(f"C{r}:F{r}")
-    _set(ws, f"A{r + 1}", "RTTV atap (W/m²)", F_H)
-    if roof_ref:
-        _set(ws, f"B{r + 1}", f"={roof_ref}", F_RESULT, FILL_TOTAL, NUM2, border=True)
-        _set(ws, f"C{r + 1}", "='Atap RTTV'!B23", F_OK)
+    rttv_disabled = bool((analysis.get("rttv") or {}).get("disabled"))
+    if rttv_disabled:
+        # Laporan OTTV saja: baris RTTV dihilangkan, komposisi panas naik satu baris.
+        r -= 1
     else:
-        _set(ws, f"B{r + 1}", "Tidak berlaku", border=True)
+        _set(ws, f"A{r + 1}", "RTTV atap (W/m²)", F_H)
+        if roof_ref:
+            _set(ws, f"B{r + 1}", f"={roof_ref}", F_RESULT, FILL_TOTAL, NUM2, border=True)
+            _set(ws, f"C{r + 1}", "='Atap RTTV'!B23", F_OK)
+        else:
+            _set(ws, f"B{r + 1}", "Tidak berlaku", border=True)
     _set(ws, f"A{r + 2}", "Komposisi panas (W/m²)", F_H)
     comp = [("Konduksi dinding", "+".join(refs[c]["wall_w"] for c, _, _ in ORIENTATIONS)),
             ("Konduksi kaca", "+".join(refs[c]["cond_w"] for c, _, _ in ORIENTATIONS)),
@@ -573,11 +578,13 @@ def build_luxa_workbook(analysis: Dict[str, Any]) -> Workbook:
     app_ori = {o.get("code"): o for o in analysis.get("orientation_breakdown") or []}
     refs = {code: _sheet_orientation(wb, analysis, code, name, title, app_ori.get(code) or {})
             for code, name, title in ORIENTATIONS}
-    roof_ref = _sheet_roof(wb, analysis)
+    # RTTV opsional: bila tidak diaktifkan, laporan hanya berisi OTTV (tanpa sheet Atap RTTV).
+    rttv_on = not bool((analysis.get("rttv") or {}).get("disabled"))
+    roof_ref = _sheet_roof(wb, analysis) if rttv_on else None
     _sheet_material(wb, analysis, extra)
     _sheet_floors(wb, analysis)
     _sheet_summary(summary, analysis, refs, roof_ref)
-    order = ["Ringkasan", "Material"] + [t for _, _, t in ORIENTATIONS] + ["Atap RTTV", "Per lantai", "Referensi"]
+    order = ["Ringkasan", "Material"] + [t for _, _, t in ORIENTATIONS] + (["Atap RTTV"] if rttv_on else []) + ["Per lantai", "Referensi"]
     wb._sheets = [wb[n] for n in order]  # noqa: SLF001 - openpyxl has no public reorder API
     wb.active = 0
     wb.properties.creator = "LUXA by Alf Studio"

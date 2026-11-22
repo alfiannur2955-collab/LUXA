@@ -436,9 +436,11 @@ export function renderCompareScreen(state, handlers) {
         false,
       ]);
       diffRows.push(['Total panas', `${fmtId(totalHeatKw(b), 1)} → ${fmtId(totalHeatKw(a), 1)} kW`, false]);
-      const rb = b?.rttv?.applicable ? fmtId(b.rttv.rttv_wm2, 2) : '-';
-      const ra = a?.rttv?.applicable ? fmtId(a.rttv.rttv_wm2, 2) : '-';
-      diffRows.push(['RTTV', `${rb} → ${ra} W/m²`, false]);
+      if (b?.rttv?.applicable || a?.rttv?.applicable) {
+        const rb = b?.rttv?.applicable ? fmtId(b.rttv.rttv_wm2, 2) : '-';
+        const ra = a?.rttv?.applicable ? fmtId(a.rttv.rttv_wm2, 2) : '-';
+        diffRows.push(['RTTV', `${rb} → ${ra} W/m²`, false]);
+      }
       diffRows.push(['Lantai', `${b?.summary?.total_floors ?? '-'} → ${a?.summary?.total_floors ?? '-'}`, false]);
     }
     if (activeAlt.disabledGroups?.length) {
