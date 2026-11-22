@@ -91,6 +91,8 @@ def _parse_rgb_css(rgb_str: str) -> tuple[float, float, float]:
 
 def test_heatmap_and_orientation_material_matches_legend_delta_e_under_10() -> None:
     node_bin = _find_node_binary()
+    if not os.path.isdir(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "node_modules", "three")):
+        pytest.skip("frontend/node_modules belum terpasang (jalankan npm ci di frontend)")
     themes = _extract_theme_tokens()
 
     script = r"""
