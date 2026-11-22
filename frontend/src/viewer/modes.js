@@ -226,32 +226,36 @@ export function buildPastelGradientCss(tokensOverride = null) {
 }
 
 /**
- * Fase 4d D3: Cyclic 8-direction pastel azimuth palette derived strictly from theme CSS tokens
- * (zero hardcoded hex), matching `ref-heatmap-halus.png` soft pastel aesthetics.
- * Order: U (0°) -> TL (45°) -> T (90°) -> TG (135°) -> S (180°) -> BD (225°) -> B (270°) -> BL (315°).
+ * Palet Orientasi: roda warna pastel OKLCH dengan hue yang benar-benar berbeda per arah
+ * (U biru, TL toska, T hijau, TG kuning, S peach, BD merah muda, B magenta, BL lavender),
+ * lightness dan chroma sama sehingga tidak ada arah yang tampak "lebih panas".
+ * Tema gelap memakai lightness lebih rendah.
  */
+const ORIENT_HUES_DEG = [245, 195, 140, 100, 62, 20, 345, 295];
+
+function _oklchToThree(L, C, hDeg) {
+  const h = (hDeg * Math.PI) / 180;
+  const [r, g, b] = _oklabToLinearRgb(L, C * Math.cos(h), C * Math.sin(h));
+  const out = new THREE.Color();
+  out.setRGB(r, g, b);
+  return out;
+}
+
+function _isDarkTheme(tokens) {
+  const c = new THREE.Color(tokens.paper || tokens.surface || '#ffffff');
+  return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b < 0.18;
+}
+
+let _orientStopsCache = { sig: '', stops: null };
 function _getCyclicPastelOrientationStops(tokens) {
-  const cLift = new THREE.Color(tokens.surface || tokens.paper || tokens.wall);
-  const cGlz = new THREE.Color(tokens.glazing);
-  const cShade = new THREE.Color(tokens.shading);
-  const cWall = new THREE.Color(tokens.wall);
-  const cH0 = new THREE.Color(tokens.heat0);
-  const cH1 = new THREE.Color(tokens.heat1);
-  const cH2 = new THREE.Color(tokens.heat2);
-  const cFail = new THREE.Color(tokens.fail || tokens.heat3);
-
-  const pastel = (c) => _oklabLerpThree(c, cLift, 0.34);
-
-  return [
-    pastel(_oklabLerpThree(cGlz, cShade, 0.35)),  // 0°  U  (pastel cool cyan-blue)
-    pastel(_oklabLerpThree(cShade, cH0, 0.32)),   // 45° TL (pastel sage-mint)
-    pastel(_oklabLerpThree(cH0, cH1, 0.55)),      // 90° T  (pastel warm yellow-amber)
-    pastel(_oklabLerpThree(cH1, cH2, 0.35)),      // 135° TG (pastel apricot)
-    pastel(_oklabLerpThree(cH2, cFail, 0.28)),    // 180° S  (pastel soft rose-coral)
-    pastel(_oklabLerpThree(cFail, cGlz, 0.38)),   // 225° BD (pastel dusty mauve-pink)
-    pastel(_oklabLerpThree(cGlz, cFail, 0.32)),   // 270° B  (pastel lavender-periwinkle)
-    pastel(_oklabLerpThree(cGlz, cWall, 0.22)),   // 315° BL (pastel sky slate)
-  ];
+  const dark = _isDarkTheme(tokens);
+  const sig = dark ? 'dark' : 'light';
+  if (_orientStopsCache.sig === sig) return _orientStopsCache.stops;
+  const L = dark ? 0.66 : 0.87;
+  const C = dark ? 0.085 : 0.072;
+  const stops = ORIENT_HUES_DEG.map((h) => _oklchToThree(L, C, h));
+  _orientStopsCache = { sig, stops };
+  return stops;
 }
 
 export function azimuthToPastelThreeColor(azimuthDeg, tokens) {

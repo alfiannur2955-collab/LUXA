@@ -157,7 +157,8 @@ export function renderResultsScreen(state, handlers) {
     if (isSmooth) {
       const smNote = document.createElement('span');
       smNote.className = 'legend-smooth-note';
-      smNote.textContent = 'tampilan dihaluskan';
+      smNote.textContent = 'SF menurut azimut';
+      smNote.title = 'Warna dihitung per titik: SF diinterpolasi di antara 8 arah sesuai arah hadap fasad';
       legend.appendChild(smNote);
     }
   } else if (activeMode === 'orientation') {

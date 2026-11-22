@@ -885,6 +885,32 @@ class LuxaViewer {
     }
 
     const granularity = state.heatmapGranularity || 'orientation';
+    // Halus: nilai OTTV dihitung per titik dari azimut normal halus. SF diinterpolasi linear di antara
+    // 8 arah (Tabel 8), mode Arah menginterpolasi OTTV arah, mode Panel memakai suku panel sendiri.
+    const ORDER = ['U', 'TL', 'T', 'TGR', 'S', 'BD', 'B', 'BL'];
+    const breakdownByCode = {};
+    for (const row of analysis.orientation_breakdown || []) breakdownByCode[row.code === 'TG' ? 'TGR' : row.code] = row;
+    const sfRing = ORDER.map((c) => {
+      const v = Number(breakdownByCode[c]?.sni_sf_wm2);
+      return Number.isFinite(v) ? v : null;
+    });
+    const ottvRing = ORDER.map((c) => {
+      const r = breakdownByCode[c];
+      return r && Number(r.total_area_m2) > 1e-6 ? Number(r.ottv_orientation_wm2 || 0) : null;
+    });
+    const ringAt = (ring, az) => {
+      const f = ((((az % 360) + 360) % 360) / 45);
+      const i0 = Math.floor(f) % 8;
+      const i1 = (i0 + 1) % 8;
+      const t = f - Math.floor(f);
+      const a = ring[i0];
+      const b = ring[i1];
+      if (a === null && b === null) return null;
+      if (a === null) return b;
+      if (b === null) return a;
+      return a + (b - a) * t;
+    };
+    const orientKey = (c) => (c === 'TG' ? 'TGR' : c);
     const useSmooth = Boolean(state.heatmapSmooth) && mode === 'heatmap' && (state.facadeFilter || 'all') !== 'sunlit_now';
     const useOrientSmooth = mode === 'orientation' && (state.facadeFilter || 'all') !== 'sunlit_now';
     const needSmoothNormals = useSmooth || useOrientSmooth;
@@ -908,7 +934,7 @@ class LuxaViewer {
         if (Math.abs(northDelta) > 0.05 && Array.isArray(p.normal)) {
           pCode = normalToOrientationCode(p.normal[0], p.normal[1], northDeg);
         }
-        const val = granularity === 'panel' ? Number(p.ottv_panel_wm2 || 0) : (orientOttv[pCode] ?? 0);
+        const val = granularity === 'panel' ? Number(p.ottv_panel_wm2 || 0) : (orientOttv[orientKey(pCode)] ?? 0);
         const area = Math.max(0.01, Number(p.area_m2 || 1));
         const fn =
           Array.isArray(p.normal) && p.normal.length >= 3
@@ -996,7 +1022,7 @@ class LuxaViewer {
         const isSunlit = sunlitSet.has(p.id);
         color = isSunlit ? cHeat1 : cWall;
       } else if (mode === 'heatmap') {
-        const val = granularity === 'panel' ? Number(p.ottv_panel_wm2 || 0) : (orientOttv[code] ?? 0);
+        const val = granularity === 'panel' ? Number(p.ottv_panel_wm2 || 0) : (orientOttv[orientKey(code)] ?? 0);
         color = useSmooth ? ottvToPastelThreeColor(val, tokens) : ottvToThreeColor(val, tokens);
       } else if (mode === 'orientation') {
         color = Math.abs(fn[2]) > 0.7 ? cHoriz : orientationToThreeColor(code, tokens);
@@ -1027,6 +1053,23 @@ class LuxaViewer {
 
       const cForVert = (pt, sn) => {
         if (useSmooth) {
+          const horiz = Math.abs(sn[2]) > 0.7 || Math.hypot(sn[0], sn[1]) < 1e-4;
+          if (!horiz) {
+            const az = normalToAzimuthDeg(sn[0], sn[1], northDeg);
+            let v = null;
+            if (granularity === 'panel') {
+              const sf = ringAt(sfRing, az);
+              if (sf !== null) {
+                v =
+                  Number(p.ottv_panel_wm2 || 0) -
+                  Number(p.q_solar_wm2 || 0) +
+                  Number(p.wwr_panel || 0) * Number(p.sc_effective || 0) * sf;
+              }
+            } else {
+              v = ringAt(ottvRing, az);
+            }
+            if (v !== null && Number.isFinite(v)) return ottvToPastelThreeColor(v, tokens);
+          }
           const avgV = _smoothValueFor(smoothVertexVal.get(_vKey1mm(pt)), fn, _smoothClass(p));
           return avgV !== null ? ottvToPastelThreeColor(avgV, tokens) : color;
         }
@@ -1134,8 +1177,9 @@ class LuxaViewer {
     }
 
     const ctxDim = mode === 'xray' || mode === 'anomalies' || Boolean(selOrient) || facadeFilter === 'sunlit_now';
-    this._renderContextElements(analysis.shading_elements, 'shading', tokens, ctxDim, mode === 'xray');
-    this._renderContextElements(analysis.frame_elements, 'frame', tokens, ctxDim || mode === 'heatmap', mode === 'xray');
+    const orientCtx = mode === 'orientation' ? { northDeg, tokens } : null;
+    this._renderContextElements(analysis.shading_elements, 'shading', tokens, ctxDim, mode === 'xray', false, orientCtx);
+    this._renderContextElements(analysis.frame_elements, 'frame', tokens, ctxDim || mode === 'heatmap', mode === 'xray', false, orientCtx);
     this._renderContextElements(
       analysis.roof_elements,
       'roof',
@@ -1146,7 +1190,7 @@ class LuxaViewer {
     );
   }
 
-  _renderContextElements(elements, category, tokens, dimmed, xray = false, orientNeutral = false) {
+  _renderContextElements(elements, category, tokens, dimmed, xray = false, orientNeutral = false, orientCtx = null) {
     for (const el of elements || []) {
       if (!el?.vertices?.length || !el?.faces?.length) continue;
       const coords = [];
@@ -1174,7 +1218,34 @@ class LuxaViewer {
       geom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
       geom.computeVertexNormals();
       let mat;
-      if (orientNeutral && category === 'roof') {
+      if (orientCtx && !dimmed && !xray) {
+        // Orientasi: rangka dan peneduh ikut diwarnai menurut arah hadap tiap bidangnya
+        // (sedikit lebih gelap supaya tetap terbaca sebagai elemen terpisah).
+        const colArr = new Float32Array(coords.length);
+        const cH = horizontalNeutralColor(tokens);
+        for (let i = 0; i < coords.length; i += 9) {
+          const a = [coords[i], coords[i + 1], coords[i + 2]];
+          const b = [coords[i + 3], coords[i + 4], coords[i + 5]];
+          const c = [coords[i + 6], coords[i + 7], coords[i + 8]];
+          // koordinat three (x, y-atas, z) -> normal backend (E, N, atas) = (x, -z, y)
+          const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2];
+          const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2];
+          const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+          const l = Math.hypot(nx, ny, nz) || 1;
+          const bE = nx / l, bN = -nz / l, bU = ny / l;
+          let col = cH;
+          if (Math.abs(bU) <= 0.7 && Math.hypot(bE, bN) > 1e-4) {
+            col = azimuthToPastelThreeColor(normalToAzimuthDeg(bE, bN, orientCtx.northDeg), tokens).multiplyScalar(0.9);
+          }
+          for (let k = 0; k < 9; k += 3) {
+            colArr[i + k] = col.r;
+            colArr[i + k + 1] = col.g;
+            colArr[i + k + 2] = col.b;
+          }
+        }
+        geom.setAttribute('color', new THREE.Float32BufferAttribute(colArr, 3));
+        mat = makeColorAccurateMaterial({ transparent: false, opacity: 1.0 });
+      } else if (orientNeutral && category === 'roof') {
         const cNeu = horizontalNeutralColor(tokens);
         const colArr = new Float32Array(coords.length);
         for (let i = 0; i < coords.length; i += 3) {
