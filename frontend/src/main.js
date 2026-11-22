@@ -1724,7 +1724,11 @@ async function bootstrap() {
   const northRingCtrl = new NorthRingController();
   northRingCtrl.setCallbacks({
     onDragStateChange: (locked) => viewer.setInteractionLocked(locked),
-    onPreviewNorth: (deg) => handleChangeNorthAngle(deg, { commit: false }),
+    // Pratinjau hanya memutar viewer (kompas, label arah, kubah), tanpa render ulang halaman.
+    onPreviewNorth: (deg) => {
+      const s = getState();
+      viewer.syncState({ ...s, config: { ...s.config, settings: { ...s.config.settings, north_angle_deg: deg } } });
+    },
     onCommitNorth: (deg) => handleChangeNorthAngle(deg, { commit: true }),
     onExitMode: () => handleToggleNorthRotateMode(false),
   });
