@@ -698,7 +698,7 @@ class LuxaViewer {
       theme: state.theme,
       mode,
       heatmapGranularity: state.heatmapGranularity || 'orientation',
-      heatmapSmooth: Boolean(state.heatmapSmooth),
+      exposureShading: state.exposureShading !== false,
       facadeFilter: state.facadeFilter || 'all',
       expKey,
       hasAnalysis,
@@ -935,7 +935,7 @@ class LuxaViewer {
     // peneduh 3D panel itu (SCef/SC). Bidang datar menghadap atas memakai SF atap.
     const sfRoof = Number(analysis.rttv?.sf_roof_wm2 ?? analysis.sf_source_info?.sf_table?.ROOF ?? NaN);
     const smoothValueAt = (p, sn) => {
-      const shade = granularity === 'panel' ? Math.max(0, Number(p.sc_shading_multiplier ?? 1)) : 1;
+      const shade = exposureShading ? Math.max(0, Number(p.sc_shading_multiplier ?? 1)) : 1;
       if (Math.abs(sn[2]) > 0.7 || Math.hypot(sn[0], sn[1]) < 1e-4) {
         if (sn[2] > 0.7 && Number.isFinite(sfRoof)) return sfRoof * shade;
         return sn[2] < -0.7 ? 0 : null;
@@ -943,7 +943,8 @@ class LuxaViewer {
       const sf = ringAt(sfRing, normalToAzimuthDeg(sn[0], sn[1], northDeg));
       return sf === null ? null : sf * shade;
     };
-    const useSmooth = Boolean(state.heatmapSmooth) && mode === 'heatmap' && (state.facadeFilter || 'all') !== 'sunlit_now';
+    const useSmooth = mode === 'exposure' && (state.facadeFilter || 'all') !== 'sunlit_now';
+    const exposureShading = state.exposureShading !== false;
     const useOrientSmooth = mode === 'orientation' && (state.facadeFilter || 'all') !== 'sunlit_now';
     const needSmoothNormals = useSmooth || useOrientSmooth;
     const facadeFilter = state.facadeFilter || 'all';
@@ -1089,9 +1090,11 @@ class LuxaViewer {
       if (facadeFilter === 'sunlit_now' && sunlitSet) {
         const isSunlit = sunlitSet.has(p.id);
         color = isSunlit ? cHeat1 : cWall;
+      } else if (mode === 'exposure') {
+        color = exposureToThreeColor(0.5, tokens);
       } else if (mode === 'heatmap') {
         const val = granularity === 'panel' ? Number(p.ottv_panel_wm2 || 0) : (orientOttv[orientKey(code)] ?? 0);
-        color = useSmooth ? exposureToThreeColor(0.5, tokens) : ottvToThreeColor(val, tokens);
+        color = ottvToThreeColor(val, tokens);
       } else if (mode === 'orientation') {
         color = Math.abs(fn[2]) > 0.7 ? cHoriz : orientationToThreeColor(code, tokens);
       } else if (mode === 'anomalies') {
@@ -1170,7 +1173,7 @@ class LuxaViewer {
     }
 
     const useColorAccurate =
-      mode === 'heatmap' || mode === 'orientation' || facadeFilter === 'sunlit_now';
+      mode === 'heatmap' || mode === 'exposure' || mode === 'orientation' || facadeFilter === 'sunlit_now';
     const makePanelMat = useColorAccurate ? makeColorAccurateMaterial : makeVertexColorMaterial;
 
     if (mainCoords.length > 0) {
@@ -1229,7 +1232,7 @@ class LuxaViewer {
 
     const ctxDim = mode === 'xray' || mode === 'anomalies' || Boolean(selOrient) || facadeFilter === 'sunlit_now';
     this._renderContextElements(analysis.shading_elements, 'shading', tokens, ctxDim, mode === 'xray');
-    this._renderContextElements(analysis.frame_elements, 'frame', tokens, ctxDim || mode === 'heatmap', mode === 'xray');
+    this._renderContextElements(analysis.frame_elements, 'frame', tokens, ctxDim || mode === 'heatmap' || mode === 'exposure', mode === 'xray');
     this._renderContextElements(
       analysis.roof_elements,
       'roof',

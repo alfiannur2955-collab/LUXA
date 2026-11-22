@@ -1225,6 +1225,8 @@ function renderApp(state) {
   if (!rootEl) return;
   applyThemeToDom(state.theme);
   rootEl.classList.toggle('is-presentation', state.workspace?.preset === 'presentasi');
+  // Kartu fitur kiri mendorong area kerja ke kanan (tidak menutupi viewer dan bar-nya).
+  rootEl.classList.toggle('has-rail-card', Boolean(state.activeRailCard));
   updateDocumentTitle(state.step);
 
   const frag = document.createDocumentFragment();
@@ -1477,6 +1479,7 @@ function renderApp(state) {
         onExitPresentation: () => handleSetWorkspacePreset('belajar'),
         onChangeHeatmapGranularity: (gran) => setState({ heatmapGranularity: gran }),
         onToggleHeatmapSmooth: (enabled) => setState({ heatmapSmooth: Boolean(enabled) }),
+        onToggleExposureShading: (enabled) => setState({ exposureShading: Boolean(enabled) }),
         onPickPanel: (panel, additive) => {
           if (!panel) {
             setState({ selectedPanelIds: [], selectedOrientation: null });

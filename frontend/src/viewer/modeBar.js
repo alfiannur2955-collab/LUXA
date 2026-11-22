@@ -27,15 +27,15 @@ export function renderViewerModeBar(state, onSelectMode) {
 
     const btn = document.createElement('button');
     btn.type = 'button';
-    const isHeatDisabled = m.id === 'heatmap' && !hasAnalysis;
+    const isHeatDisabled = (m.id === 'heatmap' || m.id === 'exposure') && !hasAnalysis;
     const isOn = activeMode === m.id && !isHeatDisabled;
     if (isOn) btn.className = 'on';
     btn.disabled = isHeatDisabled;
     btn.setAttribute('aria-pressed', isOn ? 'true' : 'false');
-    if (isHeatDisabled) {
-      btn.title = 'Tersedia setelah OTTV dihitung';
-    }
-    btn.innerHTML = `${icon(m.icon, 16)}<span>${m.label}</span>`;
+    // Ringkas: hanya mode aktif yang menampilkan label; lainnya ikon + tooltip.
+    btn.title = isHeatDisabled ? `${m.label}: tersedia setelah OTTV dihitung` : m.hint || m.label;
+    btn.setAttribute('aria-label', m.label);
+    btn.innerHTML = `${icon(m.icon, 16)}<span class="modes-lbl">${m.label}</span>`;
     btn.addEventListener('click', () => {
       if (!isHeatDisabled) onSelectMode(m.id);
     });

@@ -133,9 +133,10 @@ const initialState = {
 
   // UI flags & selections
   acknowledgedFlags: {}, // { [flagId]: { action, provisional } }
-  viewerMode: 'classification', // 'classification' | 'orientation' | 'heatmap' | 'anomalies' | 'xray'
+  viewerMode: 'classification', // 'classification' | 'orientation' | 'heatmap' | 'exposure' | 'anomalies' | 'xray'
   heatmapGranularity: 'orientation', // 'orientation' | 'panel'
-  heatmapSmooth: false, // S4: Halus vertex-blending toggle (default off)
+  heatmapSmooth: false, // lama (Halus); digantikan mode 'exposure'
+  exposureShading: true, // mode Paparan: kalikan faktor peneduh 3D
   cameraProjection: 'perspective', // 'perspective' | 'two_point' | 'axonometric' | 'elevation'
   cameraDirection: 'TG', // 'U' | 'TL' | 'T' | 'TG' | 'S' | 'BD' | 'B' | 'BL' | 'Atas'
   activeViewId: null,

@@ -410,13 +410,17 @@ export class SunDomeController {
     this.group.add(tickLines);
 
     // 3. Three reference solar path arcs (21 Jun, 21 Mar / 23 Sep, 21 Des) + custom active arc if needed
-    const isPresetDate = PRESET_ARCS.some((a) => a.date === dateStr) || dateStr.endsWith('-03-21');
-    const arcsToDraw = PRESET_ARCS.map((a) => ({
-      ...a,
-      isActive:
-        a.date === dateStr ||
-        (a.id === 'eqx' && (dateStr.endsWith('-03-21') || dateStr.endsWith('-09-23'))),
-    }));
+    // Tanggal yang berjarak <= 4 hari dari lintasan acuan memakai lintasan acuan itu (garisnya nyaris
+    // sama), supaya label tanggal tidak menumpuk dengan label acuan.
+    const mmdd = dateStr.slice(5);
+    const dayOfYear = (md) => {
+      const [m, d] = md.split('-').map(Number);
+      return [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334][(m || 1) - 1] + (d || 1);
+    };
+    const near = (md) => Math.abs(dayOfYear(mmdd) - dayOfYear(md)) <= 4;
+    const nearId = near('06-21') ? 'jun' : near('03-21') || near('09-23') ? 'eqx' : near('12-21') ? 'dec' : null;
+    const isPresetDate = Boolean(nearId);
+    const arcsToDraw = PRESET_ARCS.map((a) => ({ ...a, isActive: a.id === nearId }));
     if (!isPresetDate) {
       arcsToDraw.push({ id: 'custom', date: dateStr, label: dateStr, isActive: true });
     }

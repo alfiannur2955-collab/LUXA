@@ -3571,3 +3571,125 @@ body.is-d5-rotating * {
     width: 32px;
   }
 }
+
+/* ============================================================================
+ * Audit UI 22 Nov: tidak saling tumpuk, tanpa geser horizontal
+ * ============================================================================ */
+
+/* Toast kecil di pojok kanan atas (di bawah topbar), tidak menutupi bar viewer. */
+.toast-stack {
+  left: auto;
+  right: 16px;
+  top: 72px;
+  bottom: auto;
+  transform: none;
+  width: min(300px, calc(100vw - 32px));
+  gap: 6px;
+  justify-items: end;
+}
+
+.toast {
+  padding: 7px 10px 7px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  gap: 8px;
+  box-shadow: var(--shadow-float);
+  max-width: 100%;
+}
+
+.toast.is-warn,
+.toast.is-ok,
+.toast.is-fail {
+  border-left-width: 3px;
+}
+
+.toast-undo-btn {
+  padding: 2px 8px;
+  font-size: 11.5px;
+}
+
+/* Kartu fitur kiri mendorong area kerja ke kanan, bukan menutupi viewer. */
+.has-rail-card .main {
+  padding-left: calc(min(380px, 100vw - 116px) + 20px);
+}
+
+.has-rail-card .legend-shifted,
+.viewer-bottom-stack > .legend.legend-shifted {
+  left: auto;
+  margin-left: 0;
+  max-width: 100%;
+}
+
+/* Isi kartu selalu muat lebar kartu. */
+.card-host {
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.card-host * {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.card-host input[type='file'] {
+  width: 100%;
+  font-size: 12px;
+}
+
+.card-host button,
+.card-host .cta,
+.card-host .ghost {
+  white-space: normal;
+  text-align: center;
+}
+
+/* Bar mode ringkas: hanya mode aktif yang berlabel. */
+.modes button:not(.on) .modes-lbl {
+  display: none;
+}
+
+.modes button:not(.on) {
+  padding: 0 11px;
+}
+
+/* Overlay viewer menyesuaikan lebar viewer itu sendiri. */
+.viewer {
+  container-type: inline-size;
+  container-name: viewer;
+}
+
+@container viewer (max-width: 900px) {
+  .formula-pill-wrap {
+    top: 78px;
+    right: 16px;
+  }
+}
+
+@container viewer (max-width: 640px) {
+  .viewer-bottom-stack .pill .b.b-icon {
+    width: 30px;
+  }
+}
+
+/* Popover view tersimpan: tombol tidak terlipat. */
+.vbar-popover-right > div:first-child {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.vbar-popover .ghost-sm {
+  white-space: nowrap;
+}
+
+/* Tabel grup Inspeksi muat tanpa geser horizontal 1-3 px. */
+.inspect-groups-wrap {
+  overflow-x: hidden;
+}
+
+.inspect-groups-wrap table {
+  width: 100%;
+  table-layout: fixed;
+}
