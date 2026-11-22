@@ -50,6 +50,7 @@ from materials_and_epw import (
     parse_epw_content,
     validate_custom_material,
 )
+from version import __version__
 from ottv_engine import (
     ORIENTATION_BASE_SF,
     ORIENTATION_NAMES,
@@ -421,7 +422,7 @@ def get_dynamic_model_catalog(readonly: bool = False) -> Tuple[List[Dict[str, An
 
 app = FastAPI(
     title="OTTV 3D Parametric Studio API v2 (SNI 6389:2020)",
-    version="2.0.0",
+    version=__version__,
 )
 
 app.add_middleware(
@@ -446,6 +447,7 @@ def on_startup() -> None:
 def get_health() -> Dict[str, Any]:
     return {
         "status": "ok",
+        "luxa_version": __version__,
         "api_version": 2,
         "standard": "SNI 6389:2020",
         "sni_limit_wm2": SNI_6389_LIMIT_WM2,

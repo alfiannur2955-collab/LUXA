@@ -26,6 +26,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.workbook.defined_name import DefinedName
 
 from materials_and_epw import get_material_by_id
+from version import __version__
 from sni_tables import (
     SNI_DELTA_T_K,
     SNI_OTTV_LIMIT_WM2,
@@ -37,7 +38,7 @@ from sni_tables import (
     TEMPLATE_PRODI_SF_TABLE,
 )
 
-REPORT_VERSION = "Laporan OTTV LUXA v1 (Fase 5c)"
+REPORT_VERSION = f"Laporan OTTV LUXA v{__version__}"
 SHGC_TO_SC = 0.87
 
 ORIENTATIONS: List[Tuple[str, str, str]] = [
