@@ -45,9 +45,13 @@ export function renderResultsScreen(state, handlers) {
   viewerSec.className = 'viewer';
   viewerSec.setAttribute('aria-label', 'Viewer 3D hasil OTTV');
 
+  const viewerStage = document.createElement('div');
+  viewerStage.className = 'viewer-stage';
+
   const canvasHost = document.createElement('div');
   canvasHost.className = 'viewer-canvas-host';
-  viewerSec.appendChild(canvasHost);
+  viewerStage.appendChild(canvasHost);
+  viewerSec.appendChild(viewerStage);
 
   // Mode bar (Klasifikasi, Orientasi, Heatmap | Kejanggalan, X-ray)
   const activeMode = state.viewerMode || 'heatmap';
@@ -58,7 +62,7 @@ export function renderResultsScreen(state, handlers) {
   }
 
   // Interactive North Compass (top-right, aligned at top: 16px, height: 52px) + Hitung ulang chip
-  viewerSec.appendChild(
+  viewerStage.appendChild(
     renderInteractiveCompass(state, {
       onChangeNorth: handlers.onChangeNorth,
       onRecompute: handlers.onRecompute,
@@ -69,7 +73,7 @@ export function renderResultsScreen(state, handlers) {
   const formulaPill = renderFormulaPill(state, {
     onToggleExpand: handlers.onToggleFormulaPill,
   });
-  if (formulaPill) viewerSec.appendChild(formulaPill);
+  if (formulaPill) viewerStage.appendChild(formulaPill);
 
   // Bottom overlay stack (T2): legend always sits 12px above bottom pills regardless of pill wrapping
   const bottomStack = document.createElement('div');
@@ -192,7 +196,7 @@ export function renderResultsScreen(state, handlers) {
     exitPres.className = 'glass pres-exit-chip';
     exitPres.innerHTML = `${icon('close', 14)}<span>Keluar Presentasi</span><kbd>Esc</kbd>`;
     exitPres.addEventListener('click', () => handlers.onExitPresentation?.());
-    viewerSec.appendChild(exitPres);
+    viewerStage.appendChild(exitPres);
   }
 
   // Right column (300px)

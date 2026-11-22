@@ -55,9 +55,22 @@ export function renderInspectScreen(state, handlers) {
   viewerSec.style.gridRow = '1 / 3';
   viewerSec.setAttribute('aria-label', 'Viewer 3D');
 
+  const viewerStage = document.createElement('div');
+  viewerStage.className = 'viewer-stage';
+
   const canvasHost = document.createElement('div');
   canvasHost.className = 'viewer-canvas-host';
-  viewerSec.appendChild(canvasHost);
+  viewerStage.appendChild(canvasHost);
+
+  // Interactive North Compass (drag or keyboard arrows)
+  viewerStage.appendChild(
+    renderInteractiveCompass(state, {
+      onChangeNorth: handlers.onChangeNorth,
+      onRecompute: handlers.onCalculateOttv,
+    }),
+  );
+
+  viewerSec.appendChild(viewerStage);
 
   // Mode bar (Klasifikasi, Orientasi, Heatmap [disabled until analyzed] | Kejanggalan, X-ray)
   const activeInspectMode =
@@ -75,14 +88,6 @@ export function renderInspectScreen(state, handlers) {
   if (!modeAtBottom) {
     viewerSec.appendChild(modeBarEl);
   }
-
-  // Interactive North Compass (drag or keyboard arrows)
-  viewerSec.appendChild(
-    renderInteractiveCompass(state, {
-      onChangeNorth: handlers.onChangeNorth,
-      onRecompute: handlers.onCalculateOttv,
-    }),
-  );
 
   // Bottom overlay stack (T2): legend always sits 12px above bottom pills
   const bottomStack = document.createElement('div');

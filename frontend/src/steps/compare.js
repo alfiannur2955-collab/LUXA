@@ -86,9 +86,13 @@ export function renderCompareScreen(state, handlers) {
   viewerSec.className = 'viewer compare-viewer';
   viewerSec.setAttribute('aria-label', 'Viewer bandingkan dua desain');
 
+  const viewerStage = document.createElement('div');
+  viewerStage.className = 'viewer-stage';
+
   const canvasHost = document.createElement('div');
   canvasHost.className = 'viewer-canvas-host';
-  viewerSec.appendChild(canvasHost);
+  viewerStage.appendChild(canvasHost);
+  viewerSec.appendChild(viewerStage);
 
   const baseOttv = Number(baseAnalysis?.ottv_total_wm2 ?? 0);
   const altOttv = activeAlt ? Number(activeAlt.analysisData?.ottv_total_wm2 ?? 0) : null;
@@ -127,7 +131,7 @@ export function renderCompareScreen(state, handlers) {
     emptyRight.appendChild(p);
     headsLayer.appendChild(emptyRight);
   }
-  viewerSec.appendChild(headsLayer);
+  viewerStage.appendChild(headsLayer);
 
   // Draggable vertical divider line + 40px round glass handle (mouse + keyboard arrows)
   if (activeAlt) {
@@ -174,7 +178,7 @@ export function renderCompareScreen(state, handlers) {
     });
     handleBtn.addEventListener('pointermove', (e) => {
       if (!dragging) return;
-      const rect = viewerSec.getBoundingClientRect();
+      const rect = viewerStage.getBoundingClientRect();
       if (rect.width <= 0) return;
       const ratio = (e.clientX - rect.left) / rect.width;
       applyRatioLive(ratio, false);
@@ -182,7 +186,7 @@ export function renderCompareScreen(state, handlers) {
     const endDrag = (e) => {
       if (!dragging) return;
       dragging = false;
-      const rect = viewerSec.getBoundingClientRect();
+      const rect = viewerStage.getBoundingClientRect();
       if (rect.width > 0) {
         applyRatioLive((e.clientX - rect.left) / rect.width, true);
       }
@@ -213,7 +217,7 @@ export function renderCompareScreen(state, handlers) {
       }
     });
 
-    viewerSec.append(dividerLine, handleBtn);
+    viewerStage.append(dividerLine, handleBtn);
 
     // Bottom-center glass card: Selisih per arah (W/m²)
     const baseOri = new Map(
