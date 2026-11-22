@@ -53,6 +53,8 @@ export function createDefaultConfig() {
       section_floor_max: null,
       sun_dome_radius_m: null,
       exposure_scale: { mode: 'sni', min: 80, max: 250 }, // tampilan Matahari sepanjang tahun saja
+      compute_rttv: false, // RTTV opsional (Mode lanjut)
+      rttv_skylight_groups: [], // grup kaca yang ditandai skylight oleh pengguna
     },
     advanced: {
       nurbs_u_div: 4,
@@ -96,6 +98,9 @@ export function mergeConfig(partial) {
       custom_materials: [...(partial.settings?.custom_materials || [])],
       orientation_material_overrides: { ...(partial.settings?.orientation_material_overrides || {}) },
       custom_floor_zones: [...(partial.settings?.custom_floor_zones || [])],
+      // RTTV opsional: hanya aktif bila pengguna menyalakannya; skylight hanya dari grup yang ditandai.
+      compute_rttv: partial.settings?.compute_rttv === true,
+      rttv_skylight_groups: Array.isArray(partial.settings?.rttv_skylight_groups) ? [...partial.settings.rttv_skylight_groups] : [],
     },
     advanced: { ...base.advanced, ...(partial.advanced || {}) },
     saved_views: Array.isArray(partial.saved_views)

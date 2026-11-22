@@ -38,7 +38,8 @@ export function renderInspectScreen(state, handlers) {
 
   const ins = state.inspectData || {};
   const groups = ins.groups || [];
-  const flags = ins.sanity_flags || [];
+  // Catatan 'tidak ada atap' hanya relevan bila RTTV dinyalakan.
+  const flags = (ins.sanity_flags || []).filter((f) => f.code !== 'NO_ROOF' || state.config?.settings?.compute_rttv === true);
   const missingMesh = ins.missing_mesh || [];
   const gate = evaluateConfirmGate(state);
 
@@ -197,6 +198,8 @@ export function renderInspectScreen(state, handlers) {
   };
 
   const renderedNames = new Set();
+  const rttvOn = state.config?.settings?.compute_rttv === true;
+  const skyGroups = new Set(state.config?.settings?.rttv_skylight_groups || []);
 
   for (const g of groups) {
     renderedNames.add(g.group_name);
@@ -267,6 +270,17 @@ export function renderInspectScreen(state, handlers) {
     });
 
     row.append(nameBtn, area, sel);
+    // RTTV aktif: kaca bisa ditandai sebagai skylight (bukan ditebak dari arah hadap).
+    if (rttvOn && (effCat === 'glazing' || effCat === 'composite_cw')) {
+      const skyLbl = document.createElement('label');
+      skyLbl.className = 'group-row-sky';
+      const skyCb = document.createElement('input');
+      skyCb.type = 'checkbox';
+      skyCb.checked = skyGroups.has(g.group_name);
+      skyCb.addEventListener('change', () => handlers.onToggleSkylightGroup?.(g.group_name, skyCb.checked));
+      skyLbl.append(skyCb, document.createTextNode(' Skylight (dihitung di RTTV)'));
+      row.appendChild(skyLbl);
+    }
     list.appendChild(row);
   }
 
@@ -294,6 +308,20 @@ export function renderInspectScreen(state, handlers) {
   }
 
   groupsCard.append(grHead, list);
+
+  // Mode lanjut: RTTV atap opsional. Saat aktif, kaca bisa ditandai sebagai skylight di daftar.
+  if (state.workspace?.preset === 'lanjut' || state.advancedMode || rttvOn) {
+    const rt = document.createElement('label');
+    rt.className = 'legend-smooth-lbl inspect-rttv-toggle';
+    rt.title = 'Hitung RTTV atap dan skylight (SNI 6389:2020 Pasal 4.4). Status kepatuhan tetap dari OTTV.';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.setAttribute('role', 'switch');
+    cb.checked = rttvOn;
+    cb.addEventListener('change', () => handlers.onToggleRttv?.(cb.checked));
+    rt.append(cb, document.createTextNode(rttvOn ? ' Hitung RTTV · tandai kaca skylight di daftar' : ' Hitung RTTV atap (opsional)'));
+    groupsCard.appendChild(rt);
+  }
 
   // Right Bottom: Daftar kejanggalan + Hitung OTTV
   const flagsCard = document.createElement('section');

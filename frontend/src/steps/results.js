@@ -510,21 +510,6 @@ export function renderResultsScreen(state, handlers) {
 
   heroCard.append(heroHead, heroVal, chipRow);
 
-  // Tautan ke rumus: buka rincian arah tertinggi (atau arah terpilih) di kartu "Per arah".
-  const formulaLink = document.createElement('button');
-  formulaLink.type = 'button';
-  formulaLink.className = 'link-btn hero-formula-link';
-  formulaLink.innerHTML = `${icon('formula', 14)}<span>${state.formulaPillExpanded ? 'Tutup rumus' : 'Lihat rumus'}</span>`;
-  formulaLink.addEventListener('click', () => {
-    const open = !state.formulaPillExpanded;
-    handlers.onToggleFormulaPill?.(open);
-    if (open) {
-      window.setTimeout(() => {
-        document.querySelector('.orient-formula')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }, 60);
-    }
-  });
-  heroCard.appendChild(formulaLink);
 
   // Fase 4e: Fast material pick & recommender shortcut right from Results hero card
   const matQuickRow = document.createElement('div');
@@ -930,7 +915,7 @@ export function renderResultsScreen(state, handlers) {
     orientCard.appendChild(detailDiv);
   }
 
-  // 3. RTTV & Komposisi panas card
+  // 3. Komposisi panas (OTTV) + kartu RTTV opsional terpisah
   const rttvCard = document.createElement('section');
   rttvCard.className = 'box';
   rttvCard.setAttribute('aria-labelledby', 'rt-title');
@@ -938,7 +923,7 @@ export function renderResultsScreen(state, handlers) {
   const rtTitle = document.createElement('h2');
   rtTitle.id = 'rt-title';
   rtTitle.style.fontSize = '14px';
-  rtTitle.append(document.createTextNode('Komposisi panas & '), makeTermTip('RTTV', 'RTTV', tooltipsOn));
+  rtTitle.append(document.createTextNode('Komposisi panas OTTV (W/m²)'));
 
   const compGrid = document.createElement('div');
   compGrid.className = 'num';
@@ -966,37 +951,80 @@ export function renderResultsScreen(state, handlers) {
     compGrid.appendChild(cell);
   }
 
-  const rttvLine = document.createElement('div');
-  rttvLine.style.margin = '8px 0 0';
-  rttvLine.style.display = 'grid';
-  rttvLine.style.gap = '6px';
-  if (rttv && rttv.applicable) {
-    const rttvVal = Number(rttv.rttv_wm2 ?? 0);
-    const rttvLimit = Number(rttv.limit_wm2 ?? 10);
-    const rttvOk = rttv.compliant !== undefined && rttv.compliant !== null ? Boolean(rttv.compliant) : rttvVal <= rttvLimit;
-    const pTxt = document.createElement('p');
-    pTxt.className = 'muted num';
-    pTxt.style.margin = '0';
-    pTxt.style.fontSize = '12.5px';
-    pTxt.textContent = `RTTV atap: ${fmtId(rttvVal, 2)} W/m² (luas atap ${fmtId(rttv.total_roof_area_m2 || 0, 1)} m²).`;
+  rttvCard.append(rtTitle, compGrid);
 
-    const rChip = document.createElement('span');
-    rChip.className = `chip ${rttvOk ? 'st-ok' : 'st-fail'}`;
-    rChip.style.justifySelf = 'start';
-    rChip.innerHTML = rttvOk
-      ? `${icon('check', 13)}<span>Memenuhi (≤ ${fmtId(rttvLimit, 0)} W/m²)</span>`
-      : `${icon('close', 13)}<span>Tidak memenuhi, batas ${fmtId(rttvLimit, 0)}</span>`;
-    rttvLine.append(pTxt, rChip);
-  } else {
-    const pTxt = document.createElement('p');
-    pTxt.className = 'muted num';
-    pTxt.style.margin = '0';
-    pTxt.style.fontSize = '12.5px';
-    pTxt.textContent = 'RTTV tidak dihitung (tidak ada atap atau skylight aktif di model).';
-    rttvLine.appendChild(pTxt);
+  // RTTV (Pasal 4.4) opsional: tampil bila dinyalakan, atau di Mode lanjut sebagai sakelar.
+  const rttvOn = state.config?.settings?.compute_rttv === true;
+  const isAdvanced = state.workspace?.preset === 'lanjut' || state.advancedMode;
+  let roofCard = null;
+  if (rttvOn || isAdvanced) {
+    roofCard = document.createElement('section');
+    roofCard.className = 'box';
+    roofCard.setAttribute('aria-labelledby', 'rf-title');
+    const head = document.createElement('div');
+    head.style.display = 'flex';
+    head.style.justifyContent = 'space-between';
+    head.style.alignItems = 'center';
+    head.style.gap = '8px';
+    const rfTitle = document.createElement('h2');
+    rfTitle.id = 'rf-title';
+    rfTitle.style.fontSize = '14px';
+    rfTitle.style.margin = '0';
+    rfTitle.append(makeTermTip('RTTV', 'RTTV', tooltipsOn), document.createTextNode(' atap'));
+    const sw = document.createElement('label');
+    sw.className = 'legend-smooth-lbl';
+    sw.title = 'Hitung RTTV untuk atap dan skylight (SNI 6389:2020 Pasal 4.4)';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.setAttribute('role', 'switch');
+    cb.checked = rttvOn;
+    cb.addEventListener('change', () => handlers.onToggleRttv?.(cb.checked));
+    sw.append(cb, document.createTextNode(' Hitung RTTV'));
+    head.append(rfTitle, sw);
+    roofCard.appendChild(head);
+
+    const body = document.createElement('div');
+    body.style.display = 'grid';
+    body.style.gap = '6px';
+    body.style.marginTop = '8px';
+    const p = (txt, cls = 'muted') => {
+      const el = document.createElement('p');
+      el.className = `${cls} num`;
+      el.style.margin = '0';
+      el.style.fontSize = '12.5px';
+      el.textContent = txt;
+      return el;
+    };
+    if (!rttvOn) {
+      body.appendChild(p('Opsional. Nyalakan bila model punya atap atau skylight. Status kepatuhan tetap dinilai dari OTTV.'));
+    } else if (state.needsRecompute || rttv?.disabled) {
+      body.appendChild(p('Klik Hitung ulang untuk menghitung RTTV.'));
+    } else if (rttv && rttv.applicable) {
+      const rttvVal = Number(rttv.rttv_wm2 ?? 0);
+      const rttvLimit = Number(rttv.limit_wm2 ?? 10);
+      const rttvOk = rttv.compliant !== undefined && rttv.compliant !== null ? Boolean(rttv.compliant) : rttvVal <= rttvLimit;
+      const val = document.createElement('div');
+      val.className = 'num';
+      val.style.fontSize = '22px';
+      val.style.fontWeight = '800';
+      val.innerHTML = `${fmtId(rttvVal, 2)} <span style="font-size:12px;font-weight:600;color:var(--ink-muted)">W/m²</span>`;
+      const rChip = document.createElement('span');
+      rChip.className = `chip ${rttvOk ? 'st-ok' : 'st-fail'}`;
+      rChip.style.justifySelf = 'start';
+      rChip.innerHTML = rttvOk
+        ? `${icon('check', 13)}<span>Memenuhi (≤ ${fmtId(rttvLimit, 0)} W/m²)</span>`
+        : `${icon('close', 13)}<span>Tidak memenuhi, batas ${fmtId(rttvLimit, 0)}</span>`;
+      body.append(
+        val,
+        rChip,
+        p(`Atap masif ${fmtId(rttv.opaque_roof_area_m2 || 0, 1)} m² · skylight ${fmtId(rttv.skylight_area_m2 || 0, 1)} m² · SF atap ${fmtId(rttv.sf_roof_wm2 || 0, 0)} W/m²`),
+        p(`Batas ${fmtId(rttvLimit, 0)} W/m² karena ${Number(rttv.skylight_area_m2 || 0) > 0 ? 'ada skylight' : 'atap tanpa skylight'} (Pasal 4.4.1).`),
+      );
+    } else {
+      body.appendChild(p('Tidak ada atap atau skylight yang dihitung. Tandai grup Atap, dan kaca yang merupakan skylight, di langkah Inspeksi.'));
+    }
+    roofCard.appendChild(body);
   }
-
-  rttvCard.append(rtTitle, compGrid, rttvLine);
 
   // 3b. Lanjut workspace: Tabel per bidang (searchable, click row -> select panel in 3D)
   let advPanelCard = null;
@@ -1113,9 +1141,9 @@ export function renderResultsScreen(state, handlers) {
   dlWrap.append(xlsxBtn, jsonBtn);
 
   if (advPanelCard) {
-    side.append(heroCard, selCard, orientCard, rttvCard, advPanelCard, dlWrap);
+    side.append(heroCard, selCard, orientCard, rttvCard, ...(roofCard ? [roofCard] : []), advPanelCard, dlWrap);
   } else {
-    side.append(heroCard, selCard, orientCard, rttvCard, dlWrap);
+    side.append(heroCard, selCard, orientCard, rttvCard, ...(roofCard ? [roofCard] : []), dlWrap);
   }
   main.append(viewerSec, side);
 

@@ -4428,3 +4428,22 @@ body.is-d5-rotating * {
 .viewer-dock .vbar-popover {
   background: color-mix(in srgb, var(--paper) 94%, transparent);
 }
+
+/* Inspeksi: tanda skylight (RTTV opsional) */
+.group-row-sky {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-muted);
+  padding: 2px 0 0 18px;
+}
+
+.inspect-rttv-toggle {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
