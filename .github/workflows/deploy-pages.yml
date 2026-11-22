@@ -5,11 +5,6 @@ name: Deploy LUXA (GitHub Pages)
 
 on:
   workflow_dispatch:
-    inputs:
-      include_template:
-        description: "Sertakan template laporan prodi (hanya setelah ada izin prodi)"
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -41,8 +36,6 @@ jobs:
           key: luxa-engine-${{ hashFiles('frontend/scripts/fetch_engine_assets.sh') }}
       - run: bash scripts/fetch_engine_assets.sh
       - run: npm run build
-        env:
-          LUXA_INCLUDE_TEMPLATE: ${{ inputs.include_template && '1' || '0' }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend/dist

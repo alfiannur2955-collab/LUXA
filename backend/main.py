@@ -193,10 +193,10 @@ PRESET_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "is_uploaded": False,
         "description": "Dataset sertifikasi buildingSMART IFC4.3 ADD2.",
     },
-    "fasad_curtain_wall_baru": {
-        "id": "fasad_curtain_wall_baru",
-        "title": "Fasad_Curtain_Wall_Baru.3dm — Tower Curtain Wall (24 Lantai)",
-        "filename": "Fasad_Curtain_Wall_Baru.3dm",
+    "fasad_tower_twisted": {
+        "id": "fasad_tower_twisted",
+        "title": "Fasad tower twisted",
+        "filename": "Fasad_Tower_Twisted.3dm",
         "format": "3DM",
         "is_uploaded": False,
         "description": "Model Tower Curtain Wall 24 lantai dengan Spandrel, Vision Glass, Mullion, Transom, & Shading Fins.",
@@ -307,9 +307,9 @@ def _resolve_preset_file_path(pdef: Dict[str, Any]) -> str:
 def ensure_sample_files() -> Dict[str, str]:
     paths: Dict[str, str] = {}
 
-    p_cw = os.path.join(SAMPLES_DIR, PRESET_DEFINITIONS["fasad_curtain_wall_baru"]["filename"])
+    p_cw = os.path.join(SAMPLES_DIR, PRESET_DEFINITIONS["fasad_tower_twisted"]["filename"])
     if os.path.exists(p_cw):
-        paths["fasad_curtain_wall_baru"] = p_cw
+        paths["fasad_tower_twisted"] = p_cw
 
     p_ifc = os.path.join(SAMPLES_DIR, PRESET_DEFINITIONS["archicad_bim_ifc"]["filename"])
     if not os.path.exists(p_ifc):
@@ -320,8 +320,8 @@ def ensure_sample_files() -> Dict[str, str]:
     if not os.path.exists(p_3dm):
         create_sample_rhino_3dm_preset(p_3dm)
     paths["rhino_nurbs_tower"] = p_3dm
-    if "fasad_curtain_wall_baru" not in paths:
-        paths["fasad_curtain_wall_baru"] = p_3dm
+    if "fasad_tower_twisted" not in paths:
+        paths["fasad_tower_twisted"] = p_3dm
 
     p_obj = os.path.join(SAMPLES_DIR, PRESET_DEFINITIONS["bioclimatic_office_obj"]["filename"])
     if not os.path.exists(p_obj):

@@ -176,10 +176,10 @@ export function renderUploadScreen(state, handlers) {
       meta: '20 × 30 m, jendela pita, WWR 40%',
     },
     {
-      id: 'fasad_curtain_wall_baru',
+      id: 'fasad_tower_twisted',
       icon: 'layers',
-      name: 'Menara curtain wall',
-      meta: 'Fasad_Curtain_Wall_Baru.3dm',
+      name: 'Fasad tower twisted',
+      meta: 'Fasad_Tower_Twisted.3dm',
     },
   ];
 

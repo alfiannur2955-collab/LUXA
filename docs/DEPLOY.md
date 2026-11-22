@@ -28,27 +28,25 @@ Aset engine disalin otomatis ke `frontend/public/luxa-engine/` setiap kali `npm 
 
 ```bash
 cd frontend
-npm run build                         # hasil di frontend/dist, termasuk template laporan prodi
-LUXA_INCLUDE_TEMPLATE=0 npm run build # tanpa template prodi (untuk publik sebelum ada izin)
+npm run build                         # hasil di frontend/dist, termasuk template laporan
 ```
 
 Isi `frontend/dist` bisa dilayani dari folder mana pun karena semua path relatif. Untuk mencobanya: `python -m http.server 8000` di dalam `frontend/dist`.
 
-Kalau template tidak disertakan, tombol "Unduh laporan (.xlsx)" otomatis mengunduh laporan Excel umum dan menampilkan catatan.
+Template laporan ikut di setiap build. (`LUXA_INCLUDE_TEMPLATE=0` masih bisa dipakai untuk build tanpa template; tombol "Unduh laporan" lalu mengunduh laporan Excel umum dengan catatan.)
 
 ## Terbit ke GitHub Pages
 
 1. Push repo ke GitHub.
 2. Settings → Pages → Source: **GitHub Actions**.
-3. Tab Actions → **Deploy LUXA (GitHub Pages)** → Run workflow. Centang "Sertakan template laporan prodi" hanya kalau izin prodi sudah ada.
+3. Tab Actions → **Deploy LUXA (GitHub Pages)** → Run workflow.
 
 Workflow ini hanya jalan kalau dipicu manual, jadi push biasa tidak otomatis menerbitkan apa pun.
 
-## Hal yang perlu diputuskan sebelum publik
+## Contoh bawaan
 
-- Izin prodi untuk `docs/templates/template_prodi.xlsx`.
-- Apakah `backend/samples/Fasad_Curtain_Wall_Baru.3dm` boleh ikut sebagai contoh publik (sekarang ikut di `samples/`).
-- Cek merek dagang dan domain LUXA.
+- Kotak 4 lantai (`fixtures/synthetic/01_kotak_m/model.3dm`).
+- Fasad tower twisted (`backend/samples/Fasad_Tower_Twisted.3dm`), disetujui Alfian sebagai contoh publik.
 
 ## Batasan versi browser
 
