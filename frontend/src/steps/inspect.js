@@ -153,7 +153,7 @@ export function renderInspectScreen(state, handlers) {
 
   // Right Top: Grup terdeteksi
   const groupsCard = document.createElement('section');
-  groupsCard.className = 'box';
+  groupsCard.className = 'box inspect-side-card inspect-groups-card';
   groupsCard.setAttribute('aria-labelledby', 'gr-title');
 
   const grHead = document.createElement('div');
