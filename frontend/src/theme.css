@@ -3565,3 +3565,9 @@ body.is-d5-rotating * {
     width: 104px;
   }
 }
+
+@media (max-width: 1400px) {
+  .viewer-bottom-stack .pill .b.b-icon {
+    width: 32px;
+  }
+}
