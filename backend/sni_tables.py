@@ -828,10 +828,10 @@ _ERRATA_INDEX: Dict[Tuple[str, str, float, Optional[float], int], Dict[str, Any]
 
 
 # ============================================================================
-# Tabel SF Template Prodi — 'ref.'!A5:J22 pada docs/templates/template_prodi.xlsx
+# Tabel SF lama (template PUPR, 'ref.'!A5:J22 di form V2.0) — tetap bisa dipilih untuk perbandingan
 # (18 lokasi, B=U, C=BL, D=B, E=BD, F=S, G=TGR, H=T, I=TL, J=DeltaT=5K)
 # CATATAN KEJUJURAN SUMBER: Tabel ini BUKAN Tabel 8 SNI 6389:2020; digunakan
-# sebagai default (sf_source='template_prodi') agar konsisten dengan template prodi.
+# Default LUXA sejak Fase 5c adalah sni2020 (Tabel 8).
 # ============================================================================
 TEMPLATE_PRODI_SF_TABLE: Dict[str, Dict[str, Any]] = {
     "sni": {"label": "SNI", "sf": {"U": 130.0, "TL": 113.0, "T": 112.0, "TGR": 97.0, "S": 97.0, "BD": 176.0, "B": 243.0, "BL": 211.0, "ROOF": 427.0}},
@@ -921,17 +921,17 @@ def resolve_template_prodi_city(city_key: Optional[str]) -> Tuple[str, str, Opti
     if slug in _TEMPLATE_PRODI_NEAREST_FALLBACK:
         fb = _TEMPLATE_PRODI_NEAREST_FALLBACK[slug]
         lbl = TEMPLATE_PRODI_SF_TABLE[fb]["label"]
-        return fb, lbl, f"Kota '{raw}' tidak ada di daftar Template Prodi ('ref.'!A5:A22); menggunakan kota terdekat '{lbl}'."
-    return "jakarta", "Jakarta", f"Kota '{raw}' tidak dikenali pada Template Prodi ('ref.'!A5:A22); menggunakan 'Jakarta'."
+        return fb, lbl, f"Kota '{raw}' tidak ada di daftar tabel SF lama; menggunakan kota terdekat '{lbl}'."
+    return "jakarta", "Jakarta", f"Kota '{raw}' tidak dikenali pada tabel SF lama; menggunakan 'Jakarta'."
 
 
 def get_sf_for_source(
     city_key: Optional[str],
     orientation_code: str,
-    sf_source: str = "template_prodi",
+    sf_source: str = "sni2020",
 ) -> float:
     """Returns discrete Solar Factor (W/m2) from either 'template_prodi' ('ref.'!A5:J22) or 'sni2020' (Tabel 8)."""
-    src = (sf_source or "template_prodi").strip().lower()
+    src = (sf_source or "sni2020").strip().lower()
     code = (orientation_code or "U").strip().upper()
     if code in ("ROOF", "HORISONTAL", "HORIZONTAL", "ATAP"):
         if src == "template_prodi":
@@ -945,14 +945,14 @@ def get_sf_for_source(
     return get_sf_table8(city_key, code)
 
 
-def get_sf_source_info(city_key: Optional[str], sf_source: str = "template_prodi") -> Dict[str, Any]:
+def get_sf_source_info(city_key: Optional[str], sf_source: str = "sni2020") -> Dict[str, Any]:
     """Returns honest, transparent SF source metadata (never mislabels template_prodi as Tabel 8 SNI 6389:2020)."""
-    src = (sf_source or "template_prodi").strip().lower()
+    src = (sf_source or "sni2020").strip().lower()
     if src == "template_prodi":
         tslug, tlabel, warn = resolve_template_prodi_city(city_key)
         return {
             "sf_source": "template_prodi",
-            "sf_source_label": "Tabel SF Template Prodi ('ref.'!A5:J22)",
+            "sf_source_label": "Tabel SF lama (template PUPR)",
             "city_key": tslug,
             "city_label": tlabel,
             "sf_table": dict(TEMPLATE_PRODI_SF_TABLE[tslug]["sf"]),

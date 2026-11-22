@@ -809,10 +809,7 @@ async function handleExportFormat(fmt) {
   }
   try {
     const { blob, filename, warnings } = await engine.export(aid, fmt);
-    const cleanName = fmt === 'template_prodi'
-      ? `Laporan_OTTV_${(s.filename || 'LUXA').replace(/\.[^.]+$/, '')}.xlsx`
-      : filename;
-    triggerBlobDownload(blob, cleanName);
+    triggerBlobDownload(blob, filename);
     if (warnings.length > 0) {
       showToast(`Laporan diunduh dengan catatan: ${warnings[0]}`, 'warn', 6000);
     } else {
@@ -1213,7 +1210,7 @@ const panelBuilders = createRailPanelBuilders({
     setState({ step: 'compare', activeRailCard: null, openPopover: null });
   },
   onRecompute: () => handleCalculateOttv(),
-  onDownloadExcel: () => handleExportFormat('template_prodi'),
+  onDownloadExcel: () => handleExportFormat('xlsx'),
   onDownloadFormat: (fmt) => handleExportFormat(fmt),
   onDownloadProject: () => {
     const s = getState();
@@ -1501,7 +1498,7 @@ function renderApp(state) {
         onOpenMaterialPickMode: (pickOpts) => handleOpenMaterialCatalog('pick', 'catalog', pickOpts),
         onOpenMaterialRecommend: () => handleOpenMaterialCatalog('browse', 'recommend'),
         onRecompute: () => handleCalculateOttv(),
-        onDownloadExcel: () => handleExportFormat('template_prodi'),
+        onDownloadExcel: () => handleExportFormat('xlsx'),
         onDownloadProject: () => {
           const s = getState();
           const cfgCopy = mergeConfig(s.config);
@@ -1638,7 +1635,7 @@ function renderApp(state) {
     },
     onToggleTheme: toggleTheme,
     onOpenShortcuts: () => setState({ shortcutsModalOpen: true }),
-    onDownloadExcel: () => handleExportFormat('template_prodi'),
+    onDownloadExcel: () => handleExportFormat('xlsx'),
     onDownloadProject: () => downloadProjectFile(getState()),
   });
   if (cmdEl) frag.appendChild(cmdEl);

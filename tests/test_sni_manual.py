@@ -187,6 +187,29 @@ def test_sni_tables_completeness_and_material_metadata():
             assert mat["status"] == "nilai_tipikal"
 
 
+def _luxa_rows_ottv(wb, sheet_title):
+    """Hitung ulang OTTV satu lembar arah laporan LUXA dari isi selnya (tanpa Excel):
+    P=A_w*a*U*TDek, Q=A_f*U_f*dT, R=A_f*SCef*SF. Mengembalikan (ottv, jumlah_baris, nilai_aplikasi)."""
+    ws = wb[sheet_title]
+    dt = wb["Referensi"]["B5"].value
+    heat = 0.0
+    area = 0.0
+    n = 0
+    r = 11
+    while ws[f"F{r}"].value is not None and not isinstance(ws[f"F{r}"].value, str):
+        f = lambda c: float(ws[f"{c}{r}"].value or 0.0)  # noqa: E731
+        heat += f("F") * f("H") * f("I") * f("J") + f("G") * f("K") * dt + f("G") * f("M") * f("O")
+        area += f("F") + f("G")
+        if f("F") + f("G") > 0:
+            n += 1
+        r += 1
+    return (heat / area if area else 0.0), n, float(ws["K5"].value or 0.0)
+
+
+LUXA_SHEET = {"U": "U Utara", "TL": "TL Timur Laut", "T": "T Timur", "TGR": "TG Tenggara",
+              "S": "S Selatan", "BD": "BD Barat Daya", "B": "B Barat", "BL": "BL Barat Laut"}
+
+
 def test_case1_box_wwr40_jakarta_matches_manual_calculation():
     """Case 1: 10x10x4m box, WWR 40%, Jakarta (no shading)."""
     # Manual calculation (SNI 6389:2020 Tabel 7 & Tabel 8):
@@ -229,35 +252,15 @@ def test_case1_box_wwr40_jakarta_matches_manual_calculation():
         assert rttv["limit_wm2"] == 10.0
         assert rttv["compliant"] is True
 
-        # Excel report check: new title + 'Hitungan Manual' sheet with exact SC = SCk * SCeff & recomputed OTTV_i
+        # Laporan LUXA: tiap lembar arah dihitung ulang dari selnya harus sama dengan aplikasi
         xlsx_bytes = generate_excel_report(res)
         wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes))
-        assert "Hitungan Manual" in wb.sheetnames
-        ws_man = wb["Hitungan Manual"]
-        assert "Laporan Perhitungan OTTV mengacu SNI 6389:2020" in str(ws_man["B1"].value)
-        assert "Tabel 8 SNI 6389:2020" in str(ws_man["B2"].value)
-        assert "29.56" in str(ws_man["S5"].value)
-        # Verify SC == SCk * SCeff and recomputed OTTV_i == engine ottv_orientation_wm2 within 0.01
-        for row_idx in range(5, 13):
-            ori_lbl = str(ws_man[f"B{row_idx}"].value or "")
-            ao_v = float(ws_man[f"D{row_idx}"].value or 0.0)
-            wwr_v = float(ws_man[f"E{row_idx}"].value or 0.0)
-            alpha_v = float(ws_man[f"F{row_idx}"].value or 0.0)
-            uw_v = float(ws_man[f"G{row_idx}"].value or 0.0)
-            tdek_v = float(ws_man[f"H{row_idx}"].value or 0.0)
-            uf_v = float(ws_man[f"I{row_idx}"].value or 0.0)
-            dt_v = float(ws_man[f"J{row_idx}"].value or 0.0)
-            sck_v = float(ws_man[f"K{row_idx}"].value or 0.0)
-            sceff_v = float(ws_man[f"L{row_idx}"].value or 0.0)
-            sc_v = float(ws_man[f"M{row_idx}"].value or 0.0)
-            sf_v = float(ws_man[f"N{row_idx}"].value or 0.0)
-            ottv_sheet = float(ws_man[f"R{row_idx}"].value or 0.0)
-            assert abs(sc_v - (sck_v * sceff_v)) <= 1e-6
-            recalc = alpha_v * uw_v * (1.0 - wwr_v) * tdek_v + uf_v * wwr_v * dt_v + sf_v * wwr_v * sc_v
-            assert abs(recalc - ottv_sheet) <= 0.01
-            code = ori_lbl.split()[0]
-            if ao_v > 0:
-                assert abs(ottv_sheet - ori_map[code]["ottv_orientation_wm2"]) <= 0.01
+        assert "Ringkasan" in wb.sheetnames
+        assert "Tabel 8 SNI 6389:2020" in " ".join(str(c.value) for row in wb["Ringkasan"].iter_rows() for c in row if c.value)
+        for code, exp_val in expected_by_ori.items():
+            ottv_sheet, _, app_val = _luxa_rows_ottv(wb, LUXA_SHEET[code])
+            assert abs(ottv_sheet - ori_map[code]["ottv_orientation_wm2"]) <= 0.01
+            assert abs(app_val - exp_val) <= 0.01
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -333,10 +336,10 @@ def test_case3_box_wwr40_jakarta_with_overhang_matches_manual_calculation():
             os.remove(tmp_path)
 
 
-def test_sf_source_template_prodi_default_and_honest_labeling():
-    """Default sf_source='template_prodi' uses 'ref.'!A5:J22 and NEVER claims 'Tabel 8 SNI 6389:2020'."""
+def test_sf_source_default_sni2020_and_old_table_honest_labeling():
+    """Default sf_source='sni2020' (Fase 5c). The old PUPR table stays selectable and NEVER claims 'Tabel 8'."""
     cfg_def = ProjectConfig()
-    assert cfg_def.settings.sf_source == "template_prodi"
+    assert cfg_def.settings.sf_source == "sni2020"
     assert cfg_def.settings.sceff_table_mode == "terkoreksi"
 
     # Generic catalog check: all built-ins have shgc on glazing and status='nilai_tipikal'
@@ -355,7 +358,7 @@ def test_sf_source_template_prodi_default_and_honest_labeling():
         res = analyze_building_ottv(tmp_path, "box_tpl_sf.hbjson", cfg.to_envelope_parameters())
 
         assert res["sf_source"] == "template_prodi"
-        assert "Template Prodi" in res["sf_source_label"]
+        assert "Tabel SF lama" in res["sf_source_label"]
         assert "Tabel 8" not in res["sf_source_label"]
 
         # Jakarta template_prodi SF: U=152, T=179, S=111, B=219
@@ -364,15 +367,15 @@ def test_sf_source_template_prodi_default_and_honest_labeling():
         assert ori_map["T"]["sni_sf_wm2"] == 179.0
         assert ori_map["S"]["sni_sf_wm2"] == 111.0
         assert ori_map["B"]["sni_sf_wm2"] == 219.0
-        # SC_TO_SHGC_RATIO = 0.87 derives SHGC = 0.35 * 0.87, while template_prodi.xlsx divides D32 / 0.86
-        exp_u = 8.84 + 152.0 * 0.40 * (round(0.35 * 0.87, 4) / 0.86)
+        # Fase 5c: SC = SHGC / 0.87 in every mode, so SHGC = 0.35 * 0.87 maps back to SC 0.35
+        exp_u = 8.84 + 152.0 * 0.40 * (round(0.35 * 0.87, 4) / 0.87)
         assert abs(ori_map["U"]["ottv_orientation_wm2"] - exp_u) <= 0.01
 
         xlsx_bytes = generate_excel_report(res)
         wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes))
-        ws_man = wb["Hitungan Manual"]
-        assert "Template Prodi" in str(ws_man["B2"].value)
-        assert "Tabel 8" not in str(ws_man["B2"].value)
+        txt = " ".join(str(c.value) for row in wb["Ringkasan"].iter_rows() for c in row if c.value)
+        assert "Tabel SF lama" in txt
+        assert "Tabel 8" not in txt
 
         # Non-template city ('medan') resolves to nearest template city ('Pekanbaru') + SF_CITY_FALLBACK warning
         cfg_medan = _manual_sni_config("medan", mode="sni", sf_source="template_prodi")
@@ -386,7 +389,7 @@ def test_sf_source_template_prodi_default_and_honest_labeling():
 
 def test_hitungan_manual_multi_glass_shading_combos_not_averaged():
     """
-    When one orientation has multiple glazing/shading combinations, 'Hitungan Manual'
+    When one orientation has multiple glazing/shading combinations, the LUXA report
     MUST emit one row per combination (not average them), with exact SC = SCk * SCeff
     and area-weighted recomputed OTTV_i matching engine ottv_orientation_wm2 <= 0.01 W/m2.
     """
@@ -452,38 +455,16 @@ def test_hitungan_manual_multi_glass_shading_combos_not_averaged():
 
         xlsx_bytes = generate_excel_report(res)
         wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes))
-        ws_man = wb["Hitungan Manual"]
-
-        # Read all North rows (U #1, U #2) and Subtotal U
-        u_sheet_rows = []
-        sub_ottv = None
-        for r_idx in range(5, 30):
-            lbl = str(ws_man[f"B{r_idx}"].value or "")
-            if lbl.startswith("U #"):
-                ao_v = float(ws_man[f"D{r_idx}"].value)
-                wwr_v = float(ws_man[f"E{r_idx}"].value)
-                a_v = float(ws_man[f"F{r_idx}"].value)
-                uw_v = float(ws_man[f"G{r_idx}"].value)
-                td_v = float(ws_man[f"H{r_idx}"].value)
-                uf_v = float(ws_man[f"I{r_idx}"].value)
-                dt_v = float(ws_man[f"J{r_idx}"].value)
-                sck_v = float(ws_man[f"K{r_idx}"].value)
-                sceff_v = float(ws_man[f"L{r_idx}"].value)
-                sc_v = float(ws_man[f"M{r_idx}"].value)
-                sf_v = float(ws_man[f"N{r_idx}"].value)
-                ottv_r = float(ws_man[f"R{r_idx}"].value)
-                assert abs(sc_v - sck_v * sceff_v) <= 1e-6
-                recalc = a_v * uw_v * (1.0 - wwr_v) * td_v + uf_v * wwr_v * dt_v + sf_v * wwr_v * sc_v
-                assert abs(recalc - ottv_r) <= 0.01
-                u_sheet_rows.append((ao_v, ottv_r))
-            elif lbl.startswith("Subtotal U"):
-                sub_ottv = float(ws_man[f"R{r_idx}"].value)
-
-        assert len(u_sheet_rows) == 2
-        weighted_u = sum(a * o for a, o in u_sheet_rows) / sum(a for a, _ in u_sheet_rows)
-        assert sub_ottv is not None
-        assert abs(weighted_u - ori_map["U"]["ottv_orientation_wm2"]) <= 0.01
-        assert abs(sub_ottv - ori_map["U"]["ottv_orientation_wm2"]) <= 0.01
+        # Laporan LUXA: kombinasi kaca/peneduh berbeda tetap jadi baris terpisah (tidak dirata-rata)
+        ws_u = wb["U Utara"]
+        sceff_rows = sorted({round(float(ws_u[f"M{r}"].value) / float(ws_u[f"L{r}"].value), 3) for r in range(11, 60)
+                             if isinstance(ws_u[f"M{r}"].value, (int, float)) and ws_u[f"L{r}"].value})
+        assert len(sceff_rows) >= 2
+        assert sceff_rows[0] == pytest.approx(0.721, abs=0.002)
+        ottv_sheet, n_rows, app_val = _luxa_rows_ottv(wb, "U Utara")
+        assert n_rows >= 2
+        assert abs(ottv_sheet - ori_map["U"]["ottv_orientation_wm2"]) <= 0.01
+        assert abs(app_val - ori_map["U"]["ottv_orientation_wm2"]) <= 0.01
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
@@ -566,13 +547,12 @@ def test_sceff_errata_smoothness_ketat_pdf_and_overhang_difference():
         assert any(e["table"] == "A.6" for e in res_corr["sceff_errata_applied"])
         assert len(res_pdf["sceff_errata_applied"]) == 0
 
-        # Confirm errata note appears in Hitungan Manual sheet
+        # Catatan errata muncul di Ringkasan laporan LUXA
         xlsx_bytes = generate_excel_report(res_corr)
         wb = openpyxl.load_workbook(io.BytesIO(xlsx_bytes))
-        ws_man = wb["Hitungan Manual"]
-        all_txt = " ".join(str(cell.value) for row in ws_man.iter_rows() for cell in row if cell.value is not None)
+        all_txt = " ".join(str(c.value) for row in wb["Ringkasan"].iter_rows() for c in row if c.value is not None)
         assert "Tabel A.6" in all_txt
-        assert "0.655 -> 0.65" in all_txt or "0.6550 -> 0.6500" in all_txt
+        assert "0.6550 -> 0.6500" in all_txt
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)

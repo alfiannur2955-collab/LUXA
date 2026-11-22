@@ -47,14 +47,16 @@ from sni_tables import (
     SNI_DELTA_T_K,
     SNI_TABLE_HORIZONTAL_SCEFF,
     SNI_TABLE_VERTICAL_SCEFF,
-    TEMPLATE_PRODI_SF_TABLE,
+    SNI_TABLE_8_SOLAR_FACTOR,
+    get_sceff_horizontal,
+    get_sceff_vertical,
     get_tdek_roof,
     get_tdek_wall,
 )
 
 OUT_ROOT = os.path.join(ROOT_DIR, "fixtures", "synthetic")
 
-# Konstanta default ProjectConfig() (Jakarta, mode sni, sf_source template_prodi)
+# Konstanta default ProjectConfig() (Jakarta, mode sni, sf_source sni2020 sejak Fase 5c)
 DEFAULT_CITY = "jakarta"
 DEFAULT_WALL_MAT = get_material_by_id("wal_spandrel_insulasi_50")
 DEFAULT_GLAZING_MAT = get_material_by_id("glz_igu_triple_silver")
@@ -71,14 +73,14 @@ TDEK_WALL = float(get_tdek_wall(MASS_WALL))
 
 U_GLZ = float(DEFAULT_GLAZING_MAT["u_value"])
 SHGC_GLZ = float(DEFAULT_GLAZING_MAT["shgc"])
-SCK_GLZ = SHGC_GLZ / SC_TO_SHGC_RATIO  # 0.20 / 0.86
+SCK_GLZ = SHGC_GLZ / SC_TO_SHGC_RATIO  # 0.20 / 0.87
 
 U_ROOF = float(DEFAULT_ROOF_MAT["u_value"])
 ALPHA_ROOF = float(DEFAULT_ROOF_MAT["alpha"])
 MASS_ROOF = float(DEFAULT_ROOF_MAT["massa_kg_m2"])
 TDEQ_ROOF = float(get_tdek_roof(MASS_ROOF))
 
-SF_JAKARTA = dict(TEMPLATE_PRODI_SF_TABLE[DEFAULT_CITY]["sf"])
+SF_JAKARTA = dict(SNI_TABLE_8_SOLAR_FACTOR[DEFAULT_CITY]["sf"])
 DELTA_T = float(SNI_DELTA_T_K)  # 5.0 K
 
 ORIENTATION_ORDER = ["U", "TL", "T", "TGR", "S", "BD", "B", "BL"]
@@ -138,6 +140,15 @@ def analytical_template_sceff(orient_code: str, r1: float = 0.0, r2: float = 0.0
     return 1.0
 
 
+def analytical_sni_sceff(orient_code: str, r1: float = 0.0, r2: float = 0.0, tilt_deg: float = 0.0) -> float:
+    """SCeff mode sni2020 (default sejak Fase 5c): interpolasi linear Tabel A.5-A.12 SNI 6389:2020."""
+    if r1 >= 0.10 - 1e-9 and r2 < 0.10 - 1e-9:
+        return float(get_sceff_horizontal(orient_code, r1, tilt_deg))
+    if r2 >= 0.10 - 1e-9 and r1 < 0.10 - 1e-9:
+        return float(get_sceff_vertical(orient_code, r2, tilt_deg))
+    return 1.0
+
+
 def compute_analytical_expected(
     area_by_orient: Dict[str, Dict[str, float]],
     r1: float = 0.0,
@@ -168,7 +179,7 @@ def compute_analytical_expected(
             continue
         wwr_o = a_g / a_tot
         sf_o = float(SF_JAKARTA[code])
-        sceff_o = analytical_template_sceff(code, r1=r1, r2=r2, tilt_deg=tilt_deg)
+        sceff_o = analytical_sni_sceff(code, r1=r1, r2=r2, tilt_deg=tilt_deg)
         sc_eff_total = SCK_GLZ * sceff_o
         q_w = ALPHA_WALL * U_WALL * (1.0 - wwr_o) * TDEK_WALL
         q_g = U_GLZ * wwr_o * DELTA_T
@@ -215,11 +226,11 @@ def compute_analytical_expected(
         "error_expected": bool(error_expected),
     }
 
-    sh_desc = f"R1={r1:.4g} (bin={_rounddown_1(r1):.1f}), R2={r2:.4g} (bin={_rounddown_1(r2):.1f})"
+    sh_desc = f"R1={r1:.4g}, R2={r2:.4g} (SCeff interpolasi Tabel A.5-A.12)"
     derivation = (
-        f"SNI 6389:2020 (sf_source=template_prodi, Jakarta): "
+        f"SNI 6389:2020 (sf_source=sni2020 Tabel 8, Jakarta): "
         f"Uw={U_WALL}, alpha={ALPHA_WALL}, massa_w={MASS_WALL} kg/m2 -> TDek={TDEK_WALL} K; "
-        f"Uf={U_GLZ}, SHGC={SHGC_GLZ} -> SCk=SHGC/0.86={SCK_GLZ:.6f}, dT={DELTA_T} K; "
+        f"Uf={U_GLZ}, SHGC={SHGC_GLZ} -> SCk=SHGC/0.87={SCK_GLZ:.6f}, dT={DELTA_T} K; "
         f"Peneduh: {sh_desc}; "
         f"Atap: Ur={U_ROOF}, alpha_r={ALPHA_ROOF}, TDeq={TDEQ_ROOF} K, SF_roof={SF_JAKARTA['ROOF']}. "
         f"OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf*WWR*dT + SF_i*WWR*(SCk*SCeff_i)."
@@ -1805,7 +1816,7 @@ def generate_all() -> None:
         r1=r1_ov,
         r2=0.0,
         tilt_deg=0.0,
-        extra_notes="Overhang 1.0 m di atas jendela tinggi 1.6 m -> R1=0.625 (bin BO template: 0.6).",
+        extra_notes="Overhang 1.0 m di atas jendela tinggi 1.6 m -> R1=0.625 (SCeff diinterpolasi).",
     )
     save_expected(cdir, "08_overhang", ["3dm", "obj", "glb", "ifc"], exp, drv, per_format_overrides={"obj": obj_unit_warn})
 
@@ -1827,7 +1838,7 @@ def generate_all() -> None:
         r1=0.0,
         r2=r2_fin,
         tilt_deg=0.0,
-        extra_notes="Sirip vertikal kedalaman 0.6 m, jarak 1.5 m -> R2=0.4 (bin BO template: 0.4).",
+        extra_notes="Sirip vertikal kedalaman 0.6 m, jarak 1.5 m -> R2=0.4.",
     )
     save_expected(cdir, "09_sirip", ["3dm", "obj", "glb", "ifc"], exp, drv, per_format_overrides={"obj": obj_unit_warn})
 

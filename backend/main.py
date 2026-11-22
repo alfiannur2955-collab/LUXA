@@ -70,6 +70,7 @@ from recommender import (
 from report_exporter import (
     generate_csv_report,
     generate_excel_report,
+    report_filename,
     generate_pdf_report,
 )
 from universal_pipeline import load_universal_model_stages_1_and_2
@@ -993,50 +994,33 @@ def export_analysis_report(analysis_id: str, fmt: str) -> Response:
         )
 
     fmt_lo = fmt.strip().lower()
-    base = os.path.splitext(data.get("filename", "OTTV_Report"))[0]
-    short_id = analysis_id[:8]
+    if fmt_lo == "template_prodi":  # format lama dihapus di Fase 5c; tautan lama dapat laporan LUXA
+        fmt_lo = "xlsx"
 
     if fmt_lo == "xlsx":
         xlsx_bytes = generate_excel_report(data)
         return Response(
             content=xlsx_bytes,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="Laporan_OTTV_{base}_{short_id}_SNI6389.xlsx"'},
+            headers={"Content-Disposition": f'attachment; filename="{report_filename(data, "xlsx")}"'},
         )
     if fmt_lo == "csv":
         csv_bytes = generate_csv_report(data)
         return Response(
             content=csv_bytes,
             media_type="text/csv; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="Laporan_OTTV_{base}_{short_id}_SNI6389.csv"'},
-        )
-    if fmt_lo == "template_prodi":
-        from report_template_map import export_template_prodi_xlsx
-
-        try:
-            tpl_bytes, tpl_warnings, _ = export_template_prodi_xlsx(data)
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        headers = {
-            "Content-Disposition": f'attachment; filename="Template_Prodi_OTTV_{base}_{short_id}.xlsx"',
-        }
-        if tpl_warnings:
-            headers["X-Template-Warnings"] = " | ".join(tpl_warnings)[:1000]
-        return Response(
-            content=tpl_bytes,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers=headers,
+            headers={"Content-Disposition": f'attachment; filename="{report_filename(data, "csv")}"'},
         )
     if fmt_lo == "pdf":
         pdf_bytes = generate_pdf_report(data)
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="Laporan_OTTV_{base}_{short_id}_SNI6389.pdf"'},
+            headers={"Content-Disposition": f'attachment; filename="{report_filename(data, "pdf")}"'},
         )
     raise HTTPException(
         status_code=400,
-        detail=f"Format ekspor '{fmt}' tidak didukung. Gunakan 'xlsx', 'template_prodi', 'csv', atau 'pdf'.",
+        detail=f"Format ekspor '{fmt}' tidak didukung. Gunakan 'xlsx', 'csv', atau 'pdf'.",
     )
 
 

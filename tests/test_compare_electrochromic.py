@@ -1,7 +1,8 @@
 """
 Mandatory Fase 4c comparison test (`docs/RENCANA.md` PROMPT FASE 4c & `docs/FASE4_UI_SPEC.md` §10):
-- `corpus/real/Facade only to Alfian.3dm` with default ProjectConfig -> 38.79 W/m2
-- Alternative using `glz_kaca_elektrokromik` (cloned ProjectConfig, unchanged ground plane) -> 27.71 W/m2
+- `corpus/real/Facade only to Alfian.3dm` with default ProjectConfig (SF SNI 2020 Tabel 8, SC=SHGC/0,87 sejak Fase 5c) -> 36.76 W/m2
+  (dulu 38.79 dengan tabel SF lama dan 0,86)
+- Alternative using `glz_kaca_elektrokromik` (cloned ProjectConfig, unchanged ground plane) -> 26.46 W/m2 (dulu 27.71)
 """
 
 from __future__ import annotations
@@ -31,7 +32,7 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
-def test_compare_electrochromic_alfian_3dm_gives_27_71_vs_38_79(client):
+def test_compare_electrochromic_alfian_3dm_gives_26_46_vs_36_76(client):
     alfian_path = os.path.join(ROOT_DIR, "corpus", "real", "Facade only to Alfian.3dm")
     if not os.path.isfile(alfian_path):
         pytest.skip("corpus/real/Facade only to Alfian.3dm not present")
@@ -48,14 +49,14 @@ def test_compare_electrochromic_alfian_3dm_gives_27_71_vs_38_79(client):
     r_base = client.post(f"/api/models/{model_id}/analyze", json=base_cfg)
     assert r_base.status_code == 200, r_base.text
     d_base = r_base.json()
-    assert abs(float(d_base["ottv_total_wm2"]) - 38.79) <= 0.05
+    assert abs(float(d_base["ottv_total_wm2"]) - 36.76) <= 0.05
 
     alt_cfg = ProjectConfig().model_dump(mode="json")
     alt_cfg["settings"]["glazing_material_id"] = "glz_kaca_elektrokromik"
     r_alt = client.post(f"/api/models/{model_id}/analyze", json=alt_cfg)
     assert r_alt.status_code == 200, r_alt.text
     d_alt = r_alt.json()
-    assert abs(float(d_alt["ottv_total_wm2"]) - 27.71) <= 0.05
+    assert abs(float(d_alt["ottv_total_wm2"]) - 26.46) <= 0.05
     assert d_alt["ottv_total_wm2"] < d_base["ottv_total_wm2"]
     assert d_alt["ottv_total_wm2"] <= 35.0
 

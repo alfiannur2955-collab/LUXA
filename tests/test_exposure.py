@@ -3,8 +3,8 @@ Tests for Fase 4b-2:
 - GET /api/analyses/{id}/exposure?date=YYYY-MM-DD (13 hourly solar vectors 06..18 + sunlit flags)
 - Caching & error handling (404 unknown analysis, 400 invalid date)
 - Mandatory acceptance verification with `corpus/real/Facade only to Alfian.3dm`:
-  * West glass panel contribution == 56.44 W/m2
-  * All West glass heat share ~= 32% of total building heat gain
+  * West glass panel contribution == 50.81 W/m2
+  * All West glass heat share ~= 30% of total building heat gain
   * Exposure on 23 Sep at 13:00 lights up West facade panels and does NOT light up South facade panels
 """
 
@@ -64,7 +64,7 @@ def test_exposure_endpoint_basic_and_errors(client):
     assert client.get(f"/api/analyses/{aid}/exposure?date=not-a-date").status_code == 400
 
 
-def test_alfian_3dm_west_glass_56_44_heat_share_32_pct_and_sep23_13h_exposure(client):
+def test_alfian_3dm_west_glass_50_81_heat_share_30_pct_and_sep23_13h_exposure(client):
     alfian_path = os.path.join(ROOT_DIR, "corpus", "real", "Facade only to Alfian.3dm")
     if not os.path.isfile(alfian_path):
         pytest.skip("corpus/real/Facade only to Alfian.3dm not present")
@@ -89,7 +89,7 @@ def test_alfian_3dm_west_glass_56_44_heat_share_32_pct_and_sep23_13h_exposure(cl
     total_heat_w = sum(float(p.get("heat_gain_w") or 0.0) for p in active_panels)
     assert total_heat_w > 0.0
 
-    # 1. West glazing panels -> 56.44 W/m2 contribution
+    # 1. West glazing panels -> 50.81 W/m2 contribution
     west_glz = [
         p
         for p in active_panels
@@ -97,14 +97,14 @@ def test_alfian_3dm_west_glass_56_44_heat_share_32_pct_and_sep23_13h_exposure(cl
     ]
     assert len(west_glz) > 0
     west_glz_vals = [float(p["ottv_panel_wm2"]) for p in west_glz]
-    assert any(abs(v - 56.44) <= 0.15 for v in west_glz_vals), (
-        f"Expected West glass panel contribution ~56.44 W/m2, got min={min(west_glz_vals):.2f}, max={max(west_glz_vals):.2f}"
+    assert any(abs(v - 50.81) <= 0.15 for v in west_glz_vals), (
+        f"Expected West glass panel contribution ~50.81 W/m2, got min={min(west_glz_vals):.2f}, max={max(west_glz_vals):.2f}"
     )
 
-    # 2. All West glazing heat share ~= 32% of total building heat gain
+    # 2. All West glazing heat share ~= 30% of total building heat gain
     west_glz_heat_w = sum(float(p.get("heat_gain_w") or 0.0) for p in west_glz)
     west_glz_share = west_glz_heat_w / total_heat_w
-    assert 0.30 <= west_glz_share <= 0.34, f"Expected West glass heat share ~32%, got {west_glz_share*100:.2f}%"
+    assert 0.28 <= west_glz_share <= 0.32, f"Expected West glass heat share ~30%, got {west_glz_share*100:.2f}%"
 
     # 3. Exposure on 23 Sep at 13:00 lights up West facade and does NOT light up South facade
     exp_resp = client.get(f"/api/analyses/{aid}/exposure?date=2026-09-23")

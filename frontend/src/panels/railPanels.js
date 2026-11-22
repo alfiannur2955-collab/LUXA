@@ -353,8 +353,8 @@ export function createRailPanelBuilders(handlers) {
         const sfSel = document.createElement('select');
         sfSel.className = 'field-select';
         for (const [val, lbl] of [
-          ['template_prodi', 'Template laporan (18 kota)'],
           ['sni2020', 'SNI 6389:2020 Tabel 8 (54 kota)'],
+          ['template_prodi', 'Tabel SF lama (template PUPR, 18 kota)'],
         ]) {
           const opt = document.createElement('option');
           opt.value = val;
