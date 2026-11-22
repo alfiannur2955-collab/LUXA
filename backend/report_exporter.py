@@ -305,7 +305,7 @@ def generate_excel_report(analysis: Dict[str, Any]) -> bytes:
         ws["C3"].fill = pupr_input
         ws["C3"].font = f_bold
         ws["F3"] = "Project name :"
-        ws["G3"] = analysis.get("filename", "Fasad_Curtain_Wall_Baru.3dm")
+        ws["G3"] = analysis.get("filename", "Model LUXA")
         ws["G3"].font = f_bold
 
         ws["B4"] = "ORIENTASI"

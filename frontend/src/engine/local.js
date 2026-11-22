@@ -7,10 +7,10 @@ import * as store from './store.js';
 
 const SAMPLES = {
   contoh_kotak_m: { url: 'samples/01_kotak_m.3dm', name: '01_kotak_m.3dm', title: 'Kotak 4 lantai' },
-  fasad_curtain_wall_baru: {
-    url: 'samples/Fasad_Curtain_Wall_Baru.3dm',
-    name: 'Fasad_Curtain_Wall_Baru.3dm',
-    title: 'Menara curtain wall',
+  fasad_tower_twisted: {
+    url: 'samples/Fasad_Tower_Twisted.3dm',
+    name: 'Fasad_Tower_Twisted.3dm',
+    title: 'Fasad tower twisted',
   },
 };
 

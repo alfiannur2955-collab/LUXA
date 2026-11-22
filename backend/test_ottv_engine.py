@@ -88,7 +88,7 @@ def run_all_tests() -> None:
             f"Floors = {res['summary']['total_floors']}, Time = {dt:.2f}s"
         )
 
-        if preset_id == "fasad_curtain_wall_baru":
+        if preset_id == "fasad_tower_twisted":
             assert res["summary"]["total_floors"] == 24
             assert "bounding_box" in res["summary"]
             assert res["summary"]["bounding_box"]["recommended_dome_radius"] > 50.0
@@ -113,7 +113,7 @@ def run_all_tests() -> None:
             assert str(wb["SUMMARY OTTV"]["H18"].value).startswith("=IF(")
             assert str(wb["SUMMARY OTTV"]["G21"].value).startswith("=IF(")
             print(
-                f"  [PASS] Report Exports for Fasad_Curtain_Wall_Baru.3dm: "
+                f"  [PASS] Report Exports for Fasad_Tower_Twisted.3dm: "
                 f"CSV={len(csv_b):,}B, PUPR XLSX ({len(wb.sheetnames)} sheets)={len(xls_b):,}B, PDF={len(pdf_b):,}B"
             )
 

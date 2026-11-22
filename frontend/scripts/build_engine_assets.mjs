@@ -101,8 +101,10 @@ export function buildEngineAssets({ quiet = false } = {}) {
 
   fs.mkdirSync(SAMPLES_OUT, { recursive: true });
   copy(path.join(ROOT, 'fixtures', 'synthetic', '01_kotak_m', 'model.3dm'), path.join(SAMPLES_OUT, '01_kotak_m.3dm'));
-  const cw = path.join(ROOT, 'backend', 'samples', 'Fasad_Curtain_Wall_Baru.3dm');
-  if (fs.existsSync(cw)) copy(cw, path.join(SAMPLES_OUT, 'Fasad_Curtain_Wall_Baru.3dm'));
+  const cw = path.join(ROOT, 'backend', 'samples', 'Fasad_Tower_Twisted.3dm');
+  if (fs.existsSync(cw)) copy(cw, path.join(SAMPLES_OUT, 'Fasad_Tower_Twisted.3dm'));
+  const old = path.join(SAMPLES_OUT, 'Fasad_Curtain_Wall_Baru.3dm');
+  if (fs.existsSync(old)) fs.rmSync(old);
 
   const sw = fs.readFileSync(path.join(here, 'sw.template.js'), 'utf8').replace('__ENGINE_VERSION__', manifest.version);
   fs.writeFileSync(path.join(FRONT, 'public', 'sw.js'), sw);
