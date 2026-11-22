@@ -121,8 +121,8 @@ export function renderResultsScreen(state, handlers) {
       const top = Object.entries(byOri).sort((x, y) => y[1] - x[1])[0];
       const topName = top ? ORIENTATION_NAMES_ID[top[0] === 'TGR' ? 'TG' : top[0]] || top[0] : null;
       legend.innerHTML = `
-        <span class="legend-item"><i class="swatch sunlit-grad-swatch" aria-hidden="true"></i>Terkena</span>
-        <span class="legend-item"><i class="swatch" style="background:var(--data-wall);"></i>Bayangan</span>
+        <span class="legend-item" title="Terkena matahari (pucat = sinar miring, pekat = tegak lurus)"><i class="swatch sunlit-grad-swatch" aria-hidden="true"></i><span class="legend-lbl-opt">Terkena</span></span>
+        <span class="legend-item" title="Di bayangan"><i class="swatch" style="background:var(--data-wall);"></i><span class="legend-lbl-opt">Bayangan</span></span>
         <span class="legend-item num sunlit-stat"></span>`;
       const topCode = top ? (top[0] === 'TGR' ? 'TG' : top[0]) : null;
       const stat = legend.querySelector('.sunlit-stat');

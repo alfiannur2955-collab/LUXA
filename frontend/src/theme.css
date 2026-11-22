@@ -3959,3 +3959,9 @@ body.is-d5-rotating * {
     width: 44px !important;
   }
 }
+
+@media (max-width: 1400px) {
+  .legend .legend-lbl-opt {
+    display: none;
+  }
+}
