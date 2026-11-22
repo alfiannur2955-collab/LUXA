@@ -1,0 +1,74 @@
+{
+ "kotak_3dm": {
+  "ottv_total_wm2": 20.43,
+  "rttv_wm2": 4.64,
+  "panels": 48,
+  "py_seconds": 0.039,
+  "extract_s": 0.011,
+  "total_s": 0.05,
+  "native_ottv": 20.43,
+  "native_s": 0.02,
+  "diff_ottv": 0,
+  "wasm_heap_mb": 104
+ },
+ "silinder_3dm": {
+  "ottv_total_wm2": 19.89,
+  "rttv_wm2": 4.64,
+  "panels": 432,
+  "py_seconds": 0.086,
+  "extract_s": 0.013,
+  "total_s": 0.1,
+  "native_ottv": 19.89,
+  "native_s": 0.06,
+  "diff_ottv": 0,
+  "wasm_heap_mb": 104
+ },
+ "unitized24_3dm": {
+  "ottv_total_wm2": 27.47,
+  "rttv_wm2": 0,
+  "panels": 7992,
+  "py_seconds": 7.577,
+  "extract_s": 0.199,
+  "total_s": 7.8,
+  "native_ottv": 27.47,
+  "native_s": 5.61,
+  "diff_ottv": 0,
+  "wasm_heap_mb": 309
+ },
+ "archicad_ifc": {
+  "ottv_total_wm2": 3.72,
+  "rttv_wm2": 0,
+  "panels": 180,
+  "py_seconds": 2.072,
+  "extract_s": 0,
+  "total_s": 2.07,
+  "native_ottv": 3.72,
+  "native_s": 0.18,
+  "diff_ottv": 0,
+  "wasm_heap_mb": 309
+ },
+ "alfian_obj": {
+  "ottv_total_wm2": 38.79,
+  "rttv_wm2": 0,
+  "panels": 4500,
+  "py_seconds": 2.86,
+  "extract_s": 0,
+  "total_s": 2.88,
+  "native_ottv": 38.79,
+  "native_s": 1.65,
+  "diff_ottv": 0,
+  "wasm_heap_mb": 309
+ },
+ "alfian_3dm": {
+  "ottv_total_wm2": 38.79,
+  "rttv_wm2": 0,
+  "panels": 4500,
+  "py_seconds": 2.448,
+  "extract_s": 0.321,
+  "total_s": 2.79,
+  "native_ottv": 38.79,
+  "native_s": 4.59,
+  "diff_ottv": 0,
+  "wasm_heap_mb": 309
+ }
+}

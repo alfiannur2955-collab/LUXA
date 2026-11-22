@@ -1,0 +1,38 @@
+{
+ "kotak_3dm": {
+  "ottv_total_wm2": 20.43,
+  "rttv_wm2": 4.64,
+  "panels": 48,
+  "seconds": 0.02
+ },
+ "silinder_3dm": {
+  "ottv_total_wm2": 19.89,
+  "rttv_wm2": 4.64,
+  "panels": 432,
+  "seconds": 0.06
+ },
+ "unitized24_3dm": {
+  "ottv_total_wm2": 27.47,
+  "rttv_wm2": 0.0,
+  "panels": 7992,
+  "seconds": 5.61
+ },
+ "archicad_ifc": {
+  "ottv_total_wm2": 3.72,
+  "rttv_wm2": 0.0,
+  "panels": 180,
+  "seconds": 0.18
+ },
+ "alfian_obj": {
+  "ottv_total_wm2": 38.79,
+  "rttv_wm2": 0.0,
+  "panels": 4500,
+  "seconds": 1.65
+ },
+ "alfian_3dm": {
+  "ottv_total_wm2": 38.79,
+  "rttv_wm2": 0.0,
+  "panels": 4500,
+  "seconds": 4.59
+ }
+}
