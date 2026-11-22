@@ -17,6 +17,7 @@ import {
   readThemeTokens,
 } from '../viewer/modes.js';
 import { renderViewerModeBar } from '../viewer/modeBar.js';
+import { resolveViewerMode } from '../viewer/modes.js';
 import { renderViewerBottomBar } from '../viewer/vbar.js';
 import { viewer } from '../viewer/viewer.js';
 
@@ -78,19 +79,21 @@ export function renderInspectScreen(state, handlers) {
 
   viewerSec.appendChild(viewerStage);
 
-  // Mode bar (Klasifikasi, Orientasi, Heatmap [disabled until analyzed] | Kejanggalan, X-ray)
-  const activeInspectMode =
-    (state.viewerMode === 'heatmap' || state.viewerMode === 'exposure') && !state.analysisData
-      ? 'classification'
-      : state.viewerMode || 'classification';
-  const modeBarEl = renderViewerModeBar({ ...state, viewerMode: activeInspectMode }, (modeId) => {
-    if ((modeId === 'heatmap' || modeId === 'exposure') && state.analysisData) {
-      handlers.onGoToResults();
-      if (modeId === 'exposure') handlers.onChangeViewerMode(modeId);
-    } else {
-      handlers.onChangeViewerMode(modeId);
-    }
-  });
+  // Mode bar: Klasifikasi, Orientasi (+ Heatmap/Matahari bila sudah dihitung) | Perlu dicek, Transparan
+  const inspView = resolveViewerMode({ ...state, viewerMode: state.viewerMode || 'classification' });
+  const activeInspectMode = inspView.mode === 'heatmap' || inspView.mode === 'sun' ? 'classification' : inspView.mode;
+  const modeBarEl = renderViewerModeBar(
+    { ...state, viewerMode: activeInspectMode },
+    (modeId) => {
+      if ((modeId === 'heatmap' || modeId === 'sun') && state.analysisData) {
+        handlers.onGoToResults();
+        handlers.onChangeViewerMode(modeId);
+      } else {
+        handlers.onChangeViewerMode(modeId);
+      }
+    },
+    { onToggleOverlay: handlers.onToggleOverlay },
+  );
   const modeAtBottom = state.workspace?.modeBarPosition === 'bottom';
   if (!modeAtBottom) {
     viewerSec.appendChild(modeBarEl);
@@ -117,16 +120,6 @@ export function renderInspectScreen(state, handlers) {
       </span>
       <span class="legend-item"><i class="swatch" style="background:${hRgb};"></i>Atap / datar</span>
     `;
-  } else if (activeInspectMode === 'anomalies') {
-    legend.innerHTML = `
-      <span class="legend-item"><i class="swatch" style="background:var(--warn);"></i>Perlu diperiksa</span>
-      <span class="legend-item"><i class="swatch" style="background:var(--data-wall);opacity:0.35;"></i>Elemen lain</span>
-    `;
-  } else if (activeInspectMode === 'xray') {
-    legend.innerHTML = `
-      <span class="legend-item"><i class="swatch" style="background:var(--data-glazing);opacity:0.4;"></i>Selubung transparan</span>
-      <span class="legend-item"><i class="swatch" style="border:1.5px dashed var(--warn);background:transparent;"></i>Disaring / nonaktif</span>
-    `;
   } else {
     const legendParts = [
       `<span class="legend-item"><i class="swatch" style="background:var(--data-glazing);"></i>Kaca ${fmtId(glazingArea, 1)} m²</span>`,
@@ -139,7 +132,7 @@ export function renderInspectScreen(state, handlers) {
     }
     if (flags.some((f) => f.severity === 'warn' || f.severity === 'error')) {
       legendParts.push(
-        '<span class="legend-item"><i class="swatch" style="background:var(--warn);border-radius:6px;"></i>Kejanggalan</span>',
+        '<span class="legend-item"><i class="swatch" style="background:var(--warn);border-radius:6px;"></i>Perlu dicek</span>',
       );
     }
     legend.innerHTML = legendParts.join('');
@@ -307,13 +300,18 @@ export function renderInspectScreen(state, handlers) {
 
   const kjTitle = document.createElement('h2');
   kjTitle.id = 'kj-title';
-  kjTitle.textContent = 'Daftar kejanggalan';
+  kjTitle.textContent = 'Catatan pemeriksaan';
 
   const kjChip = document.createElement('span');
   kjChip.className = `chip ${unresolvedWarnFlags.length > 0 ? 'st-warn' : 'st-ok'}`;
   kjChip.textContent =
     unresolvedWarnFlags.length > 0 ? `${unresolvedWarnFlags.length} perlu dicek` : 'Siap dihitung';
 
+  kjTitle.style.whiteSpace = 'normal';
+  kjTitle.style.overflow = 'visible';
+  kjTitle.style.textOverflow = 'clip';
+  kjHead.style.flexWrap = 'wrap';
+  kjHead.style.rowGap = '6px';
   kjHead.append(kjTitle, kjChip);
 
   const ul = document.createElement('ul');
@@ -469,7 +467,7 @@ export function renderInspectScreen(state, handlers) {
     note.textContent = 'Kembali ke Konfirmasi untuk melengkapi baris yang masih kuning.';
   } else if (willBeProvisional) {
     note.textContent =
-      'Hasil akan berstatus Sementara selama kejanggalan di atas belum diperbaiki.';
+      'Hasil akan berstatus Sementara selama catatan di atas belum diselesaikan.';
   } else {
     note.textContent =
       state.engineMode === 'browser'

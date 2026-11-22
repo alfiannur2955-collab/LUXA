@@ -126,7 +126,7 @@ export function renderDockCustomizerModal(state, handlers) {
   title.id = 'dock-modal-title';
   title.style.margin = '0';
   title.style.fontSize = '16px';
-  title.textContent = 'Atur urutan dan isi dock';
+  title.textContent = 'Atur menu samping';
 
   const closeBtn = document.createElement('button');
   closeBtn.type = 'button';
@@ -134,7 +134,7 @@ export function renderDockCustomizerModal(state, handlers) {
   closeBtn.style.height = '34px';
   closeBtn.style.minWidth = '34px';
   closeBtn.style.padding = '0';
-  closeBtn.setAttribute('aria-label', 'Tutup pengaturan dock');
+  closeBtn.setAttribute('aria-label', 'Tutup pengaturan menu samping');
   closeBtn.innerHTML = icon('close', 16);
   closeBtn.addEventListener('click', () => handlers.onClose());
   head.append(title, closeBtn);
@@ -163,7 +163,7 @@ export function renderDockCustomizerModal(state, handlers) {
     cb.type = 'checkbox';
     cb.checked = !isHidden;
     cb.disabled = Boolean(meta.lockVisible);
-    cb.setAttribute('aria-label', `Tampilkan ${meta.label} di dock`);
+    cb.setAttribute('aria-label', `Tampilkan ${meta.label} di menu samping`);
     cb.addEventListener('change', () => handlers.onToggleHide(id));
 
     const ico = document.createElement('span');

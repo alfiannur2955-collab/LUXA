@@ -245,7 +245,7 @@ def analyze(model_id: str, config: Optional[Dict[str, Any]] = None) -> Dict[str,
     if accepted_flags:
         summary = dict(payload.get("summary") or {})
         warnings_list = list(summary.get("warnings") or payload.get("warnings") or [])
-        flag_msg = "Kejanggalan diterima tanpa perbaikan sebelum hitung: " + ", ".join(str(f) for f in accepted_flags) + "."
+        flag_msg = "Catatan pemeriksaan diterima tanpa perbaikan sebelum hitung: " + ", ".join(str(f) for f in accepted_flags) + "."
         if flag_msg not in warnings_list:
             warnings_list.append(flag_msg)
         summary["warnings"] = warnings_list

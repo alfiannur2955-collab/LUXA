@@ -1,25 +1,42 @@
 /**
  * Viewer color & material helpers reading live CSS tokens from theme.css.
  * Zero hardcoded hex values — switches cleanly between light and dark themes.
- * Supports all 5 viewer modes (`docs/FASE4_UI_SPEC.md` §4.2):
- * - classification (Klasifikasi)
- * - orientation (Orientasi: 8 compass directions neutral-to-warm)
- * - heatmap (Heatmap per arah / per panel)
- * - anomalies (Kejanggalan: flagged in --warn, rest dimmed)
- * - xray (X-ray: translucent envelope + dashed filtered_items)
- * Plus exposure filter (`sunlit_now`: sunlit = heat-1, shaded = data-wall).
+ * Mode tampilan: Klasifikasi, Orientasi, Heatmap, Matahari (sepanjang tahun / waktu aktif),
+ * ditambah alat periksa Perlu dicek dan Transparan yang bisa digabung dengan mode apa pun.
  */
 
 import * as THREE from 'three';
 
 export const VIEWER_MODES = [
-  { id: 'classification', label: 'Klasifikasi', icon: 'grid', group: 'view' },
-  { id: 'orientation', label: 'Orientasi', icon: 'compass', group: 'view' },
-  { id: 'heatmap', label: 'Heatmap', icon: 'thermometer', group: 'view' },
-  { id: 'exposure', label: 'Paparan', icon: 'sun', group: 'view', hint: 'Paparan matahari per titik (tampilan saja)' },
-  { id: 'anomalies', label: 'Kejanggalan', icon: 'warn', group: 'check' },
-  { id: 'xray', label: 'X-ray', icon: 'xray', group: 'check' },
+  { id: 'classification', label: 'Klasifikasi', icon: 'grid', hint: 'Warna menurut jenis bidang: kaca, dinding, peneduh' },
+  { id: 'orientation', label: 'Orientasi', icon: 'compass', hint: 'Warna menurut arah hadap fasad' },
+  { id: 'heatmap', label: 'Heatmap', icon: 'thermometer', needsAnalysis: true, hint: 'Nilai OTTV per arah atau per panel (hasil SNI)' },
+  { id: 'sun', label: 'Matahari', icon: 'sun', needsAnalysis: true, hint: 'Paparan matahari sepanjang tahun, atau sinar langsung pada tanggal dan jam aktif (tampilan saja)' },
 ];
+
+/** Alat periksa: bisa dinyalakan bersama mode apa pun. */
+export const VIEWER_OVERLAYS = [
+  { id: 'check', key: 'overlayCheck', label: 'Perlu dicek', icon: 'warn', hint: 'Tandai bagian model yang perlu dicek' },
+  { id: 'xray', key: 'overlayXray', label: 'Transparan', icon: 'xray', hint: 'Model tembus pandang; bidang yang disaring tampil putus-putus' },
+];
+
+/**
+ * Mode tampilan yang efektif dari state (termasuk nilai lama yang tersimpan di proyek/view).
+ * Mengembalikan { mode, renderMode, xray, check, sunView }.
+ * renderMode = nama internal renderer ('sun' digambar sebagai 'exposure').
+ */
+export function resolveViewerMode(state) {
+  const hasAnalysis = Boolean(state.analysisData?.panels?.length);
+  let mode = state.viewerMode || (hasAnalysis ? 'heatmap' : 'classification');
+  let xray = Boolean(state.overlayXray);
+  let check = Boolean(state.overlayCheck);
+  if (mode === 'exposure') mode = 'sun';
+  if (mode === 'xray') { mode = 'classification'; xray = true; }
+  if (mode === 'anomalies') { mode = 'classification'; check = true; }
+  if ((mode === 'heatmap' || mode === 'sun') && !hasAnalysis) mode = 'classification';
+  const sunView = state.sunView === 'now' ? 'now' : 'year';
+  return { mode, renderMode: mode === 'sun' ? 'exposure' : mode, xray, check, sunView };
+}
 
 export const ORIENTATION_CODES = ['U', 'TL', 'T', 'TG', 'S', 'BD', 'B', 'BL'];
 

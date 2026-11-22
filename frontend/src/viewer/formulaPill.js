@@ -109,7 +109,7 @@ export function renderFormulaPill(state, { onToggleExpand } = {}) {
 
   const symSpan = document.createElement('span');
   symSpan.className = 'formula formula-pill-sym';
-  symSpan.innerHTML = code ? `OTTV<sub>${code}</sub>` : 'OTTV';
+  symSpan.textContent = code ? `OTTV arah ${ORIENTATION_NAMES_ID[code === 'TGR' ? 'TG' : code] || code}` : 'OTTV';
 
   const valSpan = document.createElement('span');
   valSpan.className = 'num formula-pill-val';
@@ -217,7 +217,7 @@ export function renderFormulaPill(state, { onToggleExpand } = {}) {
       const sumRow = document.createElement('div');
       sumRow.className = 'formula-sum-row num';
       const sumLbl = document.createElement('span');
-      sumLbl.innerHTML = `<span class="formula">OTTV<sub>${code}</sub></span> (luas ${fmtId(mc.ao_m2 ?? 0, 1)} m²)`;
+      sumLbl.innerHTML = `<span>OTTV arah ${ORIENTATION_NAMES_ID[code === 'TGR' ? 'TG' : code] || code}</span> (luas ${fmtId(mc.ao_m2 ?? 0, 1)} m²)`;
       const sumVal = document.createElement('b');
       sumVal.textContent = `${fmtId(tot, 2)} W/m²`;
       sumRow.append(sumLbl, sumVal);

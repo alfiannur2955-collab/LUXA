@@ -265,7 +265,7 @@ async function handleCapturePng(scale = null) {
       layout: s.captureLayout || 'panel',
       include: s.captureInclude,
     });
-    showToast(`Capture ${res.scale}x (${res.width} × ${res.height} px) diunduh.`, 'ok', 3000);
+    showToast(`Gambar ${res.scale}x (${res.width} × ${res.height} px) tersimpan.`, 'ok', 3000);
   } catch (err) {
     showToast(err.message || 'Gagal melakukan capture gambar.', 'fail');
   }
@@ -301,7 +301,7 @@ function handleToggleNorthRotateMode(force = null) {
   if (next === s.northRotateMode) return;
   setState({ northRotateMode: next, openPopover: null });
   if (next) {
-    showToast('Mode putar utara aktif — tarik pegangan U atau klik angka sudut (Esc keluar).', 'ok', 3200);
+    showToast('Atur arah utara: tarik pegangan U atau klik angka sudut (Esc selesai).', 'ok', 3200);
   }
 }
 
@@ -322,6 +322,37 @@ function handleChangeSunHour(hour) {
   if (s.analysisData && s.facadeFilter === 'sunlit_now' && !s.exposureData) {
     exposureController.ensureExposureLoaded();
   }
+}
+
+/** Ganti mode tampilan. Matahari "waktu aktif" memakai filter sunlit_now (bayangan per jam). */
+function handleChangeViewerMode(mode) {
+  const s = getState();
+  if (mode === 'sun') {
+    setState({ viewerMode: 'sun' });
+    handleChangeFacadeFilter(s.sunView === 'now' ? 'sunlit_now' : 'all');
+    return;
+  }
+  setState({ viewerMode: mode, ...(s.facadeFilter === 'sunlit_now' ? { facadeFilter: 'all' } : {}) });
+}
+
+/** Mode Matahari: 'year' = sepanjang tahun, 'now' = tanggal & jam aktif. */
+function handleSetSunView(view) {
+  const v = view === 'now' ? 'now' : 'year';
+  setState({ sunView: v, viewerMode: 'sun' });
+  handleChangeFacadeFilter(v === 'now' ? 'sunlit_now' : 'all');
+}
+
+/** Lompat ke tanggal & jam sekarang (jam dibatasi 06–18). */
+function handleSunNow() {
+  const d = new Date();
+  const ymd = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  handleChangeSunDate(ymd);
+  handleChangeSunHour(d.getHours() + (d.getMinutes() >= 30 ? 1 : 0));
+}
+
+function handleToggleOverlay(id, on) {
+  if (id === 'xray') setState({ overlayXray: Boolean(on) });
+  else if (id === 'check') setState({ overlayCheck: Boolean(on) });
 }
 
 function handleChangeFacadeFilter(filterMode) {
@@ -402,6 +433,7 @@ function handleApplyAlternative(altId) {
     designHistory: [histEntry, ...(s.designHistory || [])].slice(0, 12),
     selectedPanelIds: [],
     selectedOrientation: null,
+    isolatedOrientation: null,
     exposureData: null,
     needsRecompute: false,
     step: 'results',
@@ -435,6 +467,7 @@ function handleRestoreHistory(histId) {
     designHistory: nextHistory,
     selectedPanelIds: [],
     selectedOrientation: null,
+    isolatedOrientation: null,
     exposureData: null,
     needsRecompute: false,
   });
@@ -578,7 +611,15 @@ async function pinMainAnalysis(state) {
 }
 
 const vbarHandlers = {
-  onToggleSunlit: () => handleChangeFacadeFilter(getState().facadeFilter === 'sunlit_now' ? 'all' : 'sunlit_now'),
+  onToggleSunlit: () => {
+    const cur = getState();
+    if (cur.viewerMode === 'sun' && cur.sunView === 'now') handleSetSunView('year');
+    else handleSetSunView('now');
+  },
+  onSunNow: handleSunNow,
+  onChangeSunDate: handleChangeSunDate,
+  onFitCamera: handleFitCamera,
+  onTogglePresentation: () => (getState().workspace?.preset === 'presentasi' ? handleExitPresentation() : handleSetWorkspacePreset('presentasi')),
   onSetProjection: handleSetProjection,
   onSelectDirection: handleSelectDirection,
   onTogglePopover: (pop) => setState({ openPopover: pop }),
@@ -696,6 +737,7 @@ async function runInspectAndOpenConfirm(
       acknowledgedFlags: {},
       selectedGroup: null,
       selectedOrientation: null,
+      isolatedOrientation: null,
       activeViewId: null,
       viewerMode: 'classification',
       sunDomeInitialRadiusM: initDomeR,
@@ -925,6 +967,7 @@ async function handleCalculateOttv() {
       analysisData: result,
       viewerMode: 'heatmap',
       selectedOrientation: null,
+      isolatedOrientation: null,
       selectedPanelIds: [],
       exposureData: null,
       facadeFilter: 'all',
@@ -998,8 +1041,16 @@ function applyWorkspaceChange(nextWs) {
   });
 }
 
+let presetBeforePresentation = 'belajar';
+
+/** Keluar Presentasi: kembali ke preset sebelumnya (Belajar atau Lanjut). */
+function handleExitPresentation() {
+  handleSetWorkspacePreset(presetBeforePresentation === 'lanjut' ? 'lanjut' : 'belajar');
+}
+
 function handleSetWorkspacePreset(preset) {
   const cur = getState().workspace || createDefaultWorkspace();
+  if (preset === 'presentasi' && cur.preset !== 'presentasi') presetBeforePresentation = cur.preset || 'belajar';
   const next = { ...cur, preset };
   applyWorkspaceChange(next);
   const labels = { belajar: 'Belajar', lanjut: 'Lanjut', presentasi: 'Presentasi' };
@@ -1328,6 +1379,7 @@ const panelBuilders = createRailPanelBuilders({
     });
   },
   onOpenShortcuts: () => setState({ shortcutsModalOpen: true, activeRailCard: null }),
+  onSetModeBarPosition: (pos) => applyWorkspaceChange({ ...getState().workspace, modeBarPosition: pos }),
   onChangeSfSource: (sfSource) => {
     updateConfig((cfg) => {
       cfg.settings.sf_source = sfSource;
@@ -1358,7 +1410,9 @@ const panelBuilders = createRailPanelBuilders({
   },
   onSetProjection: handleSetProjection,
   onSelectDirection: handleSelectDirection,
-  onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
+  onChangeViewerMode: handleChangeViewerMode,
+    onToggleOverlay: handleToggleOverlay,
+    onSetSunView: handleSetSunView,
   onFitCamera: handleFitCamera,
   onToggleTheme: toggleTheme,
   onSetWorkspacePreset: handleSetWorkspacePreset,
@@ -1539,7 +1593,9 @@ function renderApp(state) {
     frag.appendChild(
       renderInspectScreen(state, {
         vbarHandlers,
-        onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
+        onChangeViewerMode: handleChangeViewerMode,
+    onToggleOverlay: handleToggleOverlay,
+    onSetSunView: handleSetSunView,
         onChangeNorth: handleChangeNorthAngle,
         onSelectGroup: (groupName) => setState({ selectedGroup: groupName }),
         onChangeGroupCategory: async (groupName, newCat) => {
@@ -1648,10 +1704,12 @@ function renderApp(state) {
     frag.appendChild(
       renderResultsScreen(state, {
         vbarHandlers,
-        onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
+        onChangeViewerMode: handleChangeViewerMode,
+    onToggleOverlay: handleToggleOverlay,
+    onSetSunView: handleSetSunView,
         onChangeNorth: handleChangeNorthAngle,
         onToggleFormulaPill: (open) => setState({ formulaPillExpanded: Boolean(open) }),
-        onExitPresentation: () => handleSetWorkspacePreset('belajar'),
+        onExitPresentation: () => handleExitPresentation(),
         onChangeHeatmapGranularity: (gran) => setState({ heatmapGranularity: gran }),
         onToggleHeatmapSmooth: (enabled) => setState({ heatmapSmooth: Boolean(enabled) }),
         onToggleExposureShading: (enabled) => setState({ exposureShading: Boolean(enabled) }),
@@ -1667,8 +1725,9 @@ function renderApp(state) {
           });
         },
         onClearPanelSelection: () => setState({ selectedPanelIds: [] }),
+        onClearIsolation: () => setState({ isolatedOrientation: null, selectedOrientation: null }),
         onSelectOrientation: (code) => {
-          setState({ selectedOrientation: code });
+          setState({ selectedOrientation: code, isolatedOrientation: code || null });
           if (code) {
             handleSelectDirection(code);
           }
@@ -1796,7 +1855,9 @@ function renderApp(state) {
     },
     onFitCamera: handleFitCamera,
     onToggleNorthRotateMode: () => handleToggleNorthRotateMode(),
-    onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
+    onChangeViewerMode: handleChangeViewerMode,
+    onToggleOverlay: handleToggleOverlay,
+    onSetSunView: handleSetSunView,
     onSaveView: handleSaveView,
     onApplyView: handleApplyView,
     onCapturePng: handleCapturePng,
@@ -1830,7 +1891,7 @@ function renderApp(state) {
     onSetModeBarPosition: (pos) => applyWorkspaceChange({ ...getState().workspace, modeBarPosition: pos }),
     onReset: () => {
       applyWorkspaceChange(createDefaultWorkspace());
-      showToast('Urutan dan isi dock dikembalikan ke bawaan.', 'ok', 2200);
+      showToast('Urutan dan isi menu samping dikembalikan ke bawaan.', 'ok', 2200);
     },
   });
   if (dockEl) frag.appendChild(dockEl);
@@ -1867,7 +1928,7 @@ installShortcuts({
       } else if (s.activeRailCard) {
         setState({ activeRailCard: null });
       } else if (s.workspace?.preset === 'presentasi') {
-        handleSetWorkspacePreset('belajar');
+        handleExitPresentation();
       }
     },
     onSetProjection: (p) => {
@@ -1881,7 +1942,9 @@ installShortcuts({
     },
     onFitCamera: handleFitCamera,
     onToggleNorthRotateMode: (force) => handleToggleNorthRotateMode(force === undefined ? null : force),
-    onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
+    onChangeViewerMode: handleChangeViewerMode,
+    onToggleOverlay: handleToggleOverlay,
+    onSetSunView: handleSetSunView,
     onSaveView: handleSaveView,
     onCapturePng: handleCapturePng,
     onToggleSunPlayback: () => exposureController.togglePlayback(),

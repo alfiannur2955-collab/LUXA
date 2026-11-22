@@ -132,7 +132,7 @@ export class SunDomeController {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'd5-handle d5-dome-handle';
-      btn.setAttribute('aria-label', 'Tarik untuk mengubah radius kubah matahari (tahan Shift untuk langkah 5 m)');
+      btn.setAttribute('aria-label', 'Tarik untuk mengubah ukuran kubah matahari (tahan Shift untuk langkah 5 m)');
       btn.title = 'Tarik menjauhi/mendekati pusat untuk skala kubah (Shift = langkah 5 m)';
       btn.style.display = 'none';
 

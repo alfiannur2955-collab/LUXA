@@ -392,7 +392,7 @@ export function renderCompareScreen(state, handlers) {
       const prov = document.createElement('p');
       prov.className = 'lbl';
       prov.style.margin = '6px 0 0';
-      prov.textContent = 'Hasil alternatif SEMENTARA: ada kejanggalan model yang diterima tanpa perbaikan.';
+      prov.textContent = 'Hasil alternatif SEMENTARA: ada catatan pemeriksaan yang diterima tanpa perbaikan.';
       sumCard.appendChild(prov);
     }
   } else {
@@ -731,7 +731,7 @@ export function renderCompareScreen(state, handlers) {
     capBtn.type = 'button';
     capBtn.className = `ghost compare-add-btn${state.openPopover === 'capture' ? ' is-active' : ''}`;
     capBtn.setAttribute('aria-expanded', state.openPopover === 'capture' ? 'true' : 'false');
-    capBtn.innerHTML = `${icon('camera', 14)}<span>Unduh gambar perbandingan</span>`;
+    capBtn.innerHTML = `${icon('camera', 14)}<span>Simpan gambar perbandingan</span>`;
     capBtn.addEventListener('click', () => handlers.onTogglePopover?.(state.openPopover === 'capture' ? null : 'capture'));
     capWrap.appendChild(capBtn);
     if (state.openPopover === 'capture') {

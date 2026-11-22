@@ -552,7 +552,7 @@ def _sheet_summary(ws, analysis: Dict[str, Any], refs: Dict[str, Dict[str, str]]
         notes.append(f"Errata SCeff Tabel {e.get('table')} ({r_txt}, {e.get('angle_deg')}°): "
                      f"{float(e.get('printed', 0)):.4f} -> {float(e.get('corrected', 0)):.4f}. {e.get('reason') or ''}".strip())
     if summ.get("is_provisional"):
-        notes.append("Status hasil: SEMENTARA, karena ada kejanggalan model yang diterima tanpa perbaikan.")
+        notes.append("Status hasil: SEMENTARA, karena ada catatan pemeriksaan model yang diterima tanpa perbaikan.")
     notes.append("LUXA adalah alat bantu belajar dan simulasi; laporan ini bukan dokumen kepatuhan resmi.")
     for i, t in enumerate(notes):
         _set(ws, f"A{r + 1 + i}", f"{i + 1}. {t}", align=WRAP)

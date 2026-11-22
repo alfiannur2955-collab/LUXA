@@ -51,10 +51,11 @@ def test_fase4d_docs_and_controls_present() -> None:
     for entity in ("Material kustom", "saved_views", "alternatives", "luxa.projects.v1", "Urungkan"):
         assert entity in txt
 
-    # Compass is read-only indicator (no pointerdown drag handler)
+    # Compass is navigation only: no drag handler (north is changed via the ring), click = face north
     compass_src = (ROOT_DIR / "frontend" / "src" / "viewer" / "compass.js").read_text(encoding="utf-8")
     assert "pointerdown" not in compass_src
-    assert "Utara di" in compass_src
+    assert "utara proyek" in compass_src
+    assert "faceNorth" in compass_src
 
     # NorthRingController exists for D2
     north_ring_src = (ROOT_DIR / "frontend" / "src" / "viewer" / "northRing.js").read_text(encoding="utf-8")

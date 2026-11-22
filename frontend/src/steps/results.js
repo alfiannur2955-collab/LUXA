@@ -22,11 +22,19 @@ import {
   readThemeTokens,
 } from '../viewer/modes.js';
 import { renderViewerModeBar } from '../viewer/modeBar.js';
+import { resolveViewerMode } from '../viewer/modes.js';
 import { summarizeSelectedPanels } from '../viewer/selection.js';
 import { renderViewerBottomBar } from '../viewer/vbar.js';
 import { smoothLegendTicksHtml, viewer } from '../viewer/viewer.js';
 
 const CANONICAL_ORIENTATIONS = ['U', 'TL', 'T', 'TG', 'S', 'BD', 'B', 'BL'];
+
+const SUN_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+function fmtSunDateShort(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ''));
+  if (!m) return 'Hari ini';
+  return `${Number(m[3])} ${SUN_MONTHS[Number(m[2]) - 1] || ''}`;
+}
 
 export function renderResultsScreen(state, handlers) {
   const main = document.createElement('main');
@@ -58,9 +66,13 @@ export function renderResultsScreen(state, handlers) {
   viewerStage.appendChild(canvasHost);
   viewerSec.appendChild(viewerStage);
 
-  // Mode bar (Klasifikasi, Orientasi, Heatmap | Kejanggalan, X-ray)
-  const activeMode = state.viewerMode || 'heatmap';
-  const modeBarEl = renderViewerModeBar({ ...state, viewerMode: activeMode }, handlers.onChangeViewerMode);
+  // Mode bar: Klasifikasi, Orientasi, Heatmap, Matahari | Perlu dicek, Transparan
+  const view = resolveViewerMode({ ...state, viewerMode: state.viewerMode || 'heatmap' });
+  const activeMode = view.renderMode;
+  const sunNow = view.mode === 'sun' && state.facadeFilter === 'sunlit_now';
+  const modeBarEl = renderViewerModeBar({ ...state, viewerMode: view.mode }, handlers.onChangeViewerMode, {
+    onToggleOverlay: handlers.onToggleOverlay,
+  });
   const modeAtBottom = state.workspace?.modeBarPosition === 'bottom';
   if (!modeAtBottom) {
     viewerSec.appendChild(modeBarEl);
@@ -91,14 +103,39 @@ export function renderResultsScreen(state, handlers) {
   const legend = document.createElement('div');
   legend.className = `legend legend-lifted${state.activeRailCard ? ' legend-shifted' : ''}`;
 
-  if (state.facadeFilter === 'sunlit_now') {
+  // Mode Matahari: pilihan Sepanjang tahun / tanggal & jam aktif
+  if (view.mode === 'sun') {
+    const seg = document.createElement('div');
+    seg.className = 'legend-toggle';
+    seg.setAttribute('role', 'radiogroup');
+    seg.setAttribute('aria-label', 'Waktu matahari');
+    const hh = `${String(Math.round(Number(state.sunHour ?? 13))).padStart(2, '0')}.00`;
+    for (const [id, lbl, tip] of [
+      ['year', 'Sepanjang tahun', 'Rata-rata paparan setahun menurut arah hadap (faktor SF SNI)'],
+      ['now', `${fmtSunDateShort(state.sunDate)} · ${hh}`, 'Sinar langsung pada tanggal dan jam aktif, termasuk bayangan'],
+    ]) {
+      const on = (id === 'now') === sunNow;
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      b.className = on ? 'on' : '';
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.textContent = lbl;
+      b.title = tip;
+      b.addEventListener('click', () => handlers.onSetSunView?.(id));
+      seg.appendChild(b);
+    }
+    legend.appendChild(seg);
+  }
+
+  if (sunNow) {
     const hLabel = `${String(Math.round(Number(state.sunHour ?? 13))).padStart(2, '0')}.00`;
     legend.setAttribute('aria-label', 'Legenda fasad terkena matahari');
     legend.title =
       'Bidang terkena sinar matahari langsung pada jam ini (bayangan bangunan sendiri, peneduh, dan bangunan sekitar ikut dihitung). ' +
       'Oranye pekat = sinar hampir tegak lurus. Hanya tampilan; angka OTTV tidak berubah.';
     if (state.exposureLoading) {
-      legend.innerHTML = '<span class="legend-item"><span class="spin spin-sm" aria-hidden="true"></span>Menghitung bayangan per jam...</span>';
+      legend.insertAdjacentHTML('beforeend', '<span class="legend-item"><span class="spin spin-sm" aria-hidden="true"></span>Menghitung bayangan...</span>');
     } else {
       const set = viewer._getSunlitPanelIdSet(state);
       const north = Number(state.config?.settings?.north_angle_deg || 0);
@@ -120,13 +157,13 @@ export function renderResultsScreen(state, handlers) {
       const pct = tot > 0 ? (lit / tot) * 100 : 0;
       const top = Object.entries(byOri).sort((x, y) => y[1] - x[1])[0];
       const topName = top ? ORIENTATION_NAMES_ID[top[0] === 'TGR' ? 'TG' : top[0]] || top[0] : null;
-      legend.innerHTML = `
+      legend.insertAdjacentHTML('beforeend', `
         <span class="legend-item" title="Terkena matahari (pucat = sinar miring, pekat = tegak lurus)"><i class="swatch sunlit-grad-swatch" aria-hidden="true"></i><span class="legend-lbl-opt">Terkena</span></span>
         <span class="legend-item" title="Di bayangan"><i class="swatch" style="background:var(--data-wall);"></i><span class="legend-lbl-opt">Bayangan</span></span>
-        <span class="legend-item num sunlit-stat"></span>`;
+        <span class="legend-item num sunlit-stat"></span>`);
       const topCode = top ? (top[0] === 'TGR' ? 'TG' : top[0]) : null;
       const stat = legend.querySelector('.sunlit-stat');
-      stat.textContent = `${hLabel} · ${fmtId(pct, 0)}%${topCode ? ` · ${topCode}` : ''}`;
+      stat.textContent = `${fmtId(pct, 0)}% terkena${topCode ? ` · terbanyak ${topCode}` : ''}`;
       stat.title = `${fmtId(pct, 0)}% luas fasad terkena matahari pukul ${hLabel}${topName ? `; terbanyak di arah ${topName}` : ''}.`;
       stat.setAttribute('aria-label', stat.title);
     }
@@ -170,7 +207,7 @@ export function renderResultsScreen(state, handlers) {
   } else if (activeMode === 'exposure') {
     // Paparan matahari per titik (W/m²), skala relatif model. Hanya tampilan; angka OTTV tidak berubah.
     legend.title =
-      'Paparan matahari (W/m²): SF menurut arah hadap tiap titik' +
+      'Matahari sepanjang tahun (W/m²): faktor SF menurut arah hadap tiap titik' +
       (state.exposureShading !== false ? ' × peneduh 3D' : '') +
       '. Kiri rendah, kanan tinggi. Hanya tampilan; angka OTTV tidak berubah.';
     legend.setAttribute('aria-label', 'Legenda paparan matahari');
@@ -208,22 +245,23 @@ export function renderResultsScreen(state, handlers) {
       </span>
       <span class="legend-item"><i class="swatch" style="background:${hRgb};"></i>Atap / datar</span>
     `;
-  } else if (activeMode === 'anomalies') {
-    legend.innerHTML = `
-      <span class="legend-item"><i class="swatch" style="background:var(--warn);"></i>Perlu diperiksa</span>
-      <span class="legend-item"><i class="swatch" style="background:var(--data-wall);opacity:0.35;"></i>Elemen lain</span>
-    `;
-  } else if (activeMode === 'xray') {
-    legend.innerHTML = `
-      <span class="legend-item"><i class="swatch" style="background:var(--data-glazing);opacity:0.4;"></i>Selubung transparan</span>
-      <span class="legend-item"><i class="swatch" style="border:1.5px dashed var(--warn);background:transparent;"></i>Disaring / nonaktif</span>
-    `;
   } else {
     legend.innerHTML = `
       <span class="legend-item"><i class="swatch" style="background:var(--data-glazing);"></i>Kaca</span>
       <span class="legend-item"><i class="swatch" style="background:var(--data-wall);"></i>Dinding</span>
       <span class="legend-item"><i class="swatch" style="background:var(--data-shading);"></i>Peneduh</span>
     `;
+  }
+  if (state.isolatedOrientation) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'legend-iso-chip';
+    const nm = ORIENTATION_NAMES_ID[state.isolatedOrientation === 'TGR' ? 'TG' : state.isolatedOrientation] || state.isolatedOrientation;
+    chip.innerHTML = `<span>Hanya arah ${nm}</span>${icon('close', 12)}`;
+    chip.title = 'Tampilkan semua arah lagi';
+    chip.setAttribute('aria-label', `Hanya arah ${nm}. Klik untuk menampilkan semua arah`);
+    chip.addEventListener('click', () => handlers.onClearIsolation?.());
+    legend.appendChild(chip);
   }
   bottomStack.appendChild(legend);
 

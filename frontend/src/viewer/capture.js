@@ -23,6 +23,7 @@ import {
   readThemeTokens,
 } from './modes.js';
 import { viewer } from './viewer.js';
+import { resolveViewerMode } from './modes.js';
 
 const FONT = '"Plus Jakarta Sans", system-ui, sans-serif';
 const logoImageCache = new Map();
@@ -125,7 +126,7 @@ function buildLegendSpec(state, tokens, mode) {
   if (mode === 'exposure') {
     const r = viewer.lastSmoothRange;
     return {
-      title: `Paparan matahari (W/m²)${state.exposureShading !== false ? ' · dengan peneduh' : ''}`,
+      title: `Matahari sepanjang tahun (W/m²)${state.exposureShading !== false ? ' · dengan peneduh' : ''}`,
       kind: 'gradient',
       stops: [0, 0.25, 0.5, 0.75, 1].map((t) => css(exposureToThreeColor(t, tokens))),
       ticks: r ? [`${Math.round(r.min)} rendah`, `${Math.round(r.max)} tinggi`] : ['rendah', 'tinggi'],
@@ -143,7 +144,7 @@ function buildLegendSpec(state, tokens, mode) {
     };
   }
   if (mode === 'anomalies') {
-    return { title: 'Kejanggalan', kind: 'swatches', items: [{ color: tokens.warn, label: 'Perlu diperiksa' }, { color: tokens.wall, label: 'Elemen lain' }] };
+    return { title: 'Perlu dicek', kind: 'swatches', items: [{ color: tokens.warn, label: 'Perlu diperiksa' }, { color: tokens.wall, label: 'Elemen lain' }] };
   }
   if (mode === 'xray') {
     return { title: 'X-ray', kind: 'swatches', items: [{ color: tokens.glazing, label: 'Selubung' }, { color: tokens.warn, label: 'Disaring / nonaktif' }] };
@@ -498,12 +499,12 @@ function drawDiffTable(d, k, tokens, rows, x, y, dry = false) {
 // ---------------------------------------------------------------------------
 
 const MODE_FILE_PART = {
-  sunlit: 'matahari',
+  sunlit: 'matahari_jam',
   heatmap: 'ottv',
-  exposure: 'paparan',
+  exposure: 'matahari_tahunan',
   orientation: 'orientasi',
   classification: 'klasifikasi',
-  anomalies: 'kejanggalan',
+  anomalies: 'perlu_dicek',
   xray: 'xray',
 };
 
@@ -524,7 +525,7 @@ export async function captureViewerPng(state, { scale = 2, layout = 'panel', inc
   const k = width / Math.max(1, snap.baseWidth || width / safeScale);
   const tokens = readThemeTokens();
   const isDark = state.theme === 'dark';
-  const mode = isCompare ? 'heatmap' : state.viewerMode || (state.analysisData ? 'heatmap' : 'classification');
+  const mode = isCompare ? 'heatmap' : resolveViewerMode(state).renderMode;
 
   const legendSpec = inc.legend ? buildLegendSpec(isCompare ? { ...state, facadeFilter: 'all' } : state, tokens, mode) : null;
   const ottvSp = inc.ottv && !isCompare ? ottvSpec(state.analysisData) : null;
