@@ -1,14 +1,18 @@
 /**
- * LUXA 3D Sun Dome (`docs/FASE4_UI_SPEC.md` §4.4):
+ * LUXA 3D Sun Dome (`docs/FASE4_UI_SPEC.md` §4.4 + Fase 4d D1):
  * - Computes exact solar vector (E, N, U) from `location_info.latitude_deg`,
- *   declination, hour angle, and `north_angle_deg` (identical to `backend/ottv_engine.py`).
+ *   declination, hour angle, and `north_angle_deg`.
  * - Draws compass horizon ring (`U / T / S / B` + 8 ticks), 3 reference arcs
  *   (`21 Jun`, `21 Mar / 23 Sep`, `21 Des`), active sun orb + halo + dashed ray to center.
- * - Default radius = 1.6 × half plan diagonal, scaled by `sunDomeScale` (50–200%).
- * - Projects crisp HTML labels for U/T/S/B, arc dates, and small altitude/azimuth readout.
+ * - D1: Uses manual `sunDomeRadiusM` (meters) with NO 50-200% clamp and NO auto-reset.
+ *   Provides a D5-style camera-facing round drag handle on the horizon ring:
+ *   drag radially away/toward center to scale (Shift = 5 m step), shows live radius label,
+ *   and locks OrbitControls & panel picking while dragging.
  */
 
 import * as THREE from 'three';
+import { computeInitialSunDomeRadiusM } from '../state.js';
+import { fmtId } from '../ui/escapeHtml.js';
 import { toThreeCoords } from './cameras.js';
 
 const PRESET_ARCS = [
@@ -28,10 +32,6 @@ export function dayOfYearFromIso(dateStr) {
   return Math.max(1, Math.min(366, Math.floor((d - start) / 86400000) + 1));
 }
 
-/**
- * Computes solar vector in backend (E, N, U) & Three.js (x=E, y=U, z=-N) coords,
- * plus altitude_deg and azimuth_deg (0=U, 90=T, 180=S, 270=B).
- */
 export function computeSolarPosition(latitudeDeg = -6.2088, dateStr = '2026-09-23', hour = 13, northAngleDeg = 0) {
   const doy = dayOfYearFromIso(dateStr);
   const decDeg = 23.45 * Math.sin(((360 * (284 + doy)) / 365) * (Math.PI / 180));
@@ -76,15 +76,41 @@ export class SunDomeController {
     this.group = null;
     this.overlayHost = null;
     this.overlayLayer = null;
+    this.handleLayer = null;
+    this.handleBtn = null;
+    this.handleLbl = null;
     this.readoutEl = null;
-    this.projectedLabels = []; // [{ el, worldPos: THREE.Vector3, isArcLabel: boolean }]
-    this.bboxCornersThree = []; // 8 THREE.Vector3 corners for occlusion test (S2)
+    this.projectedLabels = [];
+    this.bboxCornersThree = [];
     this.lastSig = '';
     this._projVec = new THREE.Vector3();
+    this._raycaster = new THREE.Raycaster();
+    this._plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    this._hitPt = new THREE.Vector3();
+
+    // Live interactive handle state (D1)
+    this.isVisible = false;
+    this.centerThree = new THREE.Vector3();
+    this.currentRadius = 24;
+    this.initialRadius = 24;
+    this.lastCamera = null;
+    this.lastWidth = 800;
+    this.lastHeight = 600;
+    this.dragging = false;
+    this.dragRadius = null;
+    this.lastSyncArgs = null;
+
+    this.onDragStateChange = null;
+    this.onRadiusCommit = null;
   }
 
   attachGroup(group) {
     this.group = group;
+  }
+
+  setCallbacks({ onDragStateChange = null, onRadiusCommit = null } = {}) {
+    this.onDragStateChange = onDragStateChange;
+    this.onRadiusCommit = onRadiusCommit;
   }
 
   mountOverlay(overlayHost) {
@@ -99,12 +125,120 @@ export class SunDomeController {
     }
     overlayHost.appendChild(this.overlayLayer);
 
+    if (!this.handleLayer) {
+      this.handleLayer = document.createElement('div');
+      this.handleLayer.className = 'd5-handles-layer';
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'd5-handle d5-dome-handle';
+      btn.setAttribute('aria-label', 'Tarik untuk mengubah radius kubah matahari (tahan Shift untuk langkah 5 m)');
+      btn.title = 'Tarik menjauhi/mendekati pusat untuk skala kubah (Shift = langkah 5 m)';
+      btn.style.display = 'none';
+
+      const lbl = document.createElement('div');
+      lbl.className = 'glass d5-float-label num';
+      lbl.style.display = 'none';
+
+      this._bindHandleEvents(btn);
+      this.handleBtn = btn;
+      this.handleLbl = lbl;
+      this.handleLayer.append(btn, lbl);
+    }
+    overlayHost.appendChild(this.handleLayer);
+
     if (!this.readoutEl) {
       this.readoutEl = document.createElement('div');
       this.readoutEl.className = 'glass-thin sundome-readout num';
       this.readoutEl.setAttribute('aria-live', 'polite');
     }
     overlayHost.appendChild(this.readoutEl);
+  }
+
+  _projectPointerToGroundRadius(clientX, clientY, shiftKey) {
+    if (!this.lastCamera || !this.overlayHost) return null;
+    const rect = this.overlayHost.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this._raycaster.setFromCamera(ndc, this.lastCamera);
+    this._plane.constant = -(this.centerThree.y + 0.04);
+    const hit = this._raycaster.ray.intersectPlane(this._plane, this._hitPt);
+    if (!hit) return null;
+    let r = Math.hypot(hit.x - this.centerThree.x, hit.z - this.centerThree.z);
+    const minR = Math.max(1, this.initialRadius * 0.1);
+    const maxR = Math.max(500, this.initialRadius * 20);
+    r = Math.max(minR, Math.min(maxR, r));
+    if (shiftKey) {
+      r = Math.max(5, Math.round(r / 5) * 5);
+    } else {
+      r = Math.round(r * 2) / 2;
+    }
+    return r;
+  }
+
+  _bindHandleEvents(btn) {
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || !this.isVisible) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.dragging = true;
+      this.dragRadius = this.currentRadius;
+      btn.classList.add('is-dragging');
+      document.body.classList.add('is-d5-resizing');
+      this.onDragStateChange?.(true);
+      try {
+        btn.setPointerCapture(e.pointerId);
+      } catch {
+        // Ignore
+      }
+      if (this.handleLbl) {
+        this.handleLbl.textContent = `Radius ${fmtId(this.currentRadius, this.currentRadius % 1 ? 1 : 0)} m`;
+        this.handleLbl.style.display = 'block';
+      }
+    });
+
+    btn.addEventListener('pointermove', (e) => {
+      if (!this.dragging) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const nextR = this._projectPointerToGroundRadius(e.clientX, e.clientY, e.shiftKey);
+      if (nextR !== null && Math.abs(nextR - this.currentRadius) >= 0.1) {
+        this.dragRadius = nextR;
+        if (this.lastSyncArgs) {
+          const { state, bbox, tokens } = this.lastSyncArgs;
+          this.sync({ ...state, sunDomeRadiusM: nextR }, bbox, tokens);
+        }
+        if (this.handleLbl) {
+          this.handleLbl.textContent = `Radius ${fmtId(nextR, nextR % 1 ? 1 : 0)} m`;
+          this.handleLbl.style.display = 'block';
+        }
+      }
+    });
+
+    const finishDrag = (e) => {
+      if (!this.dragging) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const finalR = this.dragRadius ?? this.currentRadius;
+      this.dragging = false;
+      this.dragRadius = null;
+      btn.classList.remove('is-dragging');
+      document.body.classList.remove('is-d5-resizing');
+      this.onDragStateChange?.(false);
+      if (this.handleLbl) this.handleLbl.style.display = 'none';
+      try {
+        btn.releasePointerCapture(e.pointerId);
+      } catch {
+        // Ignore
+      }
+      this.onRadiusCommit?.(finalR);
+    };
+
+    btn.addEventListener('pointerup', finishDrag);
+    btn.addEventListener('pointercancel', finishDrag);
   }
 
   _clear() {
@@ -126,6 +260,12 @@ export class SunDomeController {
     if (this.readoutEl) {
       this.readoutEl.style.display = 'none';
     }
+    if (this.handleBtn && !this.dragging) {
+      this.handleBtn.style.display = 'none';
+    }
+    if (this.handleLbl && !this.dragging) {
+      this.handleLbl.style.display = 'none';
+    }
   }
 
   _addProjectedLabel(text, worldPos, className = 'sundome-lbl', isArcLabel = false) {
@@ -142,6 +282,7 @@ export class SunDomeController {
     const shouldShow = Boolean(
       state.step === 'results' && state.analysisData && state.sunDomeVisible !== false && bbox,
     );
+    this.isVisible = shouldShow;
     if (!shouldShow) {
       if (this.lastSig !== 'hidden') {
         this._clear();
@@ -150,11 +291,24 @@ export class SunDomeController {
       return;
     }
 
+    this.lastSyncArgs = { state, bbox, tokens };
     const latDeg = Number(state.analysisData?.location_info?.latitude_deg ?? -6.2088);
     const northDeg = Number(state.config?.settings?.north_angle_deg ?? 0);
     const dateStr = state.sunDate || '2026-09-23';
     const hour = Number(state.sunHour ?? 13);
-    const scalePct = Math.max(50, Math.min(200, Number(state.sunDomeScale ?? 100)));
+    const initR = Math.max(
+      4,
+      Number(state.sunDomeInitialRadiusM || computeInitialSunDomeRadiusM(bbox)),
+    );
+    this.initialRadius = initR;
+
+    const rawRadius =
+      state.sunDomeRadiusM ??
+      state.config?.settings?.sun_dome_radius_m ??
+      initR;
+    const radius = Math.max(1, Number(rawRadius) || initR);
+    this.currentRadius = radius;
+
     const zCut = Number(state.config?.model?.z_ground_cutoff_m ?? 0);
 
     const sig = JSON.stringify({
@@ -164,7 +318,7 @@ export class SunDomeController {
       northDeg,
       dateStr,
       hour,
-      scalePct,
+      radius: Math.round(radius * 100) / 100,
       zCut,
       theme: state.theme,
     });
@@ -176,10 +330,6 @@ export class SunDomeController {
     const spanX = Math.max(2, Number(bbox.span?.[0] || 15));
     const spanY = Math.max(2, Number(bbox.span?.[1] || 15));
     const spanZ = Math.max(2, Number(bbox.span?.[2] || 10));
-    const halfPlanDiag = 0.5 * Math.hypot(spanX, spanY);
-    // Spec §4.4 + S2: default radius = max(1.6 × half plan diagonal, 0.6 × building height)
-    const defaultRadius = Math.max(10, 1.6 * halfPlanDiag, 0.6 * spanZ);
-    const radius = defaultRadius * (scalePct / 100);
 
     const bMin = bbox.min || [-spanX / 2, -spanY / 2, 0];
     const bMax = bbox.max || [spanX / 2, spanY / 2, spanZ];
@@ -196,6 +346,7 @@ export class SunDomeController {
     const cy = Number(bbox.center?.[1] || 0);
     const baseZ = Math.max(Number(bbox.min?.[2] ?? 0), zCut);
     const center = toThreeCoords(cx, cy, baseZ);
+    this.centerThree.copy(center);
 
     const colInk = new THREE.Color(tokens.ink);
     const colSun = new THREE.Color(tokens.sun);
@@ -208,7 +359,7 @@ export class SunDomeController {
       ringPts.push(new THREE.Vector3(center.x + radius * Math.cos(a), center.y + 0.04, center.z + radius * Math.sin(a)));
     }
     const ringGeo = new THREE.BufferGeometry().setFromPoints(ringPts);
-    const ringMat = new THREE.LineBasicMaterial({ color: colInk, transparent: true, opacity: 0.34 });
+    const ringMat = new THREE.LineBasicMaterial({ color: colInk, transparent: true, opacity: 0.36 });
     const ringLine = new THREE.Line(ringGeo, ringMat);
     ringLine.raycast = () => {};
     this.group.add(ringLine);
@@ -290,7 +441,6 @@ export class SunDomeController {
       line.raycast = () => {};
       this.group.add(line);
 
-      // S2: Place arc label on the outer side of the arc (spread along outer limb so it avoids the building)
       const labelHour = arc.id === 'jun' ? 9.0 : arc.id === 'dec' ? 14.8 : 15.4;
       const limbPos = computeSolarPosition(latDeg, arc.date, labelHour, northDeg);
       if (limbPos.altitudeDeg > 4) {
@@ -308,7 +458,7 @@ export class SunDomeController {
         clampedDir.normalize();
       }
       const sunPos = center.clone().addScaledVector(clampedDir, radius);
-      const orbR = Math.max(0.55, radius * 0.036);
+      const orbR = Math.max(0.45, Math.min(radius * 0.036, 4.5));
 
       const coreGeo = new THREE.SphereGeometry(orbR, 20, 16);
       const coreMat = new THREE.MeshBasicMaterial({ color: colSun });
@@ -338,7 +488,7 @@ export class SunDomeController {
       this.group.add(rayLine);
     }
 
-    // 5. Small altitude & azimuth readout (spec §4.4)
+    // 5. Small altitude & azimuth readout
     if (this.readoutEl) {
       const hTxt = `${String(Math.round(hour)).padStart(2, '0')}.00`;
       const altTxt = activeSun.aboveHorizon ? `${Math.round(activeSun.altitudeDeg)}°` : 'Di bawah ufuk';
@@ -349,7 +499,43 @@ export class SunDomeController {
   }
 
   updateLabels(camera, width, height) {
+    this.lastCamera = camera;
+    this.lastWidth = width;
+    this.lastHeight = height;
     if (!this.overlayLayer || !camera || width <= 0 || height <= 0) return;
+
+    // Project D5 horizon resize handle on camera-facing side of sun dome ring
+    if (this.handleBtn) {
+      if (this.isVisible) {
+        const toCamX = camera.position.x - this.centerThree.x;
+        const toCamZ = camera.position.z - this.centerThree.z;
+        const len = Math.hypot(toCamX, toCamZ) || 1;
+        const hx = this.centerThree.x + (toCamX / len) * this.currentRadius;
+        const hz = this.centerThree.z + (toCamZ / len) * this.currentRadius;
+        this._projVec.set(hx, this.centerThree.y + 0.04, hz).project(camera);
+        const vis =
+          this._projVec.z >= -1 &&
+          this._projVec.z <= 1 &&
+          this._projVec.x >= -0.98 &&
+          this._projVec.x <= 0.98 &&
+          this._projVec.y >= -0.98 &&
+          this._projVec.y <= 0.98;
+        if (vis) {
+          const px = (this._projVec.x * 0.5 + 0.5) * width;
+          const py = (-this._projVec.y * 0.5 + 0.5) * height;
+          this.handleBtn.style.display = 'grid';
+          this.handleBtn.style.transform = `translate3d(${px.toFixed(1)}px, ${py.toFixed(1)}px, 0) translate(-50%, -50%)`;
+          if (this.handleLbl && this.dragging) {
+            this.handleLbl.style.transform = `translate3d(${px.toFixed(1)}px, ${(py - 28).toFixed(1)}px, 0) translate(-50%, -100%)`;
+          }
+        } else if (!this.dragging) {
+          this.handleBtn.style.display = 'none';
+        }
+      } else {
+        this.handleBtn.style.display = 'none';
+        if (this.handleLbl) this.handleLbl.style.display = 'none';
+      }
+    }
 
     // S2: Project building bounding box to 2D screen rect to hide occluded/overlapping arc labels
     let bMinX = Infinity;

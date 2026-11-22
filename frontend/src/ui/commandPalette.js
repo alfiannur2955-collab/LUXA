@@ -32,6 +32,8 @@ function buildCommandItems(state, actions) {
     }
 
     items.push(
+      { id: 'north-rotate', label: state.northRotateMode ? 'Keluar mode putar arah utara' : 'Putar arah utara (cincin D5)', hint: 'R', keywords: 'putar utara rotasi north kompas r', run: () => actions.onToggleNorthRotateMode?.() },
+      { id: 'mode-orient', label: 'Mode tampilan Orientasi (warna arah hadap)', hint: 'Mode', keywords: 'mode orientasi arah hadap azimut warna', run: () => actions.onChangeViewerMode?.('orientation') },
       { id: 'cam-fit', label: 'Pas kamera ke model', hint: 'F', keywords: 'fit zoom pas model kamera', run: () => actions.onFitCamera() },
       { id: 'view-save', label: 'Simpan view sekarang', hint: 'S', keywords: 'simpan view kamera', run: () => actions.onSaveView() },
       { id: 'cap-1x', label: 'Capture PNG (1x)', hint: 'PNG', keywords: 'capture gambar screenshot 1x', run: () => actions.onCapturePng(1) },

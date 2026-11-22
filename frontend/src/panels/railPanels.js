@@ -3,6 +3,7 @@
  * Scoped cleanly for Fase 4a: Model, Material, Lokasi, Tampilan, Bandingkan, Laporan, Bantuan.
  */
 
+import { computeInitialSunDomeRadiusM, parseDecimalInput } from '../state.js';
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
 import { SNI_GLOSSARY } from '../ui/tooltips.js';
@@ -570,35 +571,76 @@ export function createRailPanelBuilders(handlers) {
           : 'Matahari di bawah ufuk pada jam ini.';
         sunSec.appendChild(sunInfo);
 
-        // Skala kubah slider (50-200%)
+        // Fase 4d D1: Manual sun dome radius (logarithmic slider 0.2x..10x initial radius + numeric "Radius __ m")
+        const bbox = state.analysisData?.summary?.bounding_box || state.inspectData?.bounding_box || null;
+        const initR = Math.max(4, Number(state.sunDomeInitialRadiusM || computeInitialSunDomeRadiusM(bbox)));
+        const curR = Math.max(1, Number(state.sunDomeRadiusM ?? state.config?.settings?.sun_dome_radius_m ?? initR));
+        const minR = Math.max(1, initR * 0.2);
+        const maxR = Math.max(minR * 2, initR * 10);
+        const logVal = Math.round((Math.log(Math.max(minR, Math.min(maxR, curR)) / minR) / Math.log(maxR / minR)) * 1000);
+
         const domeRow = document.createElement('div');
         domeRow.className = 'prow';
         const domeLbl = document.createElement('label');
         domeLbl.className = 'lbl';
-        domeLbl.htmlFor = 'panel-dome-scale';
-        domeLbl.textContent = 'Skala kubah';
+        domeLbl.htmlFor = 'panel-dome-radius-slider';
+        domeLbl.textContent = 'Radius kubah';
 
         const domeSlider = document.createElement('input');
-        domeSlider.id = 'panel-dome-scale';
+        domeSlider.id = 'panel-dome-radius-slider';
         domeSlider.type = 'range';
-        domeSlider.min = '50';
-        domeSlider.max = '200';
-        domeSlider.step = '5';
-        domeSlider.value = String(Math.round(Number(state.sunDomeScale ?? 100)));
+        domeSlider.min = '0';
+        domeSlider.max = '1000';
+        domeSlider.step = '1';
+        domeSlider.value = String(logVal);
         domeSlider.style.accentColor = 'var(--sun)';
         domeSlider.style.width = '100%';
-        domeSlider.addEventListener('input', () => handlers.onChangeSunDomeScale?.(Number(domeSlider.value)));
+        domeSlider.addEventListener('input', () => {
+          const t = Math.max(0, Math.min(1, Number(domeSlider.value) / 1000));
+          const nextR = Math.round(minR * Math.pow(maxR / minR, t) * 10) / 10;
+          handlers.onChangeSunDomeRadius?.(nextR);
+        });
 
-        const domeVal = document.createElement('span');
-        domeVal.className = 'num';
-        domeVal.style.fontWeight = '700';
-        domeVal.style.width = '44px';
-        domeVal.style.textAlign = 'right';
-        domeVal.textContent = `${Math.round(Number(state.sunDomeScale ?? 100))}%`;
-        domeRow.append(domeLbl, domeSlider, domeVal);
+        const domeInpWrap = document.createElement('span');
+        domeInpWrap.style.display = 'inline-flex';
+        domeInpWrap.style.alignItems = 'center';
+        domeInpWrap.style.gap = '4px';
+
+        const domeInp = document.createElement('input');
+        domeInp.id = 'panel-dome-radius-input';
+        domeInp.type = 'text';
+        domeInp.inputMode = 'decimal';
+        domeInp.className = 'field-input num';
+        domeInp.style.width = '64px';
+        domeInp.style.height = '28px';
+        domeInp.style.padding = '0 6px';
+        domeInp.style.textAlign = 'right';
+        domeInp.setAttribute('aria-label', 'Radius kubah dalam meter');
+        domeInp.value = fmtId(curR, curR % 1 ? 1 : 0);
+        const commitTypedR = () => {
+          const parsed = parseDecimalInput(domeInp.value);
+          if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 5000) {
+            handlers.onChangeSunDomeRadius?.(Math.round(parsed * 10) / 10);
+          } else {
+            domeInp.value = fmtId(curR, curR % 1 ? 1 : 0);
+          }
+        };
+        domeInp.addEventListener('change', commitTypedR);
+        domeInp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commitTypedR();
+          }
+        });
+        const domeUnit = document.createElement('span');
+        domeUnit.className = 'lbl';
+        domeUnit.textContent = 'm';
+        domeInpWrap.append(domeInp, domeUnit);
+
+        domeRow.append(domeLbl, domeSlider, domeInpWrap);
         sunSec.appendChild(domeRow);
 
-        // Putar satu hari + Pas ke model
+        // Putar satu hari + Putar arah utara (D2) — NO "Pas ke model" button for sun dome per D1!
         const sunActions = document.createElement('div');
         sunActions.style.display = 'flex';
         sunActions.style.gap = '6px';
@@ -613,15 +655,17 @@ export function createRailPanelBuilders(handlers) {
         }</span>`;
         playDayBtn.addEventListener('click', () => handlers.onToggleSunPlay?.());
 
-        const fitDomeBtn = document.createElement('button');
-        fitDomeBtn.type = 'button';
-        fitDomeBtn.className = 'ghost ghost-sm';
-        fitDomeBtn.style.flex = '1';
-        fitDomeBtn.style.background = 'var(--glass-thin)';
-        fitDomeBtn.textContent = 'Pas ke model';
-        fitDomeBtn.addEventListener('click', () => handlers.onResetSunDomeScale?.());
+        const rotNorthBtn = document.createElement('button');
+        rotNorthBtn.type = 'button';
+        rotNorthBtn.className = `ghost ghost-sm${state.northRotateMode ? ' is-active' : ''}`;
+        rotNorthBtn.style.flex = '1';
+        rotNorthBtn.style.background = state.northRotateMode ? 'var(--surface)' : 'var(--glass-thin)';
+        rotNorthBtn.innerHTML = `${icon('rotateCw', 12)}<span>${
+          state.northRotateMode ? 'Selesai putar (R)' : 'Putar utara (R)'
+        }</span>`;
+        rotNorthBtn.addEventListener('click', () => handlers.onToggleNorthRotateMode?.());
 
-        sunActions.append(playDayBtn, fitDomeBtn);
+        sunActions.append(playDayBtn, rotNorthBtn);
         sunSec.appendChild(sunActions);
         container.appendChild(sunSec);
 

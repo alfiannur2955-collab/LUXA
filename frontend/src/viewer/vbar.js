@@ -4,8 +4,25 @@
  * - Right pill: Saved views dropdown (apply, rename, delete) + Simpan (S) + Capture 1x/2x/4x (C)
  */
 
+import { computeInitialSunDomeRadiusM, parseDecimalInput } from '../state.js';
+import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
 import { DIRECTION_NAMES, formatCameraDirectionLabel, PROJECTION_SHORT } from './cameras.js';
+
+function radiusToLogSlider(radiusM, initR) {
+  const minR = Math.max(1, initR * 0.2);
+  const maxR = Math.max(minR * 2, initR * 10);
+  const clamped = Math.max(minR, Math.min(maxR, Number(radiusM) || initR));
+  return Math.round((Math.log(clamped / minR) / Math.log(maxR / minR)) * 1000);
+}
+
+function logSliderToRadius(sliderVal, initR) {
+  const minR = Math.max(1, initR * 0.2);
+  const maxR = Math.max(minR * 2, initR * 10);
+  const t = Math.max(0, Math.min(1, Number(sliderVal) / 1000));
+  const raw = minR * Math.pow(maxR / minR, t);
+  return Math.round(raw * 10) / 10;
+}
 
 const PROJECTIONS = [
   { id: 'perspective', label: 'Persp', key: '1' },
@@ -67,7 +84,20 @@ export function renderViewerBottomBar(state, handlers) {
 
   leftPill.append(seg, div1, dirBtn);
 
-  // Fase 4b-2: Sun playback & hour slider in left pill on Results screen (mockup 4-hasil.html)
+  // Fase 4d D2: North rotation ring toggle button (shortcut R)
+  if (handlers.onToggleNorthRotateMode) {
+    const northBtn = document.createElement('button');
+    northBtn.type = 'button';
+    northBtn.className = `b${state.northRotateMode ? ' on' : ''}`;
+    northBtn.title = 'Putar arah utara dengan cincin D5 (Pintasan R)';
+    northBtn.setAttribute('aria-pressed', state.northRotateMode ? 'true' : 'false');
+    northBtn.setAttribute('aria-label', 'Putar arah utara (pintasan R)');
+    northBtn.innerHTML = `${icon('rotateCw', 14)}<span>Utara</span>`;
+    northBtn.addEventListener('click', () => handlers.onToggleNorthRotateMode());
+    leftPill.appendChild(northBtn);
+  }
+
+  // Fase 4b-2 + 4d D1: Sun playback, hour slider, & Kubah radius popover trigger in left pill
   if (state.step === 'results' && state.analysisData && handlers.onChangeSunHour) {
     const div2 = document.createElement('span');
     div2.className = 'div';
@@ -76,7 +106,7 @@ export function renderViewerBottomBar(state, handlers) {
     const playBtn = document.createElement('button');
     playBtn.type = 'button';
     playBtn.className = `b${state.sunPlaying ? ' on' : ''}`;
-    playBtn.style.padding = '0 9px';
+    playBtn.style.padding = '0 8px';
     playBtn.setAttribute(
       'aria-label',
       state.sunPlaying ? 'Jeda animasi matahari, pintasan Spasi' : 'Putar matahari satu hari, pintasan Spasi',
@@ -93,7 +123,7 @@ export function renderViewerBottomBar(state, handlers) {
     slider.step = '1';
     slider.value = String(Math.round(Number(state.sunHour ?? 13)));
     slider.setAttribute('aria-label', 'Jam matahari');
-    slider.style.width = '76px';
+    slider.style.width = '72px';
     slider.style.accentColor = 'var(--sun)';
     slider.addEventListener('input', () => {
       handlers.onChangeSunHour(Number(slider.value));
@@ -103,14 +133,111 @@ export function renderViewerBottomBar(state, handlers) {
     hourTxt.className = 'num';
     hourTxt.style.fontSize = '12px';
     hourTxt.style.fontWeight = '700';
-    hourTxt.style.padding = '0 6px 0 4px';
+    hourTxt.style.padding = '0 4px';
     hourTxt.style.whiteSpace = 'nowrap';
     hourTxt.textContent = `${String(Math.round(Number(state.sunHour ?? 13))).padStart(2, '0')}.00`;
 
     leftPill.append(div2, playBtn, slider, hourTxt);
+
+    if (handlers.onChangeSunDomeRadius) {
+      const domeBtn = document.createElement('button');
+      domeBtn.type = 'button';
+      domeBtn.className = `b${state.openPopover === 'sundome' ? ' on' : ''}`;
+      domeBtn.style.padding = '0 7px';
+      domeBtn.title = 'Atur radius kubah matahari (meter)';
+      domeBtn.setAttribute('aria-haspopup', 'dialog');
+      domeBtn.setAttribute('aria-expanded', state.openPopover === 'sundome' ? 'true' : 'false');
+      domeBtn.setAttribute('aria-label', 'Atur radius kubah matahari');
+      domeBtn.innerHTML = icon('sun', 14);
+      domeBtn.addEventListener('click', () =>
+        handlers.onTogglePopover(state.openPopover === 'sundome' ? null : 'sundome'),
+      );
+      leftPill.appendChild(domeBtn);
+    }
   }
 
   leftWrap.appendChild(leftPill);
+
+  // Fase 4d D1: Sun dome manual radius popover (log slider 0.2x..10x + "Radius __ m" input)
+  if (state.openPopover === 'sundome' && handlers.onChangeSunDomeRadius) {
+    const bbox = state.analysisData?.summary?.bounding_box || state.inspectData?.bounding_box || null;
+    const initR = Math.max(4, Number(state.sunDomeInitialRadiusM || computeInitialSunDomeRadiusM(bbox)));
+    const curR = Math.max(1, Number(state.sunDomeRadiusM ?? state.config?.settings?.sun_dome_radius_m ?? initR));
+
+    const pop = document.createElement('div');
+    pop.className = 'glass vbar-popover';
+    pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-label', 'Radius kubah matahari');
+
+    const ttl = document.createElement('div');
+    ttl.className = 'lbl';
+    ttl.style.color = 'var(--ink)';
+    ttl.style.marginBottom = '8px';
+    ttl.textContent = 'Radius kubah matahari (skala logaritmik)';
+
+    const logSlider = document.createElement('input');
+    logSlider.type = 'range';
+    logSlider.min = '0';
+    logSlider.max = '1000';
+    logSlider.step = '1';
+    logSlider.value = String(radiusToLogSlider(curR, initR));
+    logSlider.setAttribute('aria-label', 'Slider logaritmik radius kubah');
+    logSlider.style.width = '100%';
+    logSlider.style.accentColor = 'var(--sun)';
+    logSlider.addEventListener('input', () => {
+      handlers.onChangeSunDomeRadius(logSliderToRadius(logSlider.value, initR));
+    });
+
+    const inputRow = document.createElement('div');
+    inputRow.style.display = 'flex';
+    inputRow.style.alignItems = 'center';
+    inputRow.style.gap = '6px';
+    inputRow.style.marginTop = '8px';
+
+    const lbl = document.createElement('label');
+    lbl.className = 'lbl';
+    lbl.htmlFor = 'vbar-dome-radius-inp';
+    lbl.textContent = 'Radius';
+
+    const inp = document.createElement('input');
+    inp.id = 'vbar-dome-radius-inp';
+    inp.type = 'text';
+    inp.inputMode = 'decimal';
+    inp.className = 'field-input num';
+    inp.style.height = '32px';
+    inp.style.width = '88px';
+    inp.value = fmtId(curR, curR % 1 ? 1 : 0);
+    const applyTyped = () => {
+      const v = parseDecimalInput(inp.value);
+      if (Number.isFinite(v) && v >= 1 && v <= 5000) {
+        handlers.onChangeSunDomeRadius(Math.round(v * 10) / 10);
+      } else {
+        inp.value = fmtId(curR, curR % 1 ? 1 : 0);
+      }
+    };
+    inp.addEventListener('change', applyTyped);
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        applyTyped();
+      }
+    });
+
+    const unit = document.createElement('span');
+    unit.className = 'lbl';
+    unit.textContent = 'm';
+
+    inputRow.append(lbl, inp, unit);
+
+    const hint = document.createElement('p');
+    hint.className = 'lbl';
+    hint.style.margin = '6px 0 0';
+    hint.style.fontWeight = '500';
+    hint.textContent = 'Atau tarik pegangan bulat di cincin horizon kubah (Shift = 5 m).';
+
+    pop.append(ttl, logSlider, inputRow, hint);
+    leftWrap.appendChild(pop);
+  }
 
   // Direction menu popover (keyboard navigable with arrow keys)
   if (state.openPopover === 'direction') {

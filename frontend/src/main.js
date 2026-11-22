@@ -24,6 +24,7 @@ import {
   STEP_TITLES,
   buildUserAnswers,
   collectAcceptedProvisionalFlags,
+  computeInitialSunDomeRadiusM,
   createDefaultConfig,
   createInitialConfirm,
   evaluateConfirmGate,
@@ -62,6 +63,7 @@ import { pieMenu } from './viewer/pieMenu.js';
 import { viewer } from './viewer/viewer.js';
 import { togglePanelSelection } from './viewer/selection.js';
 import { SunDomeController } from './viewer/sundome.js';
+import { NorthRingController } from './viewer/northRing.js';
 import { exposureController } from './viewer/exposure.js';
 import {
   createSavedViewRecord,
@@ -226,16 +228,37 @@ async function handleCapturePng(scale = null) {
   }
 }
 
-function handleChangeNorthAngle(deg) {
-  const clean = ((Math.round(Number(deg) || 0) % 360) + 360) % 360;
+function handleChangeNorthAngle(deg, { commit = true } = {}) {
+  const clean = Math.round(((((Number(deg) || 0) % 360) + 360) % 360) * 10) / 10;
   updateConfig((cfg) => {
     cfg.settings.north_angle_deg = clean;
   });
   const s = getState();
-  setState({ needsRecompute: Boolean(s.analysisData) });
+  if (commit) {
+    setState({ needsRecompute: Boolean(s.analysisData) });
+    saveProjectAutosave(getState());
+    if (s.analysisData && s.facadeFilter === 'sunlit_now') {
+      exposureController.ensureExposureLoaded(s.sunDate, clean);
+    }
+  }
+}
+
+function handleChangeSunDomeRadius(radiusM) {
+  const val = Math.max(1, Math.min(5000, Math.round((Number(radiusM) || 24) * 10) / 10));
+  updateConfig((cfg) => {
+    cfg.settings.sun_dome_radius_m = val;
+  });
+  setState({ sunDomeRadiusM: val, sunDomeVisible: true });
   saveProjectAutosave(getState());
-  if (s.analysisData && s.facadeFilter === 'sunlit_now') {
-    exposureController.ensureExposureLoaded(s.sunDate, clean);
+}
+
+function handleToggleNorthRotateMode(force = null) {
+  const s = getState();
+  const next = force === null ? !s.northRotateMode : Boolean(force);
+  if (next === s.northRotateMode) return;
+  setState({ northRotateMode: next, openPopover: null });
+  if (next) {
+    showToast('Mode putar utara aktif — tarik pegangan U atau klik angka sudut (Esc keluar).', 'ok', 3200);
   }
 }
 
@@ -363,6 +386,8 @@ const vbarHandlers = {
   onSetProjection: handleSetProjection,
   onSelectDirection: handleSelectDirection,
   onTogglePopover: (pop) => setState({ openPopover: pop }),
+  onToggleNorthRotateMode: () => handleToggleNorthRotateMode(),
+  onChangeSunDomeRadius: handleChangeSunDomeRadius,
   onSaveView: handleSaveView,
   onApplyView: handleApplyView,
   onRenameView: handleRenameView,
@@ -452,6 +477,14 @@ async function runInspectAndOpenConfirm(
       return;
     }
 
+    const initDomeR = computeInitialSunDomeRadiusM(inspectData.bounding_box);
+    const savedDomeR = effConfig.settings.sun_dome_radius_m;
+    const effectiveDomeR =
+      savedDomeR != null && Number.isFinite(Number(savedDomeR)) && Number(savedDomeR) >= 1
+        ? Number(savedDomeR)
+        : initDomeR;
+    effConfig.settings.sun_dome_radius_m = effectiveDomeR;
+
     const nextState = setState({
       modelId,
       filename: inspectData.filename || filename,
@@ -466,6 +499,9 @@ async function runInspectAndOpenConfirm(
       selectedOrientation: null,
       activeViewId: null,
       viewerMode: 'classification',
+      sunDomeInitialRadiusM: initDomeR,
+      sunDomeRadiusM: effectiveDomeR,
+      northRotateMode: false,
       needsRecompute: false,
       step: targetStep,
       loading: null,
@@ -815,13 +851,10 @@ const panelBuilders = createRailPanelBuilders({
     saveProjectAutosave(getState());
   },
   onChangeNorth: handleChangeNorthAngle,
+  onToggleNorthRotateMode: () => handleToggleNorthRotateMode(),
   onChangeSunDate: handleChangeSunDate,
   onChangeSunHour: handleChangeSunHour,
-  onChangeSunDomeScale: (pct) => setState({ sunDomeScale: Math.max(50, Math.min(200, Number(pct) || 100)), sunDomeVisible: true }),
-  onResetSunDomeScale: () => {
-    setState({ sunDomeScale: 100, sunDomeVisible: true });
-    handleFitCamera();
-  },
+  onChangeSunDomeRadius: handleChangeSunDomeRadius,
   onToggleSunPlay: () => exposureController.togglePlayback(),
   onChangeFacadeFilter: handleChangeFacadeFilter,
   onChangeCalcMode: (mode) => {
@@ -1123,6 +1156,8 @@ function renderApp(state) {
       showToast(`Kamera: ${formatCameraDirectionLabel(s.cameraProjection, c)}`, 'ok', 1800);
     },
     onFitCamera: handleFitCamera,
+    onToggleNorthRotateMode: () => handleToggleNorthRotateMode(),
+    onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
     onSaveView: handleSaveView,
     onApplyView: handleApplyView,
     onCapturePng: handleCapturePng,
@@ -1199,6 +1234,8 @@ installShortcuts({
       showToast(`Kamera: ${formatCameraDirectionLabel(s.cameraProjection, c)}`, 'ok', 1800);
     },
     onFitCamera: handleFitCamera,
+    onToggleNorthRotateMode: (force) => handleToggleNorthRotateMode(force === undefined ? null : force),
+    onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
     onSaveView: handleSaveView,
     onCapturePng: handleCapturePng,
     onToggleSunPlayback: () => exposureController.togglePlayback(),
@@ -1209,7 +1246,21 @@ async function bootstrap() {
   const savedTheme = loadSavedTheme();
   const savedWs = loadWorkspace();
   applyThemeToDom(savedTheme);
-  viewer.attachSunDomeController(new SunDomeController());
+  const sunDomeCtrl = new SunDomeController();
+  sunDomeCtrl.setCallbacks({
+    onDragStateChange: (locked) => viewer.setInteractionLocked(locked),
+    onRadiusCommit: (r) => handleChangeSunDomeRadius(r),
+  });
+  viewer.attachSunDomeController(sunDomeCtrl);
+
+  const northRingCtrl = new NorthRingController();
+  northRingCtrl.setCallbacks({
+    onDragStateChange: (locked) => viewer.setInteractionLocked(locked),
+    onPreviewNorth: (deg) => handleChangeNorthAngle(deg, { commit: false }),
+    onCommitNorth: (deg) => handleChangeNorthAngle(deg, { commit: true }),
+    onExitMode: () => handleToggleNorthRotateMode(false),
+  });
+  viewer.attachNorthRingController(northRingCtrl);
   viewer.setOnCameraDirectionSettled((liveDir) => {
     const s = getState();
     if (s.cameraProjection !== 'elevation' && liveDir && liveDir !== s.cameraDirection) {

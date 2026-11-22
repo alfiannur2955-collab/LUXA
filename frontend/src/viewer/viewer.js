@@ -103,6 +103,8 @@ class LuxaViewer {
     this.gizmo = new AxisGizmo();
     this.labelsOverlay = new ViewerLabelsOverlay();
     this.sunDomeController = null;
+    this.northRingController = null;
+    this.interactionLocked = false;
     this.controls = null;
     this.modelRoot = null;
     this.compareAltRoot = null;
@@ -111,6 +113,7 @@ class LuxaViewer {
     this.selectionGroup = null;
     this.groundGroup = null;
     this.sunDomeGroup = null;
+    this.northRingGroup = null;
     this.resizeObserver = null;
     this.rafId = null;
     this.lastModelKey = null;
@@ -167,11 +170,13 @@ class LuxaViewer {
     this.compareAltRoot.visible = false;
     this.selectionGroup = new THREE.Group();
     this.sunDomeGroup = new THREE.Group();
+    this.northRingGroup = new THREE.Group();
     this.scene.add(this.groundGroup);
     this.scene.add(this.modelRoot);
     this.scene.add(this.compareAltRoot);
     this.scene.add(this.selectionGroup);
     this.scene.add(this.sunDomeGroup);
+    this.scene.add(this.northRingGroup);
 
     this.renderer.domElement.addEventListener('pointerdown', (e) => {
       this.pointerDownPos = { x: e.clientX, y: e.clientY };
@@ -221,6 +226,9 @@ class LuxaViewer {
         if (this.sunDomeController && typeof this.sunDomeController.updateLabels === 'function') {
           this.sunDomeController.updateLabels(cam, this.lastWidth, this.lastHeight);
         }
+        if (this.northRingController && typeof this.northRingController.updateOverlay === 'function') {
+          this.northRingController.updateOverlay(cam, this.lastWidth, this.lastHeight);
+        }
       }
     };
     tick(performance.now());
@@ -234,7 +242,29 @@ class LuxaViewer {
     }
   }
 
+  attachNorthRingController(ctrl) {
+    this._initThree();
+    this.northRingController = ctrl;
+    if (ctrl && typeof ctrl.attachGroup === 'function') {
+      ctrl.attachGroup(this.northRingGroup);
+    }
+  }
+
+  setInteractionLocked(locked) {
+    this.interactionLocked = Boolean(locked);
+    if (this.controls) {
+      this.controls.enabled = !this.interactionLocked;
+    }
+  }
+
   _handleClick(event) {
+    if (this.interactionLocked) return;
+    if (this.northRingController?.active) {
+      if (this.northRingController.isPointOutsideRing(event.clientX, event.clientY)) {
+        this.northRingController.onExitMode?.();
+      }
+      return;
+    }
     if (!this.container || !this.modelRoot) return;
     if (!this.onPickPanel && !this.onPickGroup) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
@@ -290,6 +320,9 @@ class LuxaViewer {
       this.labelsOverlay.mount(this.overlayHost);
       if (this.sunDomeController && typeof this.sunDomeController.mountOverlay === 'function') {
         this.sunDomeController.mountOverlay(this.overlayHost);
+      }
+      if (this.northRingController && typeof this.northRingController.mountOverlay === 'function') {
+        this.northRingController.mountOverlay(this.overlayHost);
       }
       if (showGizmo) {
         this.gizmo.mount(this.overlayHost);
@@ -530,9 +563,12 @@ class LuxaViewer {
     this.rig.setBBox(bbox);
     this.rig.setNorthAngle(northDeg);
 
-    // Update Sun Dome independently (fast, no mesh rebuild needed!)
+    // Update Sun Dome & North Rotation Ring independently (fast, no mesh rebuild needed!)
     if (this.sunDomeController && typeof this.sunDomeController.sync === 'function') {
       this.sunDomeController.sync(state, bbox, tokens);
+    }
+    if (this.northRingController && typeof this.northRingController.sync === 'function') {
+      this.northRingController.sync(state, bbox, tokens);
     }
 
     // Update panel selection highlight & HTML glass label
