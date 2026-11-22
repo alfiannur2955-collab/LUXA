@@ -2594,6 +2594,14 @@ kbd {
   }
 }
 
+@media (max-width: 1240px) {
+  /* Prevent top-row collision between .modes and .formula-pill-wrap on narrow desktop / DPI-scaled 1280px */
+  .formula-pill-wrap {
+    top: 74px;
+    right: 16px;
+  }
+}
+
 @media (max-width: 1140px) {
   .step-btn {
     padding: 6px 10px;

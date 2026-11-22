@@ -130,5 +130,15 @@ Dokumen ini mencatat perubahan arsitektur antarmuka dan pendukung backend pada F
 - **`frontend/src/theme.css`**: Poles aksesibilitas §9 dan responsif pada `1440`, `1280`, dan `768 px` (tanpa luapan horizontal, penataan ulang legenda/mode/pil/bandingkan di bawah `860 px`).
 - **`docs/UJI_PENGGUNA_FASE4.md`**: Skenario uji 3 mahasiswa arsitektur (< 10 menit) memakai `Fasad_Curtain_Wall_Baru.3dm` (atau model studio pilihan) lengkap dengan lembar catatan pengamatan.
 
+---
+
+## Fase 4c-akhir — Penutup Review Fase 4c (T1–T4) (`fase-4c-poles`)
+
+- **T1 (`frontend/src/viewer/modes.js`, `viewer.js`, `tests/test_heatmap_color_fidelity.py`)**: Mengganti material Heatmap, Orientasi, dan filter paparan matahari dari `MeshStandardMaterial` menjadi `makeColorAccurateMaterial` (`ShaderMaterial` dengan bayangan arah ruang-kamera ≤ 12% serta `#include <colorspace_fragment>`), dan memperbaiki konversi linear-ke-sRGB pada `orientationToCssColor`. Warna fasad menghadap kamera dan miring 45° kini cocok dengan legenda pada tema terang dan gelap (CIE76 ΔE ≤ 10, diverifikasi otomatis di `tests/test_heatmap_color_fidelity.py`).
+- **T2 (`frontend/src/steps/results.js`, `inspect.js`, `viewer/vbar.js`, `viewer/formulaPill.js`, `theme.css`)**: Membungkus legenda dan pil bawah (`.vbar`) ke dalam kontainer flex-kolom `.viewer-bottom-stack` (`gap: 12px`) sehingga legenda selalu berada tepat 12 px di atas pil bawah tanpa pernah tertutup pada 1440 px maupun 1280 px di semua workspace (Belajar, Lanjut, Presentasi). Menambahkan aturan `@media (max-width: 1240px)` dan penjagaan posisi tersimpan di `formulaPill.js` agar pil rumus tidak menabrak baris mode saat jendela menyempit.
+- **T3 (`frontend/src/steps/results.js`, `inspect.js`, `compare.js`, `confirm.js`, `theme.css`)**: Menambahkan pembungkus `.viewer-stage` sehingga pada lebar ≤ 860 px (termasuk `768×1024`, tema terang & gelap), kanvas 3D tetap terbuka bersih minimal 420 px (`440 px`) sementara baris mode, legenda, pil bawah, dan strip selisih Bandingkan berpindah rapi ke bawah kanvas tanpa *scroll* horizontal.
+- **T4 (`frontend/src/steps/compare.js`, `theme.css`)**: Memperbaiki kolom Bandingkan (300 px) dengan grid `minmax(0, 1fr)`, nama alternatif dua baris (`line-clamp: 2`) dilengkapi `title` nama penuh, tombol hapus tetap berada di dalam kartu, dan tombol `Tambah alternatif` penuh selebar kolom tanpa terpotong.
+
+
 
 

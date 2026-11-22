@@ -79,6 +79,21 @@ export function renderFormulaPill(state, { onToggleExpand } = {}) {
     wrap.style.left = `${savedPos.left}px`;
     wrap.style.top = `${savedPos.top}px`;
     wrap.style.right = 'auto';
+    // Re-clamp stale saved position if viewport shrunk since last drag
+    window.requestAnimationFrame(() => {
+      const parent = wrap.parentElement;
+      if (!parent || !wrap.isConnected) return;
+      const pw = parent.clientWidth || 0;
+      const ph = parent.clientHeight || 0;
+      const ww = wrap.offsetWidth || 240;
+      const wh = bar.offsetHeight || 52;
+      if (pw <= 0 || ph <= 0) return;
+      if (savedPos.left + ww + 12 > pw || savedPos.top + wh + 12 > ph || savedPos.left < 12 || savedPos.top < 12) {
+        wrap.style.left = '';
+        wrap.style.top = '';
+        wrap.style.right = '';
+      }
+    });
   }
 
   // Top bar (height 52px, aligned with modes bar and compass)
