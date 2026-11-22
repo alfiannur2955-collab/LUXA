@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { AxisGizmo } from './axes.js';
 import { CameraRig, toThreeCoords } from './cameras.js';
+import { computeSolarPosition } from './sundome.js';
 import { ViewerLabelsOverlay } from './labels.js';
 import {
   azimuthToPastelThreeColor,
@@ -979,6 +980,13 @@ class LuxaViewer {
     const analysisNorthDeg = Number(analysis?.summary?.north_angle_deg || 0);
     const northDelta = northDeg - analysisNorthDeg;
     const sunlitSet = this._getSunlitPanelIdSet(state);
+    // Arah matahari jam aktif (koordinat model: E, N, atas) untuk gradasi sudut datang.
+    let sunVec = null;
+    if (sunlitSet) {
+      const lat = Number(analysis?.location_info?.latitude_deg ?? -6.2088);
+      const sp = computeSolarPosition(lat, state.sunDate || '2026-09-23', Number(state.sunHour ?? 13), northDeg);
+      if (sp?.threeDir) sunVec = [sp.threeDir.x, -sp.threeDir.z, sp.threeDir.y];
+    }
     const flaggedGroups = _computeFlaggedGroupSet(state.inspectData);
 
     // D3: Precompute 1mm-welded area-weighted OTTV averages & <30° smooth vertex normals
@@ -1115,7 +1123,13 @@ class LuxaViewer {
 
       if (facadeFilter === 'sunlit_now' && sunlitSet) {
         const isSunlit = sunlitSet.has(p.id);
-        color = isSunlit ? cHeat1 : cWall;
+        if (isSunlit && sunVec) {
+          // Makin tegak lurus ke matahari makin pekat (cos sudut datang 0..1 -> skala panas pucat..pekat).
+          const cosI = Math.max(0, fn[0] * sunVec[0] + fn[1] * sunVec[1] + fn[2] * sunVec[2]);
+          color = ottvToThreeColor(10 + 45 * cosI, tokens);
+        } else {
+          color = isSunlit ? cHeat1 : cWall;
+        }
       } else if (mode === 'exposure') {
         color = exposureToThreeColor(0.5, tokens);
       } else if (mode === 'heatmap') {
