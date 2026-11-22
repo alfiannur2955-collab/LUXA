@@ -989,6 +989,51 @@ Tugas Alfian sebelum publik:
 3. cek merek dagang dan domain LUXA;
 4. uji pengguna dengan 3 mahasiswa.
 
+### Keputusan 22 Nov sore dan rencana Fase 5c: template laporan LUXA
+
+**Koreksi status:**
+
+- Template Excel yang dipakai selama ini ("Building Envelope Compliance Form V2.0", beredar luas dari PUPR dan juga dipakai UGM) **tidak bermasalah untuk dipublikasikan**. Catatan "izin prodi" di bagian sebelumnya dicabut, dan template sekarang ikut di setiap build.
+- `Fasad_Curtain_Wall_Baru.3dm` boleh menjadi contoh publik, dengan nama baru **"Fasad tower twisted"** (`backend/samples/Fasad_Tower_Twisted.3dm`, sudah di `main` `caf3376`).
+- Cek merek dagang tidak perlu.
+- Uji pengguna dilakukan setelah publish, dengan teman-teman mencoba dari laptop masing-masing.
+
+**Hasil audit template lama:**
+
+1. SHGC dikonversi ke SC dengan faktor 0,86, padahal standar datasheet (AGC, Guardian) 0,87. Lembar UTARA punya sisa kolom 0,87, sedangkan 7 lembar lain tidak, jadi template tidak konsisten.
+2. Tabel SF kota versi lama, berbeda dengan SNI 6389:2020 Tabel 8. Baris "SNI" berisi data Jakarta lama.
+3. 17 nama range rusak (`#REF!`), termasuk `RoofConstructionType` dan `ROOFDETIL`, sehingga bagian RTTV atap tidak berfungsi.
+4. Rumus seperti `MATCH($G:$G, …)` memakai satu kolom penuh sebagai nilai cari. Rumus ini rawan `#SPILL!` atau salah di Excel 365.
+5. Sisa kerja: lembar `DB` kosong, `Sheet1` berisi coretan, teks "Yoogya" di K65.
+6. Batas tetap: 10 tipe dinding, 25 tipe kaca, 25 segmen per arah. Fasad didekati sebagai tinggi × panjang × jumlah lantai. Tidak ada asal-usul material, asumsi, maupun kejanggalan.
+
+**Keputusan Alfian:**
+
+- Hanya template LUXA. Format template lama dihapus dari aplikasi.
+- Tabel SF bawaan diganti menjadi **SNI 6389:2020 Tabel 8**. Tabel lama tetap bisa dipilih dengan nama "Tabel SF lama (template PUPR)".
+- Faktor SHGC → SC memakai **0,87** di semua mode.
+
+**Rencana Fase 5c (branch `fase-5c-template-luxa`):**
+
+1. **Generator template.** `backend/luxa_report.py` membuat workbook sendiri (openpyxl, tanpa file template), tanpa batas jumlah baris. Lembar-lembarnya:
+   - **Ringkasan:** data proyek, lokasi dan sumber SF, OTTV total dan per arah, RTTV, WWR, status SNI, catatan asumsi dan kejanggalan, versi LUXA, dan tanggal.
+   - **Material:** semua kaca dan dinding yang dipakai, dengan merek, sumber datasheet dan tanggal akses, U, α, massa/TD\_ek, SHGC, SC = SHGC/0,87, dan VLT.
+   - **8 lembar arah:** satu baris per kelompok bidang (grup × material × peneduh), berisi luas dinding dan kaca dari model 3D, α, U, TD\_ek, SC, SCeff hasil hitung peneduh 3D, dan SF. Kolom suku konduksi dinding, konduksi kaca, dan radiasi memakai rumus Excel hidup, ditutup subtotal dan OTTV arah.
+   - **Atap (RTTV):** atap dan skylight, dengan rumus hidup.
+   - **Per lantai:** rincian dari `assign_panels_to_floors`, termasuk sumber deteksi lantainya.
+   - **Referensi:** tabel SF SNI 2020 dan tabel lama, tabel α dan TD\_ek, serta penjelasan rumus dan sumbernya.
+   - **Baris cek:** selisih antara hasil rumus Excel dan hasil aplikasi, harus 0,00.
+2. **Gaya visual:** mengikuti identitas LUXA (logo, warna amber dan teal, huruf yang tersedia di Excel). Kolom input dan kolom rumus dibedakan warnanya. Siap cetak A4 landscape.
+3. **Engine dan konfigurasi:** `settings.sf_source` bawaan menjadi `sni2020`, dan konversi 0,86 dihapus dari mode template. Proyek lama yang menyimpan `template_prodi` tetap terbaca, dan pengguna diberi tahu bahwa tabel SF-nya tabel lama.
+4. **Membersihkan kode template lama:** hapus `report_template_map.py`, `template_filler.py`, ekspor `template_prodi`, `docs/templates/template_prodi.xlsx`, dan opsi di panel Laporan. Laporan Excel umum lama (`report_exporter.generate_excel_report`, catatan K4) digantikan generator baru. CSV tetap ada.
+5. **Mode browser:** generator baru memakai openpyxl yang sudah dimuat bertahap, dan nama file unduhan menjadi `Laporan_OTTV_LUXA_<model>.xlsx`.
+6. **Tes:**
+   - hitung ulang workbook dengan LibreOffice bila ada, lalu bandingkan OTTV total, per arah, dan RTTV dengan aplikasi (toleransi 0,01);
+   - tidak ada rumus berisi `#REF!` atau referensi satu kolom penuh;
+   - semua material yang dipakai muncul di lembar Material, lengkap dengan sumbernya;
+   - paritas mode browser lewat `engine_parity`.
+7. **Dokumentasi:** contoh laporan dari "Fasad tower twisted" disimpan di `docs/contoh/` supaya bisa ditunjukkan ke dosen.
+
 ```text
 PROMPT FASE 5a (SPIKE, jangan ubah UI):
 Setelah Fase 4d dan 4e di-merge ke main, buat branch fase-5a-spike dari main. Ukur juga endpoint rematerial dan recommender di Pyodide. Spike harus memakai antarmuka engine.js yang sama (upload, inspect, analyze, exposure, export) supaya Fase 5b cukup mengganti implementasinya. Buat folder spike-pyodide/ berisi halaman HTML sederhana + Web Worker yang memuat Pyodide, memasang numpy, ladybug-geometry, trimesh, dan wheel IfcOpenShell WASM, lalu menjalankan load_universal_model_stages_1_and_2 + analyze_building_ottv dari backend/ untuk 5 fixture. Untuk .3dm: baca dengan rhino3dm.js di JS, kirim vertices/faces + nama layer/material per objek ke Python sebagai pengganti loader rhino3dm Python. Catat di docs/SPIKE_PYODIDE.md: ukuran unduhan, waktu muat awal, waktu analisis per fixture, memori puncak, dan selisih OTTV vs backend. Jangan optimasi dulu; tujuan hanya mengukur.
