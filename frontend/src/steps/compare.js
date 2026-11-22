@@ -10,6 +10,7 @@
 
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
+import { renderCapturePopover } from '../viewer/vbar.js';
 import { viewer } from '../viewer/viewer.js';
 
 let addFormOpen = false;
@@ -722,7 +723,26 @@ export function renderCompareScreen(state, handlers) {
     side.appendChild(histCard);
   }
 
-  // 5. Bottom CTA: Pakai Alternatif X
+  // 5. Capture gambar perbandingan (dua sisi + selisih per arah)
+  if (activeAlt) {
+    const capWrap = document.createElement('div');
+    capWrap.className = 'compare-capture-wrap';
+    const capBtn = document.createElement('button');
+    capBtn.type = 'button';
+    capBtn.className = `ghost compare-add-btn${state.openPopover === 'capture' ? ' is-active' : ''}`;
+    capBtn.setAttribute('aria-expanded', state.openPopover === 'capture' ? 'true' : 'false');
+    capBtn.innerHTML = `${icon('camera', 14)}<span>Unduh gambar perbandingan</span>`;
+    capBtn.addEventListener('click', () => handlers.onTogglePopover?.(state.openPopover === 'capture' ? null : 'capture'));
+    capWrap.appendChild(capBtn);
+    if (state.openPopover === 'capture') {
+      const pop = renderCapturePopover(state, handlers);
+      pop.classList.add('capture-pop-inline');
+      capWrap.appendChild(pop);
+    }
+    side.appendChild(capWrap);
+  }
+
+  // 6. Bottom CTA: Pakai Alternatif X
   if (activeAlt) {
     const ctaWrap = document.createElement('div');
     ctaWrap.style.display = 'grid';

@@ -3965,3 +3965,69 @@ body.is-d5-rotating * {
     display: none;
   }
 }
+
+/* Menu Capture */
+.capture-pop {
+  width: 280px;
+  display: grid;
+  gap: 6px;
+}
+
+.capture-pop-lbl {
+  color: var(--ink);
+  margin-top: 4px;
+}
+
+.capture-pop .seg {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+}
+
+.capture-pop .seg button {
+  white-space: nowrap;
+  padding: 0 6px;
+}
+
+.capture-pop-checks {
+  display: grid;
+  gap: 2px;
+}
+
+.capture-pop-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 3px 2px;
+  cursor: pointer;
+}
+
+.capture-pop-check input {
+  accent-color: var(--sun);
+}
+
+.capture-pop-go {
+  width: 100%;
+  height: 40px;
+  margin-top: 6px;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.compare-capture-wrap {
+  display: grid;
+  gap: 6px;
+}
+
+.capture-pop-inline {
+  position: static !important;
+  width: 100% !important;
+  inset: auto !important;
+  transform: none !important;
+  box-shadow: none;
+}

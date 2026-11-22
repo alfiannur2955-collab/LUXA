@@ -260,7 +260,11 @@ async function handleCapturePng(scale = null) {
   const s = getState();
   const effScale = scale || s.captureScale || 2;
   try {
-    const res = await captureViewerPng(s, { scale: effScale });
+    const res = await captureViewerPng(s, {
+      scale: effScale,
+      layout: s.captureLayout || 'panel',
+      include: s.captureInclude,
+    });
     showToast(`Capture ${res.scale}x (${res.width} × ${res.height} px) diunduh.`, 'ok', 3000);
   } catch (err) {
     showToast(err.message || 'Gagal melakukan capture gambar.', 'fail');
@@ -586,6 +590,8 @@ const vbarHandlers = {
   onDuplicateView: handleDuplicateView,
   onDeleteView: handleDeleteView,
   onSetCaptureScale: (sc) => setState({ captureScale: sc }),
+  onSetCaptureLayout: (layout) => setState({ captureLayout: layout }),
+  onToggleCaptureInclude: (key, on) => setState({ captureInclude: { ...(getState().captureInclude || {}), [key]: Boolean(on) } }),
   onCapturePng: handleCapturePng,
   onChangeSunHour: handleChangeSunHour,
   onToggleSunPlay: () => exposureController.togglePlayback(),
@@ -1628,6 +1634,11 @@ function renderApp(state) {
         onPrepareModelAlternative: handlePrepareModelAlternative,
         onCreateModelAlternative: handleCreateModelAlternative,
         onCancelModelDraft: () => setState({ compareModelDraft: null }),
+        onTogglePopover: (id) => setState({ openPopover: id }),
+        onCapturePng: handleCapturePng,
+        onSetCaptureScale: (sc) => setState({ captureScale: sc }),
+        onSetCaptureLayout: (layout) => setState({ captureLayout: layout }),
+        onToggleCaptureInclude: (key, on) => setState({ captureInclude: { ...(getState().captureInclude || {}), [key]: Boolean(on) } }),
         onApplyAlternative: handleApplyAlternative,
         onRestoreHistory: handleRestoreHistory,
         onRerender: () => setState({}),
