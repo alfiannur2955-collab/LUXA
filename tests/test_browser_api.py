@@ -99,8 +99,11 @@ def test_catalogues_match_server(both):
 def test_analysis_store_is_bounded_and_switching_model_clears(both):
     client, work = both
     _upload_both(client, work)
-    ids = [browser_api.analyze("m1")["analysis_id"] for _ in range(3)]
-    assert list(browser_api.ANALYSES) == ids[-2:]
+    browser_api._PINNED_ANALYSIS = None
+    browser_api.ANALYSES.clear()
+    n = browser_api.MAX_STORED_ANALYSES
+    ids = [browser_api.analyze("m1")["analysis_id"] for _ in range(n + 1)]
+    assert list(browser_api.ANALYSES) == ids[-n:]
     with pytest.raises(browser_api.EngineError) as e:
         browser_api.exposure(ids[0])
     assert e.value.status == 404
@@ -133,6 +136,13 @@ def test_pinned_main_analysis_survives_alternatives_from_other_models(tmp_path):
     cfg["model"]["model_scope"] = "full_building"
     main = browser_api.analyze("pin_a", cfg)
     assert browser_api.pin_analysis(main["analysis_id"])["exists"] is True
+    try:
+        _run_pin_checks(main, cfg)
+    finally:
+        browser_api._PINNED_ANALYSIS = None
+
+
+def _run_pin_checks(main, cfg):
     for _ in range(browser_api.MAX_STORED_ANALYSES + 2):
         browser_api.analyze("pin_b", cfg)
     out = browser_api.export_report(main["analysis_id"], "csv")
