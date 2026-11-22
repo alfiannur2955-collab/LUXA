@@ -501,8 +501,13 @@ export class SunDomeController {
       const hTxt = `${String(Math.round(hour)).padStart(2, '0')}.00`;
       const altTxt = activeSun.aboveHorizon ? `${Math.round(activeSun.altitudeDeg)}°` : 'Di bawah ufuk';
       const azTxt = `${Math.round(activeSun.azimuthDeg)}°`;
-      this.readoutEl.textContent = `Matahari ${hTxt} · Tinggi ${altTxt} · Azimut ${azTxt}`;
-      this.readoutEl.style.display = 'inline-flex';
+      const txt = `Matahari ${hTxt} · Tinggi ${altTxt} · Azimut ${azTxt}`;
+      // Tidak lagi melayang di viewer (sering tertutup bola matahari): tetap dibacakan pembaca layar,
+      // dan tampil sebagai tooltip jam di bar bawah.
+      this.readoutEl.textContent = txt;
+      this.readoutEl.style.display = 'block';
+      this.readoutEl.classList.add('sr-only');
+      for (const el of document.querySelectorAll('[data-luxa-sun-hour]')) el.title = txt;
     }
   }
 
