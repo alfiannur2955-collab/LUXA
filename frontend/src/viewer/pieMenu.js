@@ -26,17 +26,19 @@ class RadialPieMenu {
     this.centerX = 0;
     this.centerY = 0;
     this.onSelect = null;
+    this.onSelectOrientationMode = null;
     this.root = null;
     this.lineEl = null;
     this.buttons = new Map();
     this._onPointerMove = this._handlePointerMove.bind(this);
   }
 
-  open({ currentDirection = 'B', onSelect, anchorEl = null } = {}) {
+  open({ currentDirection = 'B', onSelect, onSelectOrientationMode = null, anchorEl = null } = {}) {
     if (this.isOpen) return;
     this.isOpen = true;
     this.highlighted = currentDirection || 'B';
     this.onSelect = onSelect;
+    this.onSelectOrientationMode = onSelectOrientationMode;
 
     const rect = anchorEl?.getBoundingClientRect?.();
     if (rect && rect.width > 100 && rect.height > 100) {
@@ -158,6 +160,20 @@ class RadialPieMenu {
       });
       this.buttons.set(s.code, btn);
       wrap.appendChild(btn);
+    }
+
+    if (typeof this.onSelectOrientationMode === 'function') {
+      const orientBtn = document.createElement('button');
+      orientBtn.type = 'button';
+      orientBtn.className = 'glass pie-orient-btn';
+      orientBtn.setAttribute('role', 'menuitem');
+      orientBtn.textContent = 'Mode Orientasi';
+      orientBtn.addEventListener('click', () => {
+        const cb = this.onSelectOrientationMode;
+        this.close({ commit: false });
+        cb?.();
+      });
+      wrap.appendChild(orientBtn);
     }
 
     const hint = document.createElement('p');

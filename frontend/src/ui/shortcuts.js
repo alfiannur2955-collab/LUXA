@@ -127,6 +127,7 @@ export function installShortcuts({ getState, pieMenu, handlers }) {
         currentDirection: s.cameraDirection,
         anchorEl: viewerEl,
         onSelect: (code) => handlers.onSelectDirection(code),
+        onSelectOrientationMode: () => handlers.onChangeViewerMode?.('orientation'),
       });
     } else if (e.key.toLowerCase() === 'r') {
       e.preventDefault();

@@ -2054,6 +2054,29 @@ body.is-d5-rotating * {
   color: var(--ink);
 }
 
+.orient-ring-svg {
+  flex-shrink: 0;
+  display: block;
+}
+
+.pie-orient-btn {
+  position: absolute;
+  left: -62px;
+  top: 158px;
+  width: 124px;
+  height: 30px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+}
+
+.pie-orient-btn:hover {
+  border-color: var(--sun);
+}
+
 /* Hold-V Radial Pie Menu */
 .pie-menu-overlay {
   position: fixed;

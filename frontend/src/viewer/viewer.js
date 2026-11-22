@@ -15,21 +15,76 @@ import { AxisGizmo } from './axes.js';
 import { CameraRig, toThreeCoords } from './cameras.js';
 import { ViewerLabelsOverlay } from './labels.js';
 import {
+  azimuthToPastelThreeColor,
+  horizontalNeutralColor,
   makeAnomalyMaterial,
   makeClassificationMaterial,
   makeColorAccurateMaterial,
   makeVertexColorMaterial,
   makeXrayMaterial,
+  normalToAzimuthDeg,
   normalToOrientationCode,
   orientationToThreeColor,
+  ottvToPastelThreeColor,
   ottvToThreeColor,
   readThemeTokens,
 } from './modes.js';
 import { populateSelectionHighlightGroup, summarizeSelectedPanels } from './selection.js';
 
+const CREASE_COS_30_DEG = Math.cos((30 * Math.PI) / 180);
+
+function _vKey1mm(pt) {
+  return `${Math.round(Number(pt[0]) * 1000)},${Math.round(Number(pt[1]) * 1000)},${Math.round(Number(pt[2]) * 1000)}`;
+}
+
+function _computeFaceNormalBackend(v0, v1, v2) {
+  const ax = Number(v1[0]) - Number(v0[0]);
+  const ay = Number(v1[1]) - Number(v0[1]);
+  const az = Number(v1[2]) - Number(v0[2]);
+  const bx = Number(v2[0]) - Number(v0[0]);
+  const by = Number(v2[1]) - Number(v0[1]);
+  const bz = Number(v2[2]) - Number(v0[2]);
+  const nx = ay * bz - az * by;
+  const ny = az * bx - ax * bz;
+  const nz = ax * by - ay * bx;
+  const len = Math.hypot(nx, ny, nz) || 1;
+  return [nx / len, ny / len, nz / len];
+}
+
+/**
+ * Computes smooth vertex normal at a 1mm-welded position by averaging adjacent faces
+ * whose dihedral angle against `faceNormal` is < 30° (keeps sharp corners sharp).
+ */
+function _resolveSmoothNormalBackend(key, faceNormal, normalsByKey) {
+  const list = normalsByKey?.get(key);
+  if (!list || list.length <= 1) return faceNormal;
+  let sx = 0;
+  let sy = 0;
+  let sz = 0;
+  for (const entry of list) {
+    const dot =
+      entry.n[0] * faceNormal[0] +
+      entry.n[1] * faceNormal[1] +
+      entry.n[2] * faceNormal[2];
+    if (dot >= CREASE_COS_30_DEG) {
+      sx += entry.n[0] * entry.w;
+      sy += entry.n[1] * entry.w;
+      sz += entry.n[2] * entry.w;
+    }
+  }
+  const len = Math.hypot(sx, sy, sz);
+  if (len < 1e-6) return faceNormal;
+  return [sx / len, sy / len, sz / len];
+}
+
 function _coordsArr(x, y, z) {
   const v = toThreeCoords(x, y, z);
   return [v.x, v.y, v.z];
+}
+
+function _normalToThreeArr(n) {
+  // Backend (E, N, U) -> Three.js (x=E, y=U, z=-N)
+  return [n[0], n[2], -n[1]];
 }
 
 function _computeFlaggedGroupSet(inspectData) {
@@ -686,36 +741,55 @@ class LuxaViewer {
       if (isDisabled && mode !== 'xray') continue;
 
       if (mode === 'orientation') {
-        // Color every triangle by its horizontal normal orientation!
-        const coords = [];
-        const colors = [];
+        // D3: Smooth per-vertex cyclic pastel azimuth with 1mm welding & <30° crease threshold
+        const normalsByKey = new Map();
+        const triNormals = [];
         for (const t of pm.tris) {
           const v0 = pm.vertices[t[0]];
           const v1 = pm.vertices[t[1]];
           const v2 = pm.vertices[t[2]];
-          if (!v0 || !v1 || !v2) continue;
-          const ax = v1[0] - v0[0];
-          const ay = v1[1] - v0[1];
-          const az = v1[2] - v0[2];
-          const bx = v2[0] - v0[0];
-          const by = v2[1] - v0[1];
-          const bz = v2[2] - v0[2];
-          const nx = ay * bz - az * by;
-          const ny = az * bx - ax * bz;
-          const code = Math.hypot(nx, ny) > 1e-5 ? normalToOrientationCode(nx, ny, northDeg) : 'U';
-          const c = orientationToThreeColor(code, tokens);
-          coords.push(..._coordsArr(v0[0], v0[1], v0[2]), ..._coordsArr(v1[0], v1[1], v1[2]), ..._coordsArr(v2[0], v2[1], v2[2]));
-          colors.push(c.r, c.g, c.b, c.r, c.g, c.b, c.r, c.g, c.b);
+          if (!v0 || !v1 || !v2) {
+            triNormals.push(null);
+            continue;
+          }
+          const fn = _computeFaceNormalBackend(v0, v1, v2);
+          triNormals.push(fn);
+          for (const pt of [v0, v1, v2]) {
+            const k = _vKey1mm(pt);
+            const arr = normalsByKey.get(k);
+            if (arr) arr.push({ n: fn, w: 1 });
+            else normalsByKey.set(k, [{ n: fn, w: 1 }]);
+          }
+        }
+        const coords = [];
+        const norms = [];
+        const colors = [];
+        const cHoriz = horizontalNeutralColor(tokens);
+        for (let ti = 0; ti < pm.tris.length; ti += 1) {
+          const fn = triNormals[ti];
+          if (!fn) continue;
+          const t = pm.tris[ti];
+          const pts = [pm.vertices[t[0]], pm.vertices[t[1]], pm.vertices[t[2]]];
+          for (const pt of pts) {
+            const sn = _resolveSmoothNormalBackend(_vKey1mm(pt), fn, normalsByKey);
+            const isHoriz = cat === 'roof' || Math.abs(sn[2]) > 0.7 || Math.hypot(sn[0], sn[1]) < 1e-4;
+            const c = isHoriz
+              ? cHoriz
+              : azimuthToPastelThreeColor(normalToAzimuthDeg(sn[0], sn[1], northDeg), tokens);
+            coords.push(..._coordsArr(pt[0], pt[1], pt[2]));
+            norms.push(..._normalToThreeArr(sn));
+            colors.push(c.r, c.g, c.b);
+          }
         }
         if (!coords.length) continue;
         const geom = new THREE.BufferGeometry();
         geom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
+        geom.setAttribute('normal', new THREE.Float32BufferAttribute(norms, 3));
         geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-        geom.computeVertexNormals();
         const mesh = new THREE.Mesh(geom, makeColorAccurateMaterial());
         mesh.userData = { groupName: gName, category: cat };
         this.modelRoot.add(mesh);
-        this._addEdgeLines(geom, tokens, { opacity: 0.42 });
+        this._addEdgeLines(geom, tokens, { opacity: 0.30 });
         continue;
       }
 
@@ -789,6 +863,8 @@ class LuxaViewer {
 
     const granularity = state.heatmapGranularity || 'orientation';
     const useSmooth = Boolean(state.heatmapSmooth) && mode === 'heatmap' && (state.facadeFilter || 'all') !== 'sunlit_now';
+    const useOrientSmooth = mode === 'orientation' && (state.facadeFilter || 'all') !== 'sunlit_now';
+    const needSmoothNormals = useSmooth || useOrientSmooth;
     const facadeFilter = state.facadeFilter || 'all';
     const selOrient = state.selectedOrientation || null;
     const northDeg = Number(state.config?.settings?.north_angle_deg || 0);
@@ -797,11 +873,12 @@ class LuxaViewer {
     const sunlitSet = this._getSunlitPanelIdSet(state);
     const flaggedGroups = _computeFlaggedGroupSet(state.inspectData);
 
-    // S4: Precompute area-weighted vertex OTTV averages when Halus is enabled
-    const vKey = (pt) => `${Math.round(Number(pt[0]) * 200)},${Math.round(Number(pt[1]) * 200)},${Math.round(Number(pt[2]) * 200)}`;
+    // D3: Precompute 1mm-welded area-weighted OTTV averages & <30° smooth vertex normals
     const smoothVertexVal = useSmooth ? new Map() : null;
-    if (useSmooth) {
-      const accum = new Map(); // key -> { sumValArea, sumArea }
+    const normalsByKey = needSmoothNormals ? new Map() : null;
+
+    if (useSmooth || needSmoothNormals) {
+      const accum = useSmooth ? new Map() : null;
       for (const p of panels) {
         if (!p.active || !Array.isArray(p.vertices) || p.vertices.length < 3) continue;
         let pCode = p.orientation_code || 'U';
@@ -810,19 +887,36 @@ class LuxaViewer {
         }
         const val = granularity === 'panel' ? Number(p.ottv_panel_wm2 || 0) : (orientOttv[pCode] ?? 0);
         const area = Math.max(0.01, Number(p.area_m2 || 1));
+        const fn =
+          Array.isArray(p.normal) && p.normal.length >= 3
+            ? (() => {
+                const l = Math.hypot(p.normal[0], p.normal[1], p.normal[2]) || 1;
+                return [p.normal[0] / l, p.normal[1] / l, p.normal[2] / l];
+              })()
+            : _computeFaceNormalBackend(p.vertices[0], p.vertices[1], p.vertices[2]);
+
         for (const pt of p.vertices) {
-          const k = vKey(pt);
-          const cur = accum.get(k);
-          if (cur) {
-            cur.sumValArea += val * area;
-            cur.sumArea += area;
-          } else {
-            accum.set(k, { sumValArea: val * area, sumArea: area });
+          const k = _vKey1mm(pt);
+          if (accum) {
+            const cur = accum.get(k);
+            if (cur) {
+              cur.sumValArea += val * area;
+              cur.sumArea += area;
+            } else {
+              accum.set(k, { sumValArea: val * area, sumArea: area });
+            }
+          }
+          if (normalsByKey) {
+            const list = normalsByKey.get(k);
+            if (list) list.push({ n: fn, w: area });
+            else normalsByKey.set(k, [{ n: fn, w: area }]);
           }
         }
       }
-      for (const [k, acc] of accum.entries()) {
-        smoothVertexVal.set(k, acc.sumValArea / Math.max(1e-6, acc.sumArea));
+      if (accum && smoothVertexVal) {
+        for (const [k, acc] of accum.entries()) {
+          smoothVertexVal.set(k, acc.sumValArea / Math.max(1e-6, acc.sumArea));
+        }
       }
     }
 
@@ -830,16 +924,20 @@ class LuxaViewer {
     const cWall = new THREE.Color(tokens.wall);
     const cGlz = new THREE.Color(tokens.glazing);
     const cWarn = new THREE.Color(tokens.warn);
+    const cHoriz = horizontalNeutralColor(tokens);
 
     // Split active panels into opaque/focused vs dimmed so transparent dimmed panels render cleanly
     const mainCoords = [];
+    const mainNormals = [];
     const mainColors = [];
     const mainTriToPanel = [];
 
     const dimCoords = [];
+    const dimNormals = [];
     const dimColors = [];
     const dimTriToPanel = [];
 
+    const panelGridCoords = [];
     const excludedLineCoords = [];
 
     for (const p of panels) {
@@ -857,11 +955,19 @@ class LuxaViewer {
         continue;
       }
 
-      // Compute effective orientation code (live-rotated if user dragged compass!)
+      // Compute effective orientation code (live-rotated when north angle changes)
       let code = p.orientation_code || 'U';
       if (Math.abs(northDelta) > 0.05 && Array.isArray(p.normal)) {
         code = normalToOrientationCode(p.normal[0], p.normal[1], northDeg);
       }
+
+      const fn =
+        Array.isArray(p.normal) && p.normal.length >= 3
+          ? (() => {
+              const l = Math.hypot(p.normal[0], p.normal[1], p.normal[2]) || 1;
+              return [p.normal[0] / l, p.normal[1] / l, p.normal[2] / l];
+            })()
+          : _computeFaceNormalBackend(p.vertices[0], p.vertices[1], p.vertices[2]);
 
       let color = cWall;
       let isDimmed = false;
@@ -871,9 +977,9 @@ class LuxaViewer {
         color = isSunlit ? cHeat1 : cWall;
       } else if (mode === 'heatmap') {
         const val = granularity === 'panel' ? Number(p.ottv_panel_wm2 || 0) : (orientOttv[code] ?? 0);
-        color = ottvToThreeColor(val, tokens);
+        color = useSmooth ? ottvToPastelThreeColor(val, tokens) : ottvToThreeColor(val, tokens);
       } else if (mode === 'orientation') {
-        color = orientationToThreeColor(code, tokens);
+        color = Math.abs(fn[2]) > 0.7 ? cHoriz : orientationToThreeColor(code, tokens);
       } else if (mode === 'anomalies') {
         const isFlagged = flaggedGroups.has(p.group_name) || p.element_type === 'unknown';
         color = isFlagged ? cWarn : cWall;
@@ -882,7 +988,6 @@ class LuxaViewer {
         color = p.element_type === 'glazing' || p.element_type === 'composite_cw' ? cGlz : cWall;
         isDimmed = true;
       } else {
-        // classification
         color = p.element_type === 'glazing' || p.element_type === 'composite_cw' ? cGlz : cWall;
       }
 
@@ -897,29 +1002,56 @@ class LuxaViewer {
       const p1 = _coordsArr(vs[1][0], vs[1][1], vs[1][2]);
       const p2 = _coordsArr(vs[2][0], vs[2][1], vs[2][2]);
 
-      const cForVert = (pt) => {
-        if (!useSmooth) return color;
-        const avgV = smoothVertexVal.get(vKey(pt));
-        return avgV !== undefined ? ottvToThreeColor(avgV, tokens) : color;
+      const nForVert = (pt) =>
+        needSmoothNormals ? _resolveSmoothNormalBackend(_vKey1mm(pt), fn, normalsByKey) : fn;
+
+      const cForVert = (pt, sn) => {
+        if (useSmooth) {
+          const avgV = smoothVertexVal.get(_vKey1mm(pt));
+          return avgV !== undefined ? ottvToPastelThreeColor(avgV, tokens) : color;
+        }
+        if (useOrientSmooth) {
+          if (Math.abs(sn[2]) > 0.7 || Math.hypot(sn[0], sn[1]) < 1e-4) return cHoriz;
+          return azimuthToPastelThreeColor(normalToAzimuthDeg(sn[0], sn[1], northDeg), tokens);
+        }
+        return color;
       };
-      const c0 = cForVert(vs[0]);
-      const c1 = cForVert(vs[1]);
-      const c2 = cForVert(vs[2]);
+
+      const n0 = nForVert(vs[0]);
+      const n1 = nForVert(vs[1]);
+      const n2 = nForVert(vs[2]);
+      const c0 = cForVert(vs[0], n0);
+      const c1 = cForVert(vs[1], n1);
+      const c2 = cForVert(vs[2], n2);
 
       const dstCoords = isDimmed ? dimCoords : mainCoords;
+      const dstNormals = isDimmed ? dimNormals : mainNormals;
       const dstColors = isDimmed ? dimColors : mainColors;
       const dstMap = isDimmed ? dimTriToPanel : mainTriToPanel;
 
       dstCoords.push(...p0, ...p1, ...p2);
+      dstNormals.push(..._normalToThreeArr(n0), ..._normalToThreeArr(n1), ..._normalToThreeArr(n2));
       dstColors.push(c0.r, c0.g, c0.b, c1.r, c1.g, c1.b, c2.r, c2.g, c2.b);
       dstMap.push(p);
 
       if (vs.length >= 4) {
         const p3 = _coordsArr(vs[3][0], vs[3][1], vs[3][2]);
-        const c3 = cForVert(vs[3]);
+        const n3 = nForVert(vs[3]);
+        const c3 = cForVert(vs[3], n3);
         dstCoords.push(...p0, ...p2, ...p3);
+        dstNormals.push(..._normalToThreeArr(n0), ..._normalToThreeArr(n2), ..._normalToThreeArr(n3));
         dstColors.push(c0.r, c0.g, c0.b, c2.r, c2.g, c2.b, c3.r, c3.g, c3.b);
         dstMap.push(p);
+      }
+
+      // D3: Thin panel grid lines (opacity 0.28–0.32) overlaid on Halus & Orientasi like ref-heatmap-halus.png
+      if (!isDimmed && (useSmooth || useOrientSmooth)) {
+        const pts3 = vs.map((v) => _coordsArr(v[0], v[1], v[2]));
+        for (let i = 0; i < pts3.length; i += 1) {
+          const a = pts3[i];
+          const b = pts3[(i + 1) % pts3.length];
+          panelGridCoords.push(...a, ...b);
+        }
       }
     }
 
@@ -931,18 +1063,39 @@ class LuxaViewer {
       const geom = new THREE.BufferGeometry();
       geom.setAttribute('position', new THREE.Float32BufferAttribute(mainCoords, 3));
       geom.setAttribute('color', new THREE.Float32BufferAttribute(mainColors, 3));
-      geom.computeVertexNormals();
+      if (needSmoothNormals) {
+        geom.setAttribute('normal', new THREE.Float32BufferAttribute(mainNormals, 3));
+      } else {
+        geom.computeVertexNormals();
+      }
       const mesh = new THREE.Mesh(geom, makePanelMat({ transparent: false, opacity: 1.0 }));
       mesh.userData = { triToPanel: mainTriToPanel };
       this.modelRoot.add(mesh);
-      this._addEdgeLines(geom, tokens, { opacity: 0.48 });
+      if (panelGridCoords.length > 0) {
+        const gridGeo = new THREE.BufferGeometry();
+        gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(panelGridCoords, 3));
+        const gridMat = new THREE.LineBasicMaterial({
+          color: new THREE.Color(tokens.ink),
+          transparent: true,
+          opacity: 0.30,
+        });
+        const gridLines = new THREE.LineSegments(gridGeo, gridMat);
+        gridLines.raycast = () => {};
+        this.modelRoot.add(gridLines);
+      } else {
+        this._addEdgeLines(geom, tokens, { opacity: 0.48 });
+      }
     }
 
     if (dimCoords.length > 0) {
       const geom = new THREE.BufferGeometry();
       geom.setAttribute('position', new THREE.Float32BufferAttribute(dimCoords, 3));
       geom.setAttribute('color', new THREE.Float32BufferAttribute(dimColors, 3));
-      geom.computeVertexNormals();
+      if (needSmoothNormals) {
+        geom.setAttribute('normal', new THREE.Float32BufferAttribute(dimNormals, 3));
+      } else {
+        geom.computeVertexNormals();
+      }
       const mesh = new THREE.Mesh(
         geom,
         makePanelMat({
@@ -963,10 +1116,17 @@ class LuxaViewer {
     const ctxDim = mode === 'xray' || mode === 'anomalies' || Boolean(selOrient) || facadeFilter === 'sunlit_now';
     this._renderContextElements(analysis.shading_elements, 'shading', tokens, ctxDim, mode === 'xray');
     this._renderContextElements(analysis.frame_elements, 'frame', tokens, ctxDim || mode === 'heatmap', mode === 'xray');
-    this._renderContextElements(analysis.roof_elements, 'roof', tokens, true, mode === 'xray');
+    this._renderContextElements(
+      analysis.roof_elements,
+      'roof',
+      tokens,
+      mode !== 'orientation',
+      mode === 'xray',
+      mode === 'orientation',
+    );
   }
 
-  _renderContextElements(elements, category, tokens, dimmed, xray = false) {
+  _renderContextElements(elements, category, tokens, dimmed, xray = false, orientNeutral = false) {
     for (const el of elements || []) {
       if (!el?.vertices?.length || !el?.faces?.length) continue;
       const coords = [];
@@ -993,7 +1153,20 @@ class LuxaViewer {
       const geom = new THREE.BufferGeometry();
       geom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
       geom.computeVertexNormals();
-      const mat = xray ? makeXrayMaterial(category, tokens) : makeClassificationMaterial(category, tokens, { dimmed });
+      let mat;
+      if (orientNeutral && category === 'roof') {
+        const cNeu = horizontalNeutralColor(tokens);
+        const colArr = new Float32Array(coords.length);
+        for (let i = 0; i < coords.length; i += 3) {
+          colArr[i] = cNeu.r;
+          colArr[i + 1] = cNeu.g;
+          colArr[i + 2] = cNeu.b;
+        }
+        geom.setAttribute('color', new THREE.Float32BufferAttribute(colArr, 3));
+        mat = makeColorAccurateMaterial({ transparent: false, opacity: 1.0 });
+      } else {
+        mat = xray ? makeXrayMaterial(category, tokens) : makeClassificationMaterial(category, tokens, { dimmed });
+      }
       const mesh = new THREE.Mesh(geom, mat);
       mesh.userData = { groupName: el.group_name, category };
       this.modelRoot.add(mesh);
