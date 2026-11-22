@@ -25,10 +25,10 @@ function logSliderToRadius(sliderVal, initR) {
 }
 
 const PROJECTIONS = [
-  { id: 'perspective', label: 'Persp', key: '1' },
-  { id: 'two_point', label: '2 titik', key: '2' },
-  { id: 'axonometric', label: 'Akso', key: '3' },
-  { id: 'elevation', label: 'Tampak', key: '4' },
+  { id: 'perspective', label: 'Perspektif', icon: 'projPersp', key: '1' },
+  { id: 'two_point', label: 'Perspektif 2 titik', icon: 'projTwoPoint', key: '2' },
+  { id: 'axonometric', label: 'Aksonometri', icon: 'projAxo', key: '3' },
+  { id: 'elevation', label: 'Tampak', icon: 'projElev', key: '4' },
 ];
 
 const DIRECTIONS_ORDERED = ['U', 'TL', 'T', 'TG', 'S', 'BD', 'B', 'BL', 'Atas'];
@@ -58,10 +58,11 @@ export function renderViewerBottomBar(state, handlers) {
     const btn = document.createElement('button');
     btn.type = 'button';
     const isOn = state.cameraProjection === p.id;
-    btn.className = `b${isOn ? ' on' : ''}`;
-    btn.title = `Pintasan ${p.key}`;
+    btn.className = `b b-icon${isOn ? ' on' : ''}`;
+    btn.title = `${p.label} (${p.key})`;
+    btn.setAttribute('aria-label', `${p.label}, pintasan ${p.key}`);
     btn.setAttribute('aria-pressed', isOn ? 'true' : 'false');
-    btn.textContent = p.label;
+    btn.innerHTML = icon(p.icon, 17);
     btn.addEventListener('click', () => handlers.onSetProjection(p.id));
     seg.appendChild(btn);
   }
@@ -73,11 +74,13 @@ export function renderViewerBottomBar(state, handlers) {
   const dirBtn = document.createElement('button');
   dirBtn.type = 'button';
   dirBtn.className = `b${state.openPopover === 'direction' ? ' on' : ''}`;
-  dirBtn.title = 'Tahan V untuk pie 8 arah';
   dirBtn.setAttribute('aria-haspopup', 'menu');
   dirBtn.setAttribute('aria-expanded', state.openPopover === 'direction' ? 'true' : 'false');
   const dirLabel = formatCameraDirectionLabel(state.cameraProjection, state.cameraDirection || 'TG');
-  dirBtn.innerHTML = `${icon('compass', 15)}<span>${dirLabel}</span>${icon('chevronDown', 13)}`;
+  const dirCode = state.cameraDirection || 'TG';
+  dirBtn.title = `Arah pandang: ${dirLabel} (tahan V untuk pie 8 arah)`;
+  dirBtn.setAttribute('aria-label', `Arah pandang ${dirLabel}`);
+  dirBtn.innerHTML = `${icon('compass', 15)}<span class="num">${dirCode}</span>${icon('chevronDown', 12)}`;
   dirBtn.addEventListener('click', () =>
     handlers.onTogglePopover(state.openPopover === 'direction' ? null : 'direction'),
   );
@@ -88,11 +91,11 @@ export function renderViewerBottomBar(state, handlers) {
   if (handlers.onToggleNorthRotateMode) {
     const northBtn = document.createElement('button');
     northBtn.type = 'button';
-    northBtn.className = `b${state.northRotateMode ? ' on' : ''}`;
+    northBtn.className = `b b-icon${state.northRotateMode ? ' on' : ''}`;
     northBtn.title = 'Putar arah utara dengan cincin D5 (Pintasan R)';
     northBtn.setAttribute('aria-pressed', state.northRotateMode ? 'true' : 'false');
     northBtn.setAttribute('aria-label', 'Putar arah utara (pintasan R)');
-    northBtn.innerHTML = `${icon('rotateCw', 14)}<span>Utara</span>`;
+    northBtn.innerHTML = icon('rotateCw', 16);
     northBtn.addEventListener('click', () => handlers.onToggleNorthRotateMode());
     leftPill.appendChild(northBtn);
   }
@@ -123,7 +126,7 @@ export function renderViewerBottomBar(state, handlers) {
     slider.step = '1';
     slider.value = String(Math.round(Number(state.sunHour ?? 13)));
     slider.setAttribute('aria-label', 'Jam matahari');
-    slider.style.width = '72px';
+    slider.style.width = '64px';
     slider.style.accentColor = 'var(--sun)';
     slider.addEventListener('input', () => {
       handlers.onChangeSunHour(Number(slider.value));
@@ -313,15 +316,11 @@ export function renderViewerBottomBar(state, handlers) {
   const viewsBtn = document.createElement('button');
   viewsBtn.type = 'button';
   viewsBtn.className = `b${state.openPopover === 'views' ? ' on' : ''}`;
+  viewsBtn.title = `View: ${viewTriggerText}`;
+  viewsBtn.setAttribute('aria-label', `View tersimpan, sekarang ${viewTriggerText}`);
   viewsBtn.setAttribute('aria-haspopup', 'listbox');
   viewsBtn.setAttribute('aria-expanded', state.openPopover === 'views' ? 'true' : 'false');
-  const vtSpan = document.createElement('span');
-  vtSpan.style.maxWidth = '122px';
-  vtSpan.style.overflow = 'hidden';
-  vtSpan.style.textOverflow = 'ellipsis';
-  vtSpan.textContent = viewTriggerText;
-  viewsBtn.innerHTML = icon('eye', 15);
-  viewsBtn.appendChild(vtSpan);
+  viewsBtn.innerHTML = icon('eye', 16);
   const chev = document.createElement('span');
   chev.innerHTML = icon('chevronDown', 13);
   viewsBtn.appendChild(chev);
@@ -332,18 +331,20 @@ export function renderViewerBottomBar(state, handlers) {
 
   const saveBtn = document.createElement('button');
   saveBtn.type = 'button';
-  saveBtn.className = 'b';
-  saveBtn.title = 'Simpan view (Pintasan S)';
-  saveBtn.innerHTML = `${icon('plus', 14)}<span>Simpan</span>`;
+  saveBtn.className = 'b b-icon';
+  saveBtn.title = 'Simpan view (S)';
+  saveBtn.setAttribute('aria-label', 'Simpan view, pintasan S');
+  saveBtn.innerHTML = icon('bookmarkPlus', 16);
   saveBtn.addEventListener('click', () => handlers.onSaveView());
 
   const captureBtn = document.createElement('button');
   captureBtn.type = 'button';
-  captureBtn.className = 'b dark';
-  captureBtn.title = `Capture PNG ${state.captureScale}x (Pintasan C)`;
+  captureBtn.className = 'b b-icon dark';
+  captureBtn.title = `Capture PNG ${state.captureScale}x (C)`;
+  captureBtn.setAttribute('aria-label', `Capture PNG ${state.captureScale}x, pintasan C`);
   captureBtn.setAttribute('aria-haspopup', 'menu');
   captureBtn.setAttribute('aria-expanded', state.openPopover === 'capture' ? 'true' : 'false');
-  captureBtn.innerHTML = `${icon('camera', 15)}<span>Capture</span>`;
+  captureBtn.innerHTML = icon('camera', 16);
   captureBtn.addEventListener('click', () =>
     handlers.onTogglePopover(state.openPopover === 'capture' ? null : 'capture'),
   );

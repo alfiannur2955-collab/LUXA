@@ -25,6 +25,12 @@ export function icon(name, size = 18) {
     warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.1"/>',
     close: '<path d="M6 6l12 12M18 6L6 18"/>',
     play: '<path d="M8 5.5v13l10-6.5z"/>',
+    // Proyeksi kamera (bar bawah viewer)
+    projPersp: '<path d="M7 4h10l-1.6 16H8.6z"/><path d="M12 4v16M7.8 10h8.4M8.3 15h7.4"/>',
+    projTwoPoint: '<path d="M12 4v16"/><path d="M12 4L3.5 7.5v9L12 20"/><path d="M12 4l8.5 3.5v9L12 20"/>',
+    projAxo: '<path d="M12 3.5l7.5 4.3v8.4L12 20.5l-7.5-4.3V7.8z"/><path d="M12 12l7.5-4.2M12 12v8.5M12 12L4.5 7.8"/>',
+    projElev: '<rect x="5" y="3.5" width="14" height="17" rx="1"/><path d="M5 9.2h14M5 14.8h14M12 3.5v17"/>',
+    bookmarkPlus: '<path d="M7 3.5h10v17l-5-3.5-5 3.5z"/><path d="M12 8v5M9.5 10.5h5"/>',
     pause: '<path d="M8 5.5v13M16 5.5v13"/>',
     grip: '<circle cx="9" cy="7" r="1"/><circle cx="15" cy="7" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="17" r="1"/><circle cx="15" cy="17" r="1"/>',
     formula: '<path d="M9 19c2 0 2.5-1.5 3-4l1.5-8c.4-2 1-3 3-3"/><path d="M8 10h7"/>',

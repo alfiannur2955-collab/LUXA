@@ -163,7 +163,8 @@ export function renderResultsScreen(state, handlers) {
     if (state.sunDomeVisible) {
       const sunHint = document.createElement('span');
       sunHint.className = 'legend-item';
-      sunHint.innerHTML = '<i class="legend-sun-line" aria-hidden="true"></i>Lintasan matahari';
+      sunHint.title = 'Garis oranye di model = lintasan matahari';
+      sunHint.innerHTML = '<i class="legend-sun-line" aria-hidden="true"></i>Matahari';
       legend.appendChild(sunHint);
     }
   } else if (activeMode === 'orientation') {
