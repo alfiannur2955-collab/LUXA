@@ -959,6 +959,36 @@ Rekomendasi: lanjut ke 5b dengan delapan catatan di `docs/SPIKE_PYODIDE.md`.
 
 Untuk mencoba sendiri: jalankan `python -m http.server 8000` dari akar repo, buka `http://localhost:8000/spike-pyodide/`, klik "Muat engine", lalu "Jalankan fixture". Aset `vendor/` sudah ada di folder repo.
 
+### Hasil Fase 5b: engine di browser (22 Nov 2026)
+
+Dikerjakan Claude di branch `fase-5b-browser`, merge `a12e1df`. Rincian ada di `docs/CHANGELOG-fase5.md`, cara menjalankan dan menerbitkan di `docs/DEPLOY.md`.
+
+- **Dua mode, satu antarmuka.** `engine.js` memilih mode browser (bawaan, Pyodide di Web Worker, tanpa server) atau mode server (`npm run dev:server`). Komponen UI tidak berubah.
+- **`backend/browser_api.py`:** semua endpoint versi tanpa server. Paritasnya dengan `main.py` dijaga `tests/test_browser_api.py`.
+- **Muat bertahap:** IfcOpenShell, rhino3dm.js, dan openpyxl baru dimuat saat dibutuhkan. Model dan konfigurasi disimpan di IndexedDB, dan bisa dilanjutkan setelah halaman dimuat ulang. Service worker menyimpan engine di cache.
+- **Ketepatan:** `tests/test_browser_engine_parity.py` menjalankan engine Pyodide dengan aset aplikasi pada 5 fixture (.3dm ×3, .obj, .ifc), dan hasilnya identik dengan native. Total 177 tes lolos.
+- **Uji klik di build statis (tanpa backend):**
+  - contoh Kotak: 20,43 W/m², RTTV 4,64;
+  - Facade .3dm: 38,80 W/m²;
+  - unggah IFC, ganti material (22,03 W/m², cocok dengan native), rekomendasi, unduh laporan;
+  - muat ulang lalu lanjutkan sesi;
+  - dilayani dari subfolder `/luxa/` seperti di GitHub Pages. Log jaringan tidak memuat satu pun request yang membawa file model.
+- **Deploy:** `.github/workflows/deploy-pages.yml` (hanya manual). Template prodi tidak ikut kecuali dicentang. Tanpa template, unduhan jatuh ke laporan Excel umum dengan catatan.
+- **Perbaikan selama 5b:** file .3dm lewat browser sempat terdeteksi sebagai ".hbjson"; model `ValidateMaterialRequest` dipindah ke `config_schema.py` supaya kedua mode memakai definisi yang sama.
+
+Catatan untuk Fase 6:
+
+- **K4 jadi lebih penting.** Laporan Excel umum (`report_exporter.py`) masih memuat teks proyek lain yang tertanam, padahal sekarang laporan inilah yang diunduh di versi publik tanpa template prodi. Kerjakan K4 di awal Fase 6.
+- Sekali, VM uji Chromium (4 GB RAM) menutup halaman di tengah alur Facade, dan tidak bisa dipancing ulang. Perlu diuji di laptop sungguhan.
+- Safari dan Firefox belum diuji. Laporan PDF hanya ada di mode server.
+
+Tugas Alfian sebelum publik:
+
+1. izin prodi untuk template laporan;
+2. keputusan apakah `Fasad_Curtain_Wall_Baru.3dm` boleh menjadi contoh publik;
+3. cek merek dagang dan domain LUXA;
+4. uji pengguna dengan 3 mahasiswa.
+
 ```text
 PROMPT FASE 5a (SPIKE, jangan ubah UI):
 Setelah Fase 4d dan 4e di-merge ke main, buat branch fase-5a-spike dari main. Ukur juga endpoint rematerial dan recommender di Pyodide. Spike harus memakai antarmuka engine.js yang sama (upload, inspect, analyze, exposure, export) supaya Fase 5b cukup mengganti implementasinya. Buat folder spike-pyodide/ berisi halaman HTML sederhana + Web Worker yang memuat Pyodide, memasang numpy, ladybug-geometry, trimesh, dan wheel IfcOpenShell WASM, lalu menjalankan load_universal_model_stages_1_and_2 + analyze_building_ottv dari backend/ untuk 5 fixture. Untuk .3dm: baca dengan rhino3dm.js di JS, kirim vertices/faces + nama layer/material per objek ke Python sebagai pengganti loader rhino3dm Python. Catat di docs/SPIKE_PYODIDE.md: ukuran unduhan, waktu muat awal, waktu analisis per fixture, memori puncak, dan selisih OTTV vs backend. Jangan optimasi dulu; tujuan hanya mengukur.
@@ -983,5 +1013,5 @@ Tujuannya: kode yang tersisa hanya kode yang dipakai, dan setiap angka penting d
 
 ```text
 PROMPT FASE 6:
-Branch fase-6-cleanup. Kerjakan checklist Fase 6 di dokumen rencana: hapus kode mati (pastikan dengan vulture), pecah universal_pipeline.py per format ke backend/loaders/ tanpa mengubah perilaku (compare_baseline.py harus 0 selisih terhadap baseline terakhir), ganti test lama dengan suite pytest, satukan versi di backend/version.py, tulis README.md berbahasa Indonesia untuk mahasiswa, tambah workflow GitHub Actions untuk pytest. Commit per butir.
+Branch fase-6-cleanup. Mulai dari K4 (laporan Excel umum kini dipakai versi publik tanpa template prodi), lalu kerjakan checklist Fase 6 di dokumen rencana: hapus kode mati (pastikan dengan vulture), pecah universal_pipeline.py per format ke backend/loaders/ tanpa mengubah perilaku (compare_baseline.py harus 0 selisih terhadap baseline terakhir), ganti test lama dengan suite pytest, satukan versi di backend/version.py, tulis README.md berbahasa Indonesia untuk mahasiswa, tambah workflow GitHub Actions untuk pytest. Commit per butir.
 ```
