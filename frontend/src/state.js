@@ -134,8 +134,9 @@ const initialState = {
   acknowledgedFlags: {}, // { [flagId]: { action, provisional } }
   viewerMode: 'classification', // 'classification' | 'orientation' | 'heatmap' | 'anomalies' | 'xray'
   heatmapGranularity: 'orientation', // 'orientation' | 'panel'
+  heatmapSmooth: false, // S4: Halus vertex-blending toggle (default off)
   cameraProjection: 'perspective', // 'perspective' | 'two_point' | 'axonometric' | 'elevation'
-  cameraDirection: 'B', // 'U' | 'TL' | 'T' | 'TG' | 'S' | 'BD' | 'B' | 'BL' | 'Atas'
+  cameraDirection: 'TG', // 'U' | 'TL' | 'T' | 'TG' | 'S' | 'BD' | 'B' | 'BL' | 'Atas'
   activeViewId: null,
   captureScale: 2, // 1 | 2 | 4
   openPopover: null, // null | 'direction' | 'views' | 'capture'
@@ -156,6 +157,20 @@ const initialState = {
   exposureData: null,
   exposureLoading: false,
   formulaPillExpanded: false,
+
+  // Fase 4c: Compare mode, design history & Workspace v1
+  alternatives: [], // [{ id, code, name, config, analysisData, createdAt }]
+  activeAlternativeId: null,
+  compareSplitRatio: 0.5, // 0.10 .. 0.90
+  compareBusy: false,
+  designHistory: [], // [{ id, label, config, analysisData, savedAt }]
+  workspace: {
+    preset: 'belajar', // 'belajar' | 'lanjut' | 'presentasi'
+    railOrder: ['model', 'material', 'location', 'display', 'compare', 'report'],
+    hiddenRailItems: [],
+    modeBarPosition: 'top', // 'top' | 'bottom'
+  },
+  dockCustomizerOpen: false,
 
   // Catalog caches
   materials: {
@@ -309,6 +324,7 @@ export const STEP_TITLES = {
   confirm: 'Konfirmasi model',
   inspect: 'Inspeksi model',
   results: 'Hasil',
+  compare: 'Bandingkan',
   loading: 'Memproses model',
   error: 'Terjadi kendala',
 };

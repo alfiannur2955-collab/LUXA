@@ -5,7 +5,7 @@
  */
 
 import { icon } from '../ui/icons.js';
-import { DIRECTION_NAMES, PROJECTION_SHORT } from './cameras.js';
+import { DIRECTION_NAMES, formatCameraDirectionLabel, PROJECTION_SHORT } from './cameras.js';
 
 const PROJECTIONS = [
   { id: 'perspective', label: 'Persp', key: '1' },
@@ -59,7 +59,7 @@ export function renderViewerBottomBar(state, handlers) {
   dirBtn.title = 'Tahan V untuk pie 8 arah';
   dirBtn.setAttribute('aria-haspopup', 'menu');
   dirBtn.setAttribute('aria-expanded', state.openPopover === 'direction' ? 'true' : 'false');
-  const dirLabel = state.cameraDirection === 'Atas' ? 'Atas' : `Arah ${state.cameraDirection || 'B'}`;
+  const dirLabel = formatCameraDirectionLabel(state.cameraProjection, state.cameraDirection || 'TG');
   dirBtn.innerHTML = `${icon('compass', 15)}<span>${dirLabel}</span>${icon('chevronDown', 13)}`;
   dirBtn.addEventListener('click', () =>
     handlers.onTogglePopover(state.openPopover === 'direction' ? null : 'direction'),
@@ -93,7 +93,7 @@ export function renderViewerBottomBar(state, handlers) {
     slider.step = '1';
     slider.value = String(Math.round(Number(state.sunHour ?? 13)));
     slider.setAttribute('aria-label', 'Jam matahari');
-    slider.style.width = '88px';
+    slider.style.width = '76px';
     slider.style.accentColor = 'var(--sun)';
     slider.addEventListener('input', () => {
       handlers.onChangeSunHour(Number(slider.value));
@@ -176,11 +176,12 @@ export function renderViewerBottomBar(state, handlers) {
 
   const views = state.config?.saved_views || [];
   const activeView = views.find((v) => v.id === state.activeViewId);
+  const defaultDirPhrase = formatCameraDirectionLabel(state.cameraProjection, state.cameraDirection || 'TG');
   const viewTriggerText =
     activeView?.name ||
-    `${DIRECTION_NAMES[state.cameraDirection] || 'Utama'} · ${
-      PROJECTION_SHORT[state.cameraProjection] || 'Persp'
-    }`;
+    (state.cameraProjection === 'elevation'
+      ? defaultDirPhrase
+      : `${defaultDirPhrase} · ${PROJECTION_SHORT[state.cameraProjection] || 'Persp'}`);
 
   const viewsBtn = document.createElement('button');
   viewsBtn.type = 'button';
@@ -188,7 +189,7 @@ export function renderViewerBottomBar(state, handlers) {
   viewsBtn.setAttribute('aria-haspopup', 'listbox');
   viewsBtn.setAttribute('aria-expanded', state.openPopover === 'views' ? 'true' : 'false');
   const vtSpan = document.createElement('span');
-  vtSpan.style.maxWidth = '136px';
+  vtSpan.style.maxWidth = '122px';
   vtSpan.style.overflow = 'hidden';
   vtSpan.style.textOverflow = 'ellipsis';
   vtSpan.textContent = viewTriggerText;

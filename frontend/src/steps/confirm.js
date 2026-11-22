@@ -95,9 +95,12 @@ export function renderConfirmScreen(state, handlers) {
   viewerSec.className = 'viewer';
   viewerSec.setAttribute('aria-label', 'Viewer 3D');
 
+  const viewerStage = document.createElement('div');
+  viewerStage.className = 'viewer-stage';
+
   const canvasHost = document.createElement('div');
   canvasHost.className = 'viewer-canvas-host';
-  viewerSec.appendChild(canvasHost);
+  viewerStage.appendChild(canvasHost);
 
   // Left compass
   const compass = document.createElement('div');
@@ -106,7 +109,9 @@ export function renderConfirmScreen(state, handlers) {
   compass.setAttribute('role', 'img');
   compass.setAttribute('aria-label', `Kompas arah utara, ${northDeg} derajat`);
   compass.innerHTML = compassDialSvg(northDeg);
-  viewerSec.appendChild(compass);
+  viewerStage.appendChild(compass);
+
+  viewerSec.appendChild(viewerStage);
 
   // Bottom-left legend
   const legend = document.createElement('div');

@@ -4,7 +4,7 @@
  * All dynamic model/group/view text is inserted strictly via `textContent`.
  */
 
-import { DIRECTION_NAMES } from '../viewer/cameras.js';
+import { DIRECTION_NAMES, formatCameraDirectionLabel } from '../viewer/cameras.js';
 import { icon } from './icons.js';
 
 function buildCommandItems(state, actions) {
@@ -21,11 +21,12 @@ function buildCommandItems(state, actions) {
 
     for (const code of ['U', 'TL', 'T', 'TG', 'S', 'BD', 'B', 'BL', 'Atas']) {
       const name = DIRECTION_NAMES[code] || code;
+      const lbl = formatCameraDirectionLabel(state.cameraProjection, code);
       items.push({
         id: `dir-${code}`,
-        label: code === 'Atas' ? 'Tampak Atas (denah)' : `Tampak ${name}`,
+        label: code === 'Atas' ? 'Tampak Atas (denah)' : lbl,
         hint: code === 'Atas' ? 'V lalu Atas' : `V lalu ${code}`,
-        keywords: `tampak arah ${name.toLowerCase()} ${code.toLowerCase()}`,
+        keywords: `tampak arah kamera dari ${name.toLowerCase()} ${code.toLowerCase()}`,
         run: () => actions.onSelectDirection(code),
       });
     }

@@ -36,6 +36,7 @@ import {
 import { renderConfirmScreen } from './steps/confirm.js';
 import { renderInspectScreen } from './steps/inspect.js';
 import { renderResultsScreen } from './steps/results.js';
+import { renderCompareScreen } from './steps/compare.js';
 import { renderErrorScreen, renderLoadingScreen } from './steps/status.js';
 import { renderUploadScreen } from './steps/upload.js';
 import { renderCommandPalette } from './ui/commandPalette.js';
@@ -43,7 +44,19 @@ import { fmtFileSize } from './ui/escapeHtml.js';
 import { installShortcuts } from './ui/shortcuts.js';
 import { renderShortcutsModal } from './ui/shortcutsModal.js';
 import { showToast } from './ui/toast.js';
-import { DIRECTION_NAMES, PROJECTION_LABELS } from './viewer/cameras.js';
+import {
+  createDefaultWorkspace,
+  loadWorkspace,
+  moveRailItemInWorkspace,
+  renderDockCustomizerModal,
+  saveWorkspace,
+  toggleRailItemHidden,
+} from './ui/workspace.js';
+import {
+  DIRECTION_NAMES,
+  formatCameraDirectionLabel,
+  PROJECTION_LABELS,
+} from './viewer/cameras.js';
 import { captureViewerPng } from './viewer/capture.js';
 import { pieMenu } from './viewer/pieMenu.js';
 import { viewer } from './viewer/viewer.js';
@@ -116,7 +129,13 @@ function buildInitialConfirmForInspect(inspectData, existingConfirm = null) {
 
 function handleSetProjection(projection) {
   viewer.setProjection(projection, { direction: getState().cameraDirection });
-  setState({ cameraProjection: projection, activeViewId: null, openPopover: null });
+  const liveDir = projection === 'elevation' ? getState().cameraDirection : viewer.getLiveDirection();
+  setState({
+    cameraProjection: projection,
+    cameraDirection: liveDir || getState().cameraDirection,
+    activeViewId: null,
+    openPopover: null,
+  });
 }
 
 function handleSelectDirection(code) {
@@ -144,6 +163,8 @@ function handleSaveView() {
   const s = getState();
   if (!s.inspectData && !s.analysisData) return;
   const camState = viewer.exportCameraState();
+  const effDir = camState.projection === 'elevation' ? camState.direction : viewer.getLiveDirection();
+  camState.direction = effDir || camState.direction;
   const name = suggestViewName(
     camState.projection,
     camState.direction,
@@ -153,6 +174,7 @@ function handleSaveView() {
     name,
     cameraState: camState,
     northAngleDeg: s.config?.settings?.north_angle_deg || 0,
+    heatmapSmooth: Boolean(s.heatmapSmooth),
   });
   updateConfig((cfg) => {
     cfg.saved_views = [...(cfg.saved_views || []), record];
@@ -167,7 +189,8 @@ function handleApplyView(view) {
   viewer.applyCameraState(view.camera);
   setState({
     cameraProjection: view.camera.projection || view.projection || 'perspective',
-    cameraDirection: view.camera.direction || view.direction || 'B',
+    cameraDirection: view.camera.direction || view.direction || 'TG',
+    heatmapSmooth: view.heatmap_smooth !== undefined ? Boolean(view.heatmap_smooth) : getState().heatmapSmooth,
     activeViewId: view.id,
   });
 }
@@ -241,6 +264,99 @@ function handleChangeFacadeFilter(filterMode) {
     setState({ sunDomeVisible: true });
     exposureController.ensureExposureLoaded();
   }
+}
+
+async function handleCreateAlternative({ name, glazingMaterialId, wallMaterialId, northAngleDeg }) {
+  const s = getState();
+  if (!s.modelId || !s.analysisData) return;
+
+  const altConfig = mergeConfig(s.config);
+  if (glazingMaterialId) altConfig.settings.glazing_material_id = glazingMaterialId;
+  if (wallMaterialId) altConfig.settings.wall_material_id = wallMaterialId;
+  if (Number.isFinite(Number(northAngleDeg))) {
+    altConfig.settings.north_angle_deg = Number(northAngleDeg);
+  }
+
+  setState({ compareBusy: true });
+  try {
+    const result = await engine.analyze(s.modelId, altConfig);
+    const existing = getState().alternatives || [];
+    const codeChar = String.fromCharCode(65 + (existing.length % 26));
+    const altRec = {
+      id: `alt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+      code: codeChar,
+      name: String(name || `Variasi ${codeChar}`).trim(),
+      config: altConfig,
+      analysisData: result,
+      createdAt: new Date().toISOString(),
+    };
+    setState({
+      alternatives: [...existing, altRec],
+      activeAlternativeId: altRec.id,
+      compareBusy: false,
+    });
+    showToast(`Alternatif ${codeChar} selesai dihitung (${result.ottv_total_wm2} W/m²).`, 'ok', 2800);
+  } catch (err) {
+    setState({ compareBusy: false });
+    showToast(err.message || 'Gagal menghitung alternatif desain.', 'fail');
+  }
+}
+
+function handleApplyAlternative(altId) {
+  const s = getState();
+  const alt = (s.alternatives || []).find((a) => a.id === altId);
+  if (!alt || !alt.analysisData) return;
+
+  const prevGlz = (s.materials?.materials || []).find((m) => m.id === s.config?.settings?.glazing_material_id);
+  const histEntry = {
+    id: `hist_${Date.now().toString(36)}`,
+    label: prevGlz ? prevGlz.name : 'Desain sebelumnya',
+    config: mergeConfig(s.config),
+    analysisData: s.analysisData,
+    savedAt: new Date().toISOString(),
+  };
+
+  viewer.clearCompareMode();
+  const next = setState({
+    config: mergeConfig(alt.config),
+    analysisData: alt.analysisData,
+    designHistory: [histEntry, ...(s.designHistory || [])].slice(0, 12),
+    selectedPanelIds: [],
+    selectedOrientation: null,
+    exposureData: null,
+    needsRecompute: false,
+    step: 'results',
+    viewerMode: 'heatmap',
+  });
+  saveProjectAutosave(next);
+  showToast(`Alternatif ${alt.code} diterapkan. Desain sebelumnya tersimpan di riwayat.`, 'ok', 3200);
+}
+
+function handleRestoreHistory(histId) {
+  const s = getState();
+  const item = (s.designHistory || []).find((h) => h.id === histId);
+  if (!item) return;
+
+  const curGlz = (s.materials?.materials || []).find((m) => m.id === s.config?.settings?.glazing_material_id);
+  const swapEntry = {
+    id: `hist_${Date.now().toString(36)}`,
+    label: curGlz ? curGlz.name : 'Desain sebelumnya',
+    config: mergeConfig(s.config),
+    analysisData: s.analysisData,
+    savedAt: new Date().toISOString(),
+  };
+  const nextHistory = [swapEntry, ...(s.designHistory || []).filter((h) => h.id !== histId)].slice(0, 12);
+  const next = setState({
+    config: mergeConfig(item.config),
+    analysisData: item.analysisData,
+    designHistory: nextHistory,
+    selectedPanelIds: [],
+    selectedOrientation: null,
+    exposureData: null,
+    needsRecompute: false,
+  });
+  saveProjectAutosave(next);
+  showToast(`Desain "${item.label}" dipulihkan.`, 'ok', 2600);
 }
 
 const vbarHandlers = {
@@ -624,6 +740,23 @@ function toggleTheme() {
   setState({ theme: next });
 }
 
+function applyWorkspaceChange(nextWs) {
+  saveWorkspace(nextWs);
+  setState({
+    workspace: nextWs,
+    advancedMode: nextWs.preset === 'lanjut',
+    activeRailCard: nextWs.preset === 'presentasi' ? null : getState().activeRailCard,
+  });
+}
+
+function handleSetWorkspacePreset(preset) {
+  const cur = getState().workspace || createDefaultWorkspace();
+  const next = { ...cur, preset };
+  applyWorkspaceChange(next);
+  const labels = { belajar: 'Belajar', lanjut: 'Lanjut', presentasi: 'Presentasi' };
+  showToast(`Workspace: ${labels[preset] || preset}`, 'ok', 2000);
+}
+
 const panelBuilders = createRailPanelBuilders({
   onGoToUpload: () => setState({ step: 'upload', activeRailCard: null, openPopover: null }),
   onNavigateStep: (step) => setState({ step, activeRailCard: null, openPopover: null }),
@@ -634,6 +767,39 @@ const panelBuilders = createRailPanelBuilders({
     setState({ needsRecompute: Boolean(getState().analysisData) });
     saveProjectAutosave(getState());
   },
+  onChangeOrientationMaterial: (code, materialId) => {
+    updateConfig((cfg) => {
+      if (!materialId) {
+        delete cfg.settings.orientation_material_overrides[code];
+      } else {
+        cfg.settings.orientation_material_overrides[code] = materialId;
+      }
+    });
+    setState({ needsRecompute: Boolean(getState().analysisData) });
+    saveProjectAutosave(getState());
+  },
+  onUploadEpw: async (file) => {
+    try {
+      const parsed = await engine.parseEpw(file);
+      updateConfig((cfg) => {
+        cfg.settings.custom_epw = parsed?.epw_info || parsed;
+      });
+      setState({ needsRecompute: Boolean(getState().analysisData) });
+      saveProjectAutosave(getState());
+      showToast(`File cuaca EPW dimuat (${parsed?.epw_info?.city || file.name}).`, 'ok', 2800);
+    } catch (err) {
+      showToast(err.message || 'Gagal membaca file cuaca EPW.', 'fail');
+    }
+  },
+  onClearCustomEpw: () => {
+    updateConfig((cfg) => {
+      cfg.settings.custom_epw = null;
+    });
+    setState({ needsRecompute: Boolean(getState().analysisData) });
+    saveProjectAutosave(getState());
+    showToast('File cuaca EPW kustom dihapus; kembali ke tabel kota SNI.', 'ok', 2400);
+  },
+  onOpenShortcuts: () => setState({ shortcutsModalOpen: true, activeRailCard: null }),
   onChangeSfSource: (sfSource) => {
     updateConfig((cfg) => {
       cfg.settings.sf_source = sfSource;
@@ -670,6 +836,16 @@ const panelBuilders = createRailPanelBuilders({
   onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
   onFitCamera: handleFitCamera,
   onToggleTheme: toggleTheme,
+  onSetWorkspacePreset: handleSetWorkspacePreset,
+  onOpenDockCustomizer: () => setState({ dockCustomizerOpen: true, activeRailCard: null }),
+  onOpenCompare: () => {
+    if (!getState().analysisData) {
+      showToast('Hitung OTTV terlebih dahulu sebelum membuka Bandingkan.', 'warn');
+      return;
+    }
+    exposureController.stopPlayback();
+    setState({ step: 'compare', activeRailCard: null, openPopover: null });
+  },
   onRecompute: () => handleCalculateOttv(),
   onDownloadExcel: () => handleExportFormat('template_prodi'),
   onDownloadFormat: (fmt) => handleExportFormat(fmt),
@@ -682,6 +858,7 @@ const panelBuilders = createRailPanelBuilders({
 function renderApp(state) {
   if (!rootEl) return;
   applyThemeToDom(state.theme);
+  rootEl.classList.toggle('is-presentation', state.workspace?.preset === 'presentasi');
   updateDocumentTitle(state.step);
 
   const frag = document.createDocumentFragment();
@@ -693,17 +870,31 @@ function renderApp(state) {
       onOpenCommandPalette: () =>
         setState({ commandPaletteOpen: true, shortcutsModalOpen: false, openPopover: null }),
       onToggleTheme: toggleTheme,
-      onToggleAdvanced: () => setState({ advancedMode: !state.advancedMode }),
+      onToggleAdvanced: () => {
+        const nextPreset = state.workspace?.preset === 'lanjut' ? 'belajar' : 'lanjut';
+        handleSetWorkspacePreset(nextPreset);
+      },
     }),
   );
 
   frag.appendChild(
     renderRail(state, {
-      onToggleCard: (cardId) =>
+      onToggleCard: (cardId) => {
+        if (cardId === 'compare' && state.analysisData) {
+          if (state.step === 'compare') {
+            viewer.clearCompareMode();
+            setState({ step: 'results', activeRailCard: null, openPopover: null });
+          } else {
+            exposureController.stopPlayback();
+            setState({ step: 'compare', activeRailCard: null, openPopover: null });
+          }
+          return;
+        }
         setState({
           activeRailCard: state.activeRailCard === cardId ? null : cardId,
           openPopover: null,
-        }),
+        });
+      },
     }),
   );
 
@@ -837,6 +1028,28 @@ function renderApp(state) {
         onCalculateOttv: () => handleCalculateOttv(),
       }),
     );
+  } else if (state.step === 'compare') {
+    frag.appendChild(
+      renderCompareScreen(state, {
+        onExitCompare: () => {
+          viewer.clearCompareMode();
+          setState({ step: 'results', openPopover: null });
+        },
+        onChangeSplitRatio: (ratio) => setState({ compareSplitRatio: ratio }),
+        onSelectAlternative: (altId) => setState({ activeAlternativeId: altId }),
+        onDeleteAlternative: (altId) => {
+          const remaining = (getState().alternatives || []).filter((a) => a.id !== altId);
+          setState({
+            alternatives: remaining,
+            activeAlternativeId: remaining[0]?.id || null,
+          });
+        },
+        onCreateAlternative: handleCreateAlternative,
+        onApplyAlternative: handleApplyAlternative,
+        onRestoreHistory: handleRestoreHistory,
+        onRerender: () => setState({}),
+      }),
+    );
   } else if (state.step === 'results') {
     frag.appendChild(
       renderResultsScreen(state, {
@@ -844,7 +1057,9 @@ function renderApp(state) {
         onChangeViewerMode: (mode) => setState({ viewerMode: mode }),
         onChangeNorth: handleChangeNorthAngle,
         onToggleFormulaPill: (open) => setState({ formulaPillExpanded: Boolean(open) }),
+        onExitPresentation: () => handleSetWorkspacePreset('belajar'),
         onChangeHeatmapGranularity: (gran) => setState({ heatmapGranularity: gran }),
+        onToggleHeatmapSmooth: (enabled) => setState({ heatmapSmooth: Boolean(enabled) }),
         onPickPanel: (panel, additive) => {
           if (!panel) {
             setState({ selectedPanelIds: [], selectedOrientation: null });
@@ -904,7 +1119,8 @@ function renderApp(state) {
     },
     onSelectDirection: (c) => {
       handleSelectDirection(c);
-      showToast(`Arah pandang: ${DIRECTION_NAMES[c] || c}`, 'ok', 1800);
+      const s = getState();
+      showToast(`Kamera: ${formatCameraDirectionLabel(s.cameraProjection, c)}`, 'ok', 1800);
     },
     onFitCamera: handleFitCamera,
     onSaveView: handleSaveView,
@@ -926,6 +1142,18 @@ function renderApp(state) {
     onClose: () => setState({ shortcutsModalOpen: false }),
   });
   if (shortcutsEl) frag.appendChild(shortcutsEl);
+
+  const dockEl = renderDockCustomizerModal(state, {
+    onClose: () => setState({ dockCustomizerOpen: false }),
+    onMove: (id, delta) => applyWorkspaceChange(moveRailItemInWorkspace(getState().workspace, id, delta)),
+    onToggleHide: (id) => applyWorkspaceChange(toggleRailItemHidden(getState().workspace, id)),
+    onSetModeBarPosition: (pos) => applyWorkspaceChange({ ...getState().workspace, modeBarPosition: pos }),
+    onReset: () => {
+      applyWorkspaceChange(createDefaultWorkspace());
+      showToast('Urutan dan isi dock dikembalikan ke bawaan.', 'ok', 2200);
+    },
+  });
+  if (dockEl) frag.appendChild(dockEl);
 
   rootEl.innerHTML = '';
   rootEl.appendChild(frag);
@@ -951,14 +1179,24 @@ installShortcuts({
       })),
     onCloseShortcuts: () => setState({ shortcutsModalOpen: false }),
     onClosePopover: () => setState({ openPopover: null }),
-    onCloseRailCard: () => setState({ activeRailCard: null }),
+    onCloseRailCard: () => {
+      const s = getState();
+      if (s.dockCustomizerOpen) {
+        setState({ dockCustomizerOpen: false });
+      } else if (s.activeRailCard) {
+        setState({ activeRailCard: null });
+      } else if (s.workspace?.preset === 'presentasi') {
+        handleSetWorkspacePreset('belajar');
+      }
+    },
     onSetProjection: (p) => {
       handleSetProjection(p);
       showToast(`Proyeksi: ${PROJECTION_LABELS[p] || p}`, 'ok', 1800);
     },
     onSelectDirection: (c) => {
       handleSelectDirection(c);
-      showToast(`Arah pandang: ${DIRECTION_NAMES[c] || c}`, 'ok', 1800);
+      const s = getState();
+      showToast(`Kamera: ${formatCameraDirectionLabel(s.cameraProjection, c)}`, 'ok', 1800);
     },
     onFitCamera: handleFitCamera,
     onSaveView: handleSaveView,
@@ -969,10 +1207,21 @@ installShortcuts({
 
 async function bootstrap() {
   const savedTheme = loadSavedTheme();
+  const savedWs = loadWorkspace();
   applyThemeToDom(savedTheme);
   viewer.attachSunDomeController(new SunDomeController());
+  viewer.setOnCameraDirectionSettled((liveDir) => {
+    const s = getState();
+    if (s.cameraProjection !== 'elevation' && liveDir && liveDir !== s.cameraDirection) {
+      setState({ cameraDirection: liveDir });
+    }
+  });
   subscribe(renderApp);
-  setState({ theme: savedTheme });
+  setState({
+    theme: savedTheme,
+    workspace: savedWs,
+    advancedMode: savedWs.preset === 'lanjut',
+  });
 
   try {
     const [mats, locs] = await Promise.all([engine.listMaterials(), engine.listLocations()]);

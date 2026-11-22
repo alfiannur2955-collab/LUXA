@@ -5,6 +5,8 @@
 
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
+import { SNI_GLOSSARY } from '../ui/tooltips.js';
+import { ORIENTATION_CODES, ORIENTATION_NAMES_ID } from '../viewer/modes.js';
 import { computeSolarPosition } from '../viewer/sundome.js';
 
 function makeField(labelText, controlEl, hintText = '') {
@@ -115,11 +117,70 @@ export function createRailPanelBuilders(handlers) {
           sel.addEventListener('change', () => handlers.onChangeRoleMaterial(fieldKey, sel.value));
 
           const activeMat = list.find((m) => m.id === currentId);
-          const hint = activeMat
+          let hint = activeMat
             ? `${activeMat.sumber || 'Nilai tipikal katalog'}${activeMat.status === 'datasheet' ? ' · datasheet' : ''}`
             : '';
+          if (activeMat?.id === 'glz_kaca_elektrokromik') {
+            hint += ' · Catatan: nilai katalog adalah kondisi paling gelap; saat terang SC lebih tinggi.';
+          }
 
           container.appendChild(makeField(label, sel, hint));
+        }
+
+        // Lanjut workspace: Per-orientation glazing override (`docs/FASE4_UI_SPEC.md` §5)
+        if (state.workspace?.preset === 'lanjut' || state.advancedMode) {
+          const ovSec = document.createElement('div');
+          ovSec.className = 'psec';
+          const ovH = document.createElement('h3');
+          ovH.textContent = 'Override kaca per orientasi (Lanjut)';
+          ovSec.appendChild(ovH);
+
+          const ovMap = state.config?.settings?.orientation_material_overrides || {};
+          const glzList = mats.glazing_materials || [];
+          const ovGrid = document.createElement('div');
+          ovGrid.style.display = 'grid';
+          ovGrid.style.gap = '6px';
+
+          for (const code of ORIENTATION_CODES) {
+            const row = document.createElement('div');
+            row.style.display = 'grid';
+            row.style.gridTemplateColumns = '44px minmax(0, 1fr)';
+            row.style.gap = '6px';
+            row.style.alignItems = 'center';
+
+            const lbl = document.createElement('span');
+            lbl.className = 'lbl';
+            lbl.style.color = 'var(--ink)';
+            lbl.title = ORIENTATION_NAMES_ID[code] || code;
+            lbl.textContent = code;
+
+            const sel = document.createElement('select');
+            sel.className = 'field-select field-select-sm';
+            sel.setAttribute('aria-label', `Override kaca arah ${ORIENTATION_NAMES_ID[code] || code}`);
+
+            const defOpt = document.createElement('option');
+            defOpt.value = '';
+            defOpt.textContent = 'Ikuti kaca utama';
+            if (!ovMap[code]) defOpt.selected = true;
+            sel.appendChild(defOpt);
+
+            for (const gm of glzList) {
+              const opt = document.createElement('option');
+              opt.value = gm.id;
+              opt.textContent = `${gm.name} (SC ${fmtId(gm.sc ?? 0, 2)})`;
+              if (ovMap[code] === gm.id) opt.selected = true;
+              sel.appendChild(opt);
+            }
+            sel.addEventListener('change', () =>
+              handlers.onChangeOrientationMaterial?.(code, sel.value || null),
+            );
+
+            row.append(lbl, sel);
+            ovGrid.appendChild(row);
+          }
+
+          ovSec.appendChild(ovGrid);
+          container.appendChild(ovSec);
         }
 
         if (state.analysisData) {
@@ -170,6 +231,40 @@ export function createRailPanelBuilders(handlers) {
         citySel.addEventListener('change', () => handlers.onChangeCity(citySel.value));
         container.appendChild(makeField('Kota proyek', citySel));
 
+        // Live SF preview strip for selected city (8 directions)
+        const curCity = cities.find((c) => c.id === state.config.settings.city_preset) || cities[0];
+        if (curCity) {
+          const sfMap = curCity.sf_by_orientation || curCity.sf || null;
+          const infoBox = document.createElement('div');
+          infoBox.className = 'glass-thin num';
+          infoBox.style.padding = '8px 10px';
+          infoBox.style.borderRadius = '12px';
+          infoBox.style.fontSize = '11.5px';
+          const lat = curCity.latitude_deg ?? state.analysisData?.location_info?.latitude_deg;
+          const lon = curCity.longitude_deg ?? state.analysisData?.location_info?.longitude_deg;
+          if (lat != null && lon != null) {
+            const coord = document.createElement('div');
+            coord.className = 'lbl';
+            coord.style.marginBottom = sfMap ? '6px' : '0';
+            coord.textContent = `Koordinat: ${fmtId(lat, 2)}°, ${fmtId(lon, 2)}°`;
+            infoBox.appendChild(coord);
+          }
+          if (sfMap) {
+            const sfGrid = document.createElement('div');
+            sfGrid.style.display = 'grid';
+            sfGrid.style.gridTemplateColumns = 'repeat(4, 1fr)';
+            sfGrid.style.gap = '4px';
+            for (const code of ORIENTATION_CODES) {
+              const cell = document.createElement('div');
+              cell.style.textAlign = 'center';
+              cell.innerHTML = `<div class="lbl">${code}</div><b>${fmtId(sfMap[code] ?? 0, 0)}</b>`;
+              sfGrid.appendChild(cell);
+            }
+            infoBox.appendChild(sfGrid);
+          }
+          if (infoBox.childElementCount > 0) container.appendChild(infoBox);
+        }
+
         const northInput = document.createElement('input');
         northInput.type = 'number';
         northInput.min = '0';
@@ -199,6 +294,51 @@ export function createRailPanelBuilders(handlers) {
         }
         modeSel.addEventListener('change', () => handlers.onChangeCalcMode(modeSel.value));
         container.appendChild(makeField('Mode perhitungan', modeSel));
+
+        // Optional custom EPW weather file upload
+        const epwWrap = document.createElement('div');
+        epwWrap.className = 'psec';
+        const epwH = document.createElement('h3');
+        epwH.textContent = 'File cuaca EPW kustom (opsional)';
+        epwWrap.appendChild(epwH);
+
+        if (state.config.settings.custom_epw) {
+          const activeEpw = document.createElement('div');
+          activeEpw.className = 'glass-thin';
+          activeEpw.style.padding = '8px 10px';
+          activeEpw.style.borderRadius = '10px';
+          activeEpw.style.fontSize = '12px';
+          activeEpw.style.display = 'flex';
+          activeEpw.style.justifyContent = 'space-between';
+          activeEpw.style.alignItems = 'center';
+          const epwName = document.createElement('span');
+          epwName.textContent = `EPW aktif: ${state.config.settings.custom_epw.city || 'Kustom'}`;
+          const clrBtn = document.createElement('button');
+          clrBtn.type = 'button';
+          clrBtn.className = 'ghost ghost-sm';
+          clrBtn.style.height = '26px';
+          clrBtn.textContent = 'Hapus';
+          clrBtn.addEventListener('click', () => handlers.onClearCustomEpw?.());
+          activeEpw.append(epwName, clrBtn);
+          epwWrap.appendChild(activeEpw);
+        } else {
+          const epwLbl = document.createElement('label');
+          epwLbl.className = 'ghost ghost-sm';
+          epwLbl.style.display = 'inline-flex';
+          epwLbl.style.alignItems = 'center';
+          epwLbl.style.justifyContent = 'center';
+          epwLbl.style.gap = '6px';
+          const epwInp = document.createElement('input');
+          epwInp.type = 'file';
+          epwInp.accept = '.epw';
+          epwInp.className = 'sr-only';
+          epwInp.addEventListener('change', () => {
+            if (epwInp.files?.[0]) handlers.onUploadEpw?.(epwInp.files[0]);
+          });
+          epwLbl.append(epwInp, document.createTextNode('Unggah file cuaca (.epw)'));
+          epwWrap.appendChild(epwLbl);
+        }
+        container.appendChild(epwWrap);
 
         if (state.analysisData) {
           const btn = document.createElement('button');
@@ -541,7 +681,63 @@ export function createRailPanelBuilders(handlers) {
         filterFs.appendChild(sfNote);
         container.appendChild(filterFs);
 
-        // Section 4: Mode warna & Tema
+        // Section 4: Workspace v1 (`docs/FASE4_UI_SPEC.md` §5 + mockup 6-panel-tampilan.html)
+        const wsSec = document.createElement('div');
+        wsSec.className = 'psec';
+        const wsHead = document.createElement('h3');
+        wsHead.innerHTML = `${icon('sliders', 14)}<span>Workspace</span>`;
+        wsSec.appendChild(wsHead);
+
+        const wsPreset = state.workspace?.preset || 'belajar';
+        const wsSeg = document.createElement('div');
+        wsSeg.className = 'seg';
+        wsSeg.setAttribute('role', 'radiogroup');
+        wsSeg.setAttribute('aria-label', 'Preset workspace');
+
+        for (const [id, lbl] of [
+          ['belajar', 'Belajar'],
+          ['lanjut', 'Lanjut'],
+          ['presentasi', 'Presentasi'],
+        ]) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.setAttribute('role', 'radio');
+          const on = wsPreset === id;
+          b.setAttribute('aria-checked', on ? 'true' : 'false');
+          if (on) b.classList.add('on');
+          b.textContent = lbl;
+          b.addEventListener('click', () => handlers.onSetWorkspacePreset?.(id));
+          wsSeg.appendChild(b);
+        }
+        wsSec.appendChild(wsSeg);
+
+        const wsDesc = document.createElement('p');
+        wsDesc.className = 'lbl';
+        wsDesc.style.margin = '0';
+        wsDesc.style.fontWeight = '500';
+        wsDesc.textContent =
+          wsPreset === 'presentasi'
+            ? 'Rel dan kolom samping disembunyikan untuk viewer penuh.'
+            : wsPreset === 'lanjut'
+            ? 'Menampilkan tabel per bidang dan override material per orientasi.'
+            : 'Tooltip istilah SNI dengan rujukan pasal aktif.';
+        wsSec.appendChild(wsDesc);
+
+        const custBtn = document.createElement('button');
+        custBtn.type = 'button';
+        custBtn.className = 'lbl';
+        custBtn.style.border = '0';
+        custBtn.style.background = 'none';
+        custBtn.style.padding = '0';
+        custBtn.style.textAlign = 'left';
+        custBtn.style.textDecoration = 'underline';
+        custBtn.textContent = 'Atur urutan dan isi dock';
+        custBtn.addEventListener('click', () => handlers.onOpenDockCustomizer?.());
+        wsSec.appendChild(custBtn);
+
+        container.appendChild(wsSec);
+
+        // Section 5: Tema
         const modeSec = document.createElement('div');
         modeSec.className = 'psec';
         const modeHead = document.createElement('h3');
@@ -561,13 +757,24 @@ export function createRailPanelBuilders(handlers) {
 
     compare: {
       title: 'Bandingkan',
-      renderBody(container) {
+      renderBody(container, state) {
         const p = document.createElement('p');
         p.className = 'muted';
         p.style.margin = '0';
-        p.textContent =
-          'Perbandingan berdampingan antar alternatif desain akan hadir di tahap berikutnya. Sementara ini kamu dapat mengunduh beberapa file .ottv.json untuk menyimpan variasi material atau orientasi.';
+        p.textContent = state.analysisData
+          ? 'Bandingkan desain sekarang dengan satu atau beberapa alternatif material, peneduh, atau arah utara secara berdampingan.'
+          : 'Hitung OTTV terlebih dahulu agar kamu dapat membandingkan alternatif desain berdampingan di viewer terbelah.';
         container.appendChild(p);
+
+        if (state.analysisData) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'cta';
+          btn.style.height = '42px';
+          btn.innerHTML = `${icon('compare', 16)}<span>Buka mode Bandingkan</span>`;
+          btn.addEventListener('click', () => handlers.onOpenCompare?.());
+          container.appendChild(btn);
+        }
       },
     },
 
@@ -581,6 +788,31 @@ export function createRailPanelBuilders(handlers) {
           p.textContent = 'Hitung OTTV terlebih dahulu untuk mengunduh laporan hasil.';
           container.appendChild(p);
         } else {
+          const ottv = Number(state.analysisData.ottv_total_wm2 ?? 0);
+          const limit = Number(state.analysisData.sni_limit_wm2 ?? 35);
+          const isProv = Boolean(state.analysisData.summary?.is_provisional);
+          const ok = ottv <= limit;
+
+          const statusBox = document.createElement('div');
+          statusBox.className = 'glass-thin num';
+          statusBox.style.padding = '10px 12px';
+          statusBox.style.borderRadius = '12px';
+          statusBox.style.display = 'grid';
+          statusBox.style.gap = '4px';
+
+          const line1 = document.createElement('div');
+          line1.style.fontWeight = '700';
+          line1.textContent = `OTTV total: ${fmtId(ottv, 2)} W/m²`;
+          const line2 = document.createElement('div');
+          line2.className = `lbl ${isProv ? 'st-warn' : ok ? 'st-ok' : 'st-fail'}`;
+          line2.textContent = isProv
+            ? 'Status: Sementara (ada kejanggalan yang belum diperbaiki)'
+            : ok
+            ? `Status: Memenuhi (≤ ${fmtId(limit, 0)} W/m²)`
+            : `Status: Tidak memenuhi, batas ${fmtId(limit, 0)}`;
+          statusBox.append(line1, line2);
+          container.appendChild(statusBox);
+
           const btnXlsx = document.createElement('button');
           btnXlsx.type = 'button';
           btnXlsx.className = 'cta';
@@ -588,12 +820,33 @@ export function createRailPanelBuilders(handlers) {
           btnXlsx.addEventListener('click', () => handlers.onDownloadExcel());
           container.appendChild(btnXlsx);
 
+          const noteXlsx = document.createElement('p');
+          noteXlsx.className = 'lbl';
+          noteXlsx.style.margin = '0';
+          noteXlsx.style.fontWeight = '500';
+          noteXlsx.textContent =
+            'Memuat ringkasan OTTV, rincian 8 arah mata angin, tabel material, dan substitusi hitungan manual.';
+          container.appendChild(noteXlsx);
+
+          const rowAlt = document.createElement('div');
+          rowAlt.style.display = 'grid';
+          rowAlt.style.gridTemplateColumns = '1fr 1fr';
+          rowAlt.style.gap = '6px';
+
           const btnCsv = document.createElement('button');
           btnCsv.type = 'button';
-          btnCsv.className = 'ghost';
-          btnCsv.textContent = 'Unduh ringkasan (.csv)';
+          btnCsv.className = 'ghost ghost-sm';
+          btnCsv.textContent = 'Unduh CSV';
           btnCsv.addEventListener('click', () => handlers.onDownloadFormat('csv'));
-          container.appendChild(btnCsv);
+
+          const btnPdf = document.createElement('button');
+          btnPdf.type = 'button';
+          btnPdf.className = 'ghost ghost-sm';
+          btnPdf.textContent = 'Unduh PDF';
+          btnPdf.addEventListener('click', () => handlers.onDownloadFormat('pdf'));
+
+          rowAlt.append(btnCsv, btnPdf);
+          container.appendChild(rowAlt);
         }
 
         const btnProj = document.createElement('button');
@@ -609,41 +862,116 @@ export function createRailPanelBuilders(handlers) {
     help: {
       title: 'Bantuan',
       renderBody(container) {
-        const sections = [
+        const searchInp = document.createElement('input');
+        searchInp.type = 'search';
+        searchInp.className = 'field-input';
+        searchInp.placeholder = 'Cari istilah SNI (OTTV, WWR, SC, SF, TDek)...';
+        searchInp.setAttribute('aria-label', 'Cari glosarium istilah SNI');
+        container.appendChild(searchInp);
+
+        const glossWrap = document.createElement('div');
+        glossWrap.style.display = 'grid';
+        glossWrap.style.gap = '8px';
+
+        const entries = Object.values(SNI_GLOSSARY);
+        const renderGlossary = (q = '') => {
+          glossWrap.innerHTML = '';
+          const ql = q.trim().toLowerCase();
+          const filtered = ql
+            ? entries.filter(
+                (e) =>
+                  e.term.toLowerCase().includes(ql) ||
+                  e.full.toLowerCase().includes(ql) ||
+                  e.summary.toLowerCase().includes(ql) ||
+                  e.ref.toLowerCase().includes(ql),
+              )
+            : entries;
+          if (filtered.length === 0) {
+            const empty = document.createElement('p');
+            empty.className = 'muted';
+            empty.style.margin = '4px 0';
+            empty.style.fontSize = '12.5px';
+            empty.textContent = 'Istilah tidak ditemukan.';
+            glossWrap.appendChild(empty);
+            return;
+          }
+          for (const e of filtered) {
+            const box = document.createElement('div');
+            box.className = 'glass-thin';
+            box.style.padding = '8px 10px';
+            box.style.borderRadius = '12px';
+
+            const head = document.createElement('div');
+            head.style.display = 'flex';
+            head.style.justifyContent = 'space-between';
+            head.style.alignItems = 'baseline';
+            head.style.gap = '6px';
+
+            const tEl = document.createElement('strong');
+            tEl.style.fontSize = '13px';
+            tEl.textContent = `${e.term} (${e.full})`;
+
+            const rEl = document.createElement('span');
+            rEl.className = 'lbl';
+            rEl.style.fontSize = '10.5px';
+            rEl.style.whiteSpace = 'nowrap';
+            rEl.textContent = e.ref;
+
+            head.append(tEl, rEl);
+
+            const p = document.createElement('p');
+            p.className = 'muted';
+            p.style.margin = '4px 0 0';
+            p.style.fontSize = '12px';
+            p.style.lineHeight = '17px';
+            p.textContent = e.summary;
+
+            box.append(head, p);
+            glossWrap.appendChild(box);
+          }
+        };
+
+        searchInp.addEventListener('input', () => renderGlossary(searchInp.value));
+        renderGlossary();
+        container.appendChild(glossWrap);
+
+        const guideSec = document.createElement('div');
+        guideSec.className = 'psec';
+        const gHead = document.createElement('h3');
+        gHead.textContent = 'Alur kerja & tips ekspor';
+        guideSec.appendChild(gHead);
+
+        for (const [h, body] of [
           [
-            'Alur kerja 4 langkah',
-            '1) Unggah model 3D (.3dm, .ifc, .obj, .glb). 2) Konfirmasi satuan, muka tanah, dan isi model. 3) Periksa klasifikasi grup dan kejanggalan. 4) Hitung OTTV dan unduh laporan.',
+            '4 langkah kerja',
+            '1) Unggah model 3D (.3dm, .ifc, .obj, .glb). 2) Konfirmasi satuan, muka tanah, dan isi model. 3) Periksa grup dan kejanggalan. 4) Hitung OTTV, bandingkan alternatif, lalu unduh laporan.',
           ],
           [
-            'OTTV (Overall Thermal Transfer Value)',
-            'Nilai perpindahan termal menyeluruh selubung bangunan sesuai SNI 6389:2020. Batas kepatuhan adalah 35 W/m².',
-          ],
-          [
-            'WWR, SC, SF, dan TDek',
-            'WWR adalah rasio luas kaca terhadap luas fasad. SC adalah koefisien peneduh (SCk × SCeff). SF adalah faktor radiasi surya per arah (Tabel 8). TDek adalah beda temperatur ekuivalen dinding berdasarkan massa (Tabel 7).',
-          ],
-          [
-            'Tips ekspor Rhino (.3dm)',
+            'Tips Rhino (.3dm)',
             'Tampilkan model dalam mode Shaded lalu Save (jangan SaveSmall) agar semua permukaan Brep membawa render mesh.',
           ],
-        ];
-
-        for (const [h, body] of sections) {
+        ]) {
           const item = document.createElement('div');
-          item.style.paddingBottom = '10px';
-          item.style.borderBottom = '1px solid var(--line)';
-          const h3 = document.createElement('div');
-          h3.style.fontWeight = '700';
-          h3.style.marginBottom = '4px';
-          h3.textContent = h;
+          const h4 = document.createElement('div');
+          h4.style.fontWeight = '600';
+          h4.style.fontSize = '12.5px';
+          h4.textContent = h;
           const p = document.createElement('p');
           p.className = 'muted';
-          p.style.margin = '0';
-          p.style.fontSize = '13px';
+          p.style.margin = '2px 0 0';
+          p.style.fontSize = '12px';
           p.textContent = body;
-          item.append(h3, p);
-          container.appendChild(item);
+          item.append(h4, p);
+          guideSec.appendChild(item);
         }
+        container.appendChild(guideSec);
+
+        const scBtn = document.createElement('button');
+        scBtn.type = 'button';
+        scBtn.className = 'ghost ghost-sm';
+        scBtn.innerHTML = `${icon('keyboard', 15)}<span>Lihat daftar pintasan (?)</span>`;
+        scBtn.addEventListener('click', () => handlers.onOpenShortcuts?.());
+        container.appendChild(scBtn);
       },
     },
   };

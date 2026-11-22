@@ -7,6 +7,7 @@
 
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
+import { makeTermTip } from '../ui/tooltips.js';
 import { renderInteractiveCompass } from '../viewer/compass.js';
 import { renderFormulaPill } from '../viewer/formulaPill.js';
 import {
@@ -44,16 +45,24 @@ export function renderResultsScreen(state, handlers) {
   viewerSec.className = 'viewer';
   viewerSec.setAttribute('aria-label', 'Viewer 3D hasil OTTV');
 
+  const viewerStage = document.createElement('div');
+  viewerStage.className = 'viewer-stage';
+
   const canvasHost = document.createElement('div');
   canvasHost.className = 'viewer-canvas-host';
-  viewerSec.appendChild(canvasHost);
+  viewerStage.appendChild(canvasHost);
+  viewerSec.appendChild(viewerStage);
 
   // Mode bar (Klasifikasi, Orientasi, Heatmap | Kejanggalan, X-ray)
   const activeMode = state.viewerMode || 'heatmap';
-  viewerSec.appendChild(renderViewerModeBar({ ...state, viewerMode: activeMode }, handlers.onChangeViewerMode));
+  const modeBarEl = renderViewerModeBar({ ...state, viewerMode: activeMode }, handlers.onChangeViewerMode);
+  const modeAtBottom = state.workspace?.modeBarPosition === 'bottom';
+  if (!modeAtBottom) {
+    viewerSec.appendChild(modeBarEl);
+  }
 
   // Interactive North Compass (top-right, aligned at top: 16px, height: 52px) + Hitung ulang chip
-  viewerSec.appendChild(
+  viewerStage.appendChild(
     renderInteractiveCompass(state, {
       onChangeNorth: handlers.onChangeNorth,
       onRecompute: handlers.onRecompute,
@@ -64,7 +73,14 @@ export function renderResultsScreen(state, handlers) {
   const formulaPill = renderFormulaPill(state, {
     onToggleExpand: handlers.onToggleFormulaPill,
   });
-  if (formulaPill) viewerSec.appendChild(formulaPill);
+  if (formulaPill) viewerStage.appendChild(formulaPill);
+
+  // Bottom overlay stack (T2): legend always sits 12px above bottom pills regardless of pill wrapping
+  const bottomStack = document.createElement('div');
+  bottomStack.className = 'viewer-bottom-stack';
+  if (modeAtBottom) {
+    bottomStack.appendChild(modeBarEl);
+  }
 
   // Legend (lifted cleanly above bottom pills; shifts right if Tampilan card is open)
   const legend = document.createElement('div');
@@ -78,13 +94,14 @@ export function renderResultsScreen(state, handlers) {
     `;
   } else if (activeMode === 'heatmap') {
     const gran = state.heatmapGranularity || 'orientation';
+    const isSmooth = Boolean(state.heatmapSmooth);
     const lblSpan = document.createElement('span');
     lblSpan.style.color = 'var(--ink)';
     lblSpan.textContent = 'OTTV';
 
     const toggleWrap = document.createElement('div');
     toggleWrap.className = 'legend-toggle';
-    toggleWrap.setAttribute('role', 'group');
+    toggleWrap.setAttribute('role', 'radiogroup');
     toggleWrap.setAttribute('aria-label', 'Skala heatmap');
 
     for (const [id, lbl] of [
@@ -93,28 +110,50 @@ export function renderResultsScreen(state, handlers) {
     ]) {
       const b = document.createElement('button');
       b.type = 'button';
+      b.setAttribute('role', 'radio');
       b.className = gran === id ? 'on' : '';
+      b.setAttribute('aria-checked', gran === id ? 'true' : 'false');
       b.setAttribute('aria-pressed', gran === id ? 'true' : 'false');
       b.textContent = lbl;
       b.addEventListener('click', () => handlers.onChangeHeatmapGranularity(id));
       toggleWrap.appendChild(b);
     }
 
-    const strip = document.createElement('span');
-    strip.className = 'heat-bar-strip';
-    strip.setAttribute('aria-hidden', 'true');
-    strip.innerHTML = `
-      <span style="background:var(--heat-0);"></span>
-      <span style="background:var(--heat-1);"></span>
-      <span style="background:var(--heat-2);"></span>
-      <span style="background:var(--heat-3);"></span>
-    `;
+    // S4: Continuous 168 px gradient bar with 0, 25, "35 batas" (ink mark at 58.3%), 60
+    const gradWrap = document.createElement('span');
+    gradWrap.className = 'heat-grad-wrap';
 
-    const scaleNum = document.createElement('span');
-    scaleNum.className = 'num';
-    scaleNum.textContent = '25 · 32 · 35 W/m²';
+    const gradBar = document.createElement('span');
+    gradBar.className = 'heat-grad-bar';
+    gradBar.setAttribute('aria-hidden', 'true');
+    const limitMark = document.createElement('i');
+    limitMark.className = 'heat-grad-limit';
+    gradBar.appendChild(limitMark);
 
-    legend.append(lblSpan, toggleWrap, strip, scaleNum);
+    const gradTicks = document.createElement('span');
+    gradTicks.className = 'heat-grad-ticks num';
+    gradTicks.innerHTML = '<span>0</span><span>25</span><span class="is-limit">35 batas</span><span>60</span>';
+    gradWrap.append(gradBar, gradTicks);
+
+    // S4: Halus vertex-smoothing toggle switch (default off)
+    const smoothLbl = document.createElement('label');
+    smoothLbl.className = 'legend-smooth-lbl';
+    const smoothCb = document.createElement('input');
+    smoothCb.type = 'checkbox';
+    smoothCb.setAttribute('role', 'switch');
+    smoothCb.checked = isSmooth;
+    smoothCb.setAttribute('aria-checked', isSmooth ? 'true' : 'false');
+    smoothCb.addEventListener('change', () => handlers.onToggleHeatmapSmooth?.(smoothCb.checked));
+    smoothLbl.append(smoothCb, document.createTextNode(' Halus'));
+
+    legend.append(lblSpan, toggleWrap, gradWrap, smoothLbl);
+
+    if (isSmooth) {
+      const smNote = document.createElement('span');
+      smNote.className = 'legend-smooth-note';
+      smNote.textContent = 'tampilan dihaluskan';
+      legend.appendChild(smNote);
+    }
     if (state.sunDomeVisible) {
       const sunHint = document.createElement('span');
       sunHint.className = 'legend-item';
@@ -143,10 +182,21 @@ export function renderResultsScreen(state, handlers) {
       <span class="legend-item"><i class="swatch" style="background:var(--data-shading);"></i>Peneduh</span>
     `;
   }
-  viewerSec.appendChild(legend);
+  bottomStack.appendChild(legend);
 
   if (handlers.vbarHandlers) {
-    viewerSec.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
+    bottomStack.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
+  }
+  viewerSec.appendChild(bottomStack);
+
+  // Presentation mode exit pill (`Esc` also exits)
+  if (state.workspace?.preset === 'presentasi') {
+    const exitPres = document.createElement('button');
+    exitPres.type = 'button';
+    exitPres.className = 'glass pres-exit-chip';
+    exitPres.innerHTML = `${icon('close', 14)}<span>Keluar Presentasi</span><kbd>Esc</kbd>`;
+    exitPres.addEventListener('click', () => handlers.onExitPresentation?.());
+    viewerStage.appendChild(exitPres);
   }
 
   // Right column (300px)
@@ -164,16 +214,23 @@ export function renderResultsScreen(state, handlers) {
   heroHead.style.alignItems = 'baseline';
   heroHead.style.gap = '6px';
 
+  const tooltipsOn = (state.workspace?.preset || 'belajar') === 'belajar';
+
   const heroTitle = document.createElement('h2');
   heroTitle.id = 'ot-title';
   heroTitle.className = 'lbl';
   heroTitle.style.fontSize = '13px';
-  heroTitle.textContent = 'OTTV total';
+  heroTitle.append(makeTermTip('OTTV', 'OTTV', tooltipsOn), document.createTextNode(' total'));
 
   const heroMeta = document.createElement('span');
   heroMeta.className = 'lbl num';
   heroMeta.style.fontWeight = '500';
-  heroMeta.textContent = `WWR ${fmtId(wwrPct, 1)}% · SC ${fmtId(avgSc, 3)}`;
+  heroMeta.append(
+    makeTermTip('WWR', 'WWR', tooltipsOn),
+    document.createTextNode(` ${fmtId(wwrPct, 1)}% · `),
+    makeTermTip('SC', 'SC', tooltipsOn),
+    document.createTextNode(` ${fmtId(avgSc, 3)}`),
+  );
 
   heroHead.append(heroTitle, heroMeta);
 
@@ -367,11 +424,15 @@ export function renderResultsScreen(state, handlers) {
       const l = document.createElement('div');
       l.className = 'lbl';
       if (labelTxt === 'Uf') {
-        l.innerHTML = 'U<sub>f</sub>';
+        l.appendChild(makeTermTip('Uf', 'U<sub>f</sub>', tooltipsOn));
       } else if (labelTxt === 'Uw') {
-        l.innerHTML = 'U<sub>w</sub>';
+        l.appendChild(makeTermTip('Uw', 'U<sub>w</sub>', tooltipsOn));
       } else if (labelTxt === 'TDek') {
-        l.innerHTML = 'TD<sub>ek</sub>';
+        l.appendChild(makeTermTip('TDek', 'TD<sub>ek</sub>', tooltipsOn));
+      } else if (labelTxt === 'α') {
+        l.appendChild(makeTermTip('alpha', 'α', tooltipsOn));
+      } else if (labelTxt === 'SF' || labelTxt === 'SC') {
+        l.appendChild(makeTermTip(labelTxt, labelTxt, tooltipsOn));
       } else {
         l.textContent = labelTxt;
       }
@@ -538,7 +599,7 @@ export function renderResultsScreen(state, handlers) {
   const rtTitle = document.createElement('h2');
   rtTitle.id = 'rt-title';
   rtTitle.style.fontSize = '14px';
-  rtTitle.textContent = 'Komposisi panas & RTTV';
+  rtTitle.append(document.createTextNode('Komposisi panas & '), makeTermTip('RTTV', 'RTTV', tooltipsOn));
 
   const compGrid = document.createElement('div');
   compGrid.className = 'num';
@@ -598,6 +659,99 @@ export function renderResultsScreen(state, handlers) {
 
   rttvCard.append(rtTitle, compGrid, rttvLine);
 
+  // 3b. Lanjut workspace: Tabel per bidang (searchable, click row -> select panel in 3D)
+  let advPanelCard = null;
+  if (state.workspace?.preset === 'lanjut' || state.advancedMode) {
+    const activePanels = (analysis.panels || []).filter((p) => p && p.active);
+    advPanelCard = document.createElement('section');
+    advPanelCard.className = 'box';
+    advPanelCard.setAttribute('aria-labelledby', 'adv-panels-title');
+
+    const det = document.createElement('details');
+    const sum = document.createElement('summary');
+    sum.id = 'adv-panels-title';
+    sum.className = 'lbl';
+    sum.style.color = 'var(--ink)';
+    sum.style.fontSize = '13.5px';
+    sum.textContent = `Data per bidang (${activePanels.length} panel aktif)`;
+    det.appendChild(sum);
+
+    const filterInput = document.createElement('input');
+    filterInput.type = 'search';
+    filterInput.className = 'field-input';
+    filterInput.style.height = '32px';
+    filterInput.style.fontSize = '12px';
+    filterInput.style.marginTop = '8px';
+    filterInput.placeholder = 'Filter arah (B, T...) atau nama grup...';
+    filterInput.setAttribute('aria-label', 'Filter tabel panel');
+
+    const wrap = document.createElement('div');
+    wrap.className = 'panel-table-wrap';
+
+    const sortedPanels = [...activePanels].sort(
+      (a, b) => Number(b.ottv_panel_wm2 || 0) - Number(a.ottv_panel_wm2 || 0),
+    );
+
+    const renderRows = (q = '') => {
+      wrap.innerHTML = '';
+      const ql = q.trim().toLowerCase();
+      const matched = ql
+        ? sortedPanels.filter(
+            (p) =>
+              String(p.orientation_code || '').toLowerCase().includes(ql) ||
+              String(p.group_name || '').toLowerCase().includes(ql) ||
+              String(p.element_type || '').toLowerCase().includes(ql),
+          )
+        : sortedPanels;
+      const top = matched.slice(0, 40);
+      const tbl = document.createElement('table');
+      tbl.className = 'data-table num';
+      tbl.style.fontSize = '11.5px';
+      tbl.innerHTML =
+        '<thead><tr><th>Arah</th><th>Grup</th><th style="text-align:right;">Luas</th><th style="text-align:right;">W/m²</th></tr></thead>';
+      const tb = document.createElement('tbody');
+      for (const p of top) {
+        const tr = document.createElement('tr');
+        if ((state.selectedPanelIds || []).includes(p.id)) tr.classList.add('is-selected');
+        const tdA = document.createElement('td');
+        tdA.textContent = p.orientation_code || '-';
+        const tdG = document.createElement('td');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'group-pick-btn';
+        btn.style.fontSize = '11.5px';
+        btn.textContent = p.group_name || p.id;
+        btn.title = `Pilih panel ${p.id}`;
+        btn.addEventListener('click', (ev) => handlers.onPickPanel(p, Boolean(ev.shiftKey)));
+        tdG.appendChild(btn);
+        const tdArea = document.createElement('td');
+        tdArea.style.textAlign = 'right';
+        tdArea.textContent = fmtId(p.area_m2 || 0, 1);
+        const tdVal = document.createElement('td');
+        tdVal.style.textAlign = 'right';
+        tdVal.style.fontWeight = '700';
+        tdVal.textContent = fmtId(p.ottv_panel_wm2 || 0, 2);
+        tr.append(tdA, tdG, tdArea, tdVal);
+        tb.appendChild(tr);
+      }
+      tbl.appendChild(tb);
+      wrap.appendChild(tbl);
+      if (matched.length > 40) {
+        const more = document.createElement('p');
+        more.className = 'lbl';
+        more.style.margin = '6px 0 0';
+        more.style.fontWeight = '500';
+        more.textContent = `Menampilkan 40 tertinggi dari ${matched.length} panel.`;
+        wrap.appendChild(more);
+      }
+    };
+
+    filterInput.addEventListener('input', () => renderRows(filterInput.value));
+    renderRows();
+    det.append(filterInput, wrap);
+    advPanelCard.appendChild(det);
+  }
+
   // 4. Downloads at bottom (single Excel button, never say "prodi")
   const dlWrap = document.createElement('div');
   dlWrap.style.display = 'grid';
@@ -619,7 +773,11 @@ export function renderResultsScreen(state, handlers) {
 
   dlWrap.append(xlsxBtn, jsonBtn);
 
-  side.append(heroCard, selCard, orientCard, rttvCard, dlWrap);
+  if (advPanelCard) {
+    side.append(heroCard, selCard, orientCard, rttvCard, advPanelCard, dlWrap);
+  } else {
+    side.append(heroCard, selCard, orientCard, rttvCard, dlWrap);
+  }
   main.append(viewerSec, side);
 
   window.requestAnimationFrame(() => {

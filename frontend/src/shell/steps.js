@@ -24,6 +24,8 @@ export function renderSteps(state, { onNavigate }) {
   const activeStep =
     state.step === 'loading' || state.step === 'error'
       ? state.previousStep || 'upload'
+      : state.step === 'compare'
+      ? 'results'
       : state.step;
   const activeIdx = ORDER[activeStep] ?? 0;
 

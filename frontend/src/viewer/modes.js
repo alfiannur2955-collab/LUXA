@@ -63,9 +63,46 @@ export function readThemeTokens() {
 }
 
 /**
- * Fixed OTTV Heatmap scale (`docs/FASE4_UI_SPEC.md` §4.2):
- * < 25, 25..32, 32..35, > 35 W/m2 -> heat-0 .. heat-3.
+ * Continuous OKLab OTTV Heatmap scale (`docs/FASE4_UI_SPEC.md` D7 & §4.2):
+ * Stops: 0 = heat-0, 25 = heat-1, 35 = heat-2, >= 50 (clamped at 60) = heat-3.
+ * Interpolated linearly in OKLab space for perceptually uniform lightness & color-blind legibility.
  */
+function _linearRgbToOklab(r, g, b) {
+  const l = Math.cbrt(Math.max(0, 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b));
+  const m = Math.cbrt(Math.max(0, 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b));
+  const s = Math.cbrt(Math.max(0, 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b));
+  return [
+    0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+  ];
+}
+
+function _oklabToLinearRgb(L, a, b) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const l = l_ * l_ * l_;
+  const m = m_ * m_ * m_;
+  const s = s_ * s_ * s_;
+  return [
+    Math.max(0, Math.min(1, +4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s)),
+    Math.max(0, Math.min(1, -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s)),
+    Math.max(0, Math.min(1, -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)),
+  ];
+}
+
+function _linearToSrgbChannel(c) {
+  return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+}
+
+const HEAT_STOPS = [
+  { val: 0, key: 'heat0' },
+  { val: 25, key: 'heat1' },
+  { val: 35, key: 'heat2' },
+  { val: 50, key: 'heat3' },
+];
+
 export function ottvToHeatTokenKey(ottvWm2) {
   const v = Number(ottvWm2);
   if (!Number.isFinite(v) || v < 25) return 'heat0';
@@ -74,20 +111,49 @@ export function ottvToHeatTokenKey(ottvWm2) {
   return 'heat3';
 }
 
-export function ottvToHeatCssVar(ottvWm2) {
-  const key = ottvToHeatTokenKey(ottvWm2);
-  const map = {
-    heat0: 'var(--heat-0)',
-    heat1: 'var(--heat-1)',
-    heat2: 'var(--heat-2)',
-    heat3: 'var(--heat-3)',
-  };
-  return map[key];
+export function ottvToThreeColor(ottvWm2, tokens) {
+  const raw = Number(ottvWm2);
+  const v = Number.isFinite(raw) ? Math.max(0, Math.min(60, raw)) : 0;
+
+  let lo = HEAT_STOPS[0];
+  let hi = HEAT_STOPS[HEAT_STOPS.length - 1];
+  if (v >= 50) {
+    return new THREE.Color(tokens.heat3 || tokens.heat0);
+  }
+  for (let i = 0; i < HEAT_STOPS.length - 1; i += 1) {
+    if (v >= HEAT_STOPS[i].val && v <= HEAT_STOPS[i + 1].val) {
+      lo = HEAT_STOPS[i];
+      hi = HEAT_STOPS[i + 1];
+      break;
+    }
+  }
+  const t = hi.val > lo.val ? (v - lo.val) / (hi.val - lo.val) : 0;
+  const cLo = new THREE.Color(tokens[lo.key] || tokens.heat0);
+  const cHi = new THREE.Color(tokens[hi.key] || tokens.heat3);
+  const lab0 = _linearRgbToOklab(cLo.r, cLo.g, cLo.b);
+  const lab1 = _linearRgbToOklab(cHi.r, cHi.g, cHi.b);
+  const [lr, lg, lb] = _oklabToLinearRgb(
+    lab0[0] + (lab1[0] - lab0[0]) * t,
+    lab0[1] + (lab1[1] - lab0[1]) * t,
+    lab0[2] + (lab1[2] - lab0[2]) * t,
+  );
+  const out = new THREE.Color();
+  out.setRGB(lr, lg, lb);
+  return out;
 }
 
-export function ottvToThreeColor(ottvWm2, tokens) {
-  const key = ottvToHeatTokenKey(ottvWm2);
-  return new THREE.Color(tokens[key] || tokens.heat0);
+export function ottvToHeatCssVar(ottvWm2, tokensOverride = null) {
+  const tokens = tokensOverride || readThemeTokens();
+  if (!tokens?.heat0) {
+    const key = ottvToHeatTokenKey(ottvWm2);
+    const map = { heat0: 'var(--heat-0)', heat1: 'var(--heat-1)', heat2: 'var(--heat-2)', heat3: 'var(--heat-3)' };
+    return map[key];
+  }
+  const c = ottvToThreeColor(ottvWm2, tokens);
+  const r = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.r))) * 255);
+  const g = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.g))) * 255);
+  const b = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.b))) * 255);
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
 /**
@@ -127,7 +193,10 @@ export function orientationToThreeColor(code, tokens) {
 
 export function orientationToCssColor(code, tokens) {
   const c = orientationToThreeColor(code, tokens);
-  return `rgb(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)})`;
+  const r = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.r))) * 255);
+  const g = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.g))) * 255);
+  const b = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.b))) * 255);
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
 /**
@@ -247,6 +316,66 @@ export function makeVertexColorMaterial({ transparent = false, opacity = 1.0, de
     transparent,
     opacity,
     depthWrite,
+  });
+}
+
+/**
+ * Computes the exact view-space shading multiplier used by `makeColorAccurateMaterial`:
+ * - Camera-facing surfaces (0, 0, 1) receive ~0.9924 linear (~0.997 sRGB, ΔE < 0.5 vs legend)
+ * - Side/grazing surfaces receive >= 0.88 linear (<= 12% directional depth cue)
+ * Keeps Heatmap & Orientasi facade colors faithfully matched to legend swatches in both themes.
+ */
+export function computeColorAccurateShade(nx, ny, nz) {
+  const len = Math.hypot(nx, ny, nz) || 1;
+  const x = nx / len;
+  const y = ny / len;
+  const z = nz / len;
+  const lx = 0.28;
+  const ly = 0.42;
+  const lz = 0.86;
+  const llen = Math.hypot(lx, ly, lz);
+  const ndv = Math.abs(z);
+  const ndl = Math.abs((x * lx + y * ly + z * lz) / llen);
+  return 0.88 + 0.12 * (0.55 * ndv + 0.45 * ndl);
+}
+
+/**
+ * Color-accurate vertex-color material for Heatmap, Orientasi, and solar exposure modes (T1).
+ * Preserves exact sRGB legend color on camera-facing surfaces while adding <= 12% view-space
+ * directional shading so perpendicular facades still read with crisp 3D volume.
+ */
+export function makeColorAccurateMaterial({ transparent = false, opacity = 1.0, depthWrite = true } = {}) {
+  return new THREE.ShaderMaterial({
+    vertexColors: true,
+    side: THREE.DoubleSide,
+    transparent,
+    depthWrite,
+    uniforms: {
+      uOpacity: { value: opacity },
+    },
+    vertexShader: `
+      varying vec3 vColor;
+      varying vec3 vViewNormal;
+      void main() {
+        vColor = color;
+        vViewNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uOpacity;
+      varying vec3 vColor;
+      varying vec3 vViewNormal;
+      void main() {
+        vec3 n = normalize(vViewNormal);
+        float ndv = abs(n.z);
+        float ndl = abs(dot(n, normalize(vec3(0.28, 0.42, 0.86))));
+        float shade = 0.88 + 0.12 * (0.55 * ndv + 0.45 * ndl);
+        gl_FragColor = vec4(vColor * shade, uOpacity);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }
+    `,
   });
 }
 

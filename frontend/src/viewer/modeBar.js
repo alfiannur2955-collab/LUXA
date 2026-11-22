@@ -8,7 +8,8 @@ import { VIEWER_MODES } from './modes.js';
 
 export function renderViewerModeBar(state, onSelectMode) {
   const bar = document.createElement('div');
-  bar.className = 'glass modes';
+  const atBottom = state.workspace?.modeBarPosition === 'bottom';
+  bar.className = `glass modes${atBottom ? ' modes-bottom' : ''}`;
   bar.setAttribute('role', 'toolbar');
   bar.setAttribute('aria-label', 'Mode tampilan');
 

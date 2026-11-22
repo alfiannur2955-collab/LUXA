@@ -77,7 +77,8 @@ export class SunDomeController {
     this.overlayHost = null;
     this.overlayLayer = null;
     this.readoutEl = null;
-    this.projectedLabels = []; // [{ el, worldPos: THREE.Vector3 }]
+    this.projectedLabels = []; // [{ el, worldPos: THREE.Vector3, isArcLabel: boolean }]
+    this.bboxCornersThree = []; // 8 THREE.Vector3 corners for occlusion test (S2)
     this.lastSig = '';
     this._projVec = new THREE.Vector3();
   }
@@ -127,13 +128,13 @@ export class SunDomeController {
     }
   }
 
-  _addProjectedLabel(text, worldPos, className = 'sundome-lbl') {
+  _addProjectedLabel(text, worldPos, className = 'sundome-lbl', isArcLabel = false) {
     if (!this.overlayLayer) return;
     const el = document.createElement('span');
     el.className = className;
     el.textContent = text;
     this.overlayLayer.appendChild(el);
-    this.projectedLabels.push({ el, worldPos: worldPos.clone() });
+    this.projectedLabels.push({ el, worldPos: worldPos.clone(), isArcLabel });
   }
 
   sync(state, bbox, tokens) {
@@ -174,10 +175,22 @@ export class SunDomeController {
 
     const spanX = Math.max(2, Number(bbox.span?.[0] || 15));
     const spanY = Math.max(2, Number(bbox.span?.[1] || 15));
+    const spanZ = Math.max(2, Number(bbox.span?.[2] || 10));
     const halfPlanDiag = 0.5 * Math.hypot(spanX, spanY);
-    // Spec §4.4: default radius = 1.6 × half plan diagonal
-    const defaultRadius = Math.max(10, 1.6 * halfPlanDiag);
+    // Spec §4.4 + S2: default radius = max(1.6 × half plan diagonal, 0.6 × building height)
+    const defaultRadius = Math.max(10, 1.6 * halfPlanDiag, 0.6 * spanZ);
     const radius = defaultRadius * (scalePct / 100);
+
+    const bMin = bbox.min || [-spanX / 2, -spanY / 2, 0];
+    const bMax = bbox.max || [spanX / 2, spanY / 2, spanZ];
+    this.bboxCornersThree = [];
+    for (const bx of [bMin[0], bMax[0]]) {
+      for (const by of [bMin[1], bMax[1]]) {
+        for (const bz of [Math.max(bMin[2], zCut), bMax[2]]) {
+          this.bboxCornersThree.push(toThreeCoords(bx, by, bz));
+        }
+      }
+    }
 
     const cx = Number(bbox.center?.[0] || 0);
     const cy = Number(bbox.center?.[1] || 0);
@@ -277,11 +290,12 @@ export class SunDomeController {
       line.raycast = () => {};
       this.group.add(line);
 
-      // Label at solar noon (12:00) on the arc
-      const noonPos = computeSolarPosition(latDeg, arc.date, 12, northDeg);
-      if (noonPos.altitudeDeg > 0) {
-        const labelWorld = center.clone().addScaledVector(noonPos.threeDir, radius * 1.05);
-        this._addProjectedLabel(arc.label, labelWorld, `sundome-arc-lbl${arc.isActive ? ' is-active' : ''}`);
+      // S2: Place arc label on the outer side of the arc (spread along outer limb so it avoids the building)
+      const labelHour = arc.id === 'jun' ? 9.0 : arc.id === 'dec' ? 14.8 : 15.4;
+      const limbPos = computeSolarPosition(latDeg, arc.date, labelHour, northDeg);
+      if (limbPos.altitudeDeg > 4) {
+        const labelWorld = center.clone().addScaledVector(limbPos.threeDir, radius * 1.12);
+        this._addProjectedLabel(arc.label, labelWorld, `sundome-arc-lbl${arc.isActive ? ' is-active' : ''}`, true);
       }
     }
 
@@ -336,6 +350,26 @@ export class SunDomeController {
 
   updateLabels(camera, width, height) {
     if (!this.overlayLayer || !camera || width <= 0 || height <= 0) return;
+
+    // S2: Project building bounding box to 2D screen rect to hide occluded/overlapping arc labels
+    let bMinX = Infinity;
+    let bMaxX = -Infinity;
+    let bMinY = Infinity;
+    let bMaxY = -Infinity;
+    for (const c of this.bboxCornersThree) {
+      this._projVec.copy(c).project(camera);
+      if (this._projVec.z >= -1 && this._projVec.z <= 1) {
+        const cx = (this._projVec.x * 0.5 + 0.5) * width;
+        const cy = (-this._projVec.y * 0.5 + 0.5) * height;
+        if (cx < bMinX) bMinX = cx;
+        if (cx > bMaxX) bMaxX = cx;
+        if (cy < bMinY) bMinY = cy;
+        if (cy > bMaxY) bMaxY = cy;
+      }
+    }
+    const hasBldgRect = Number.isFinite(bMinX) && Number.isFinite(bMaxX);
+    const pad = 12;
+
     for (const item of this.projectedLabels) {
       this._projVec.copy(item.worldPos).project(camera);
       const vis =
@@ -348,6 +382,17 @@ export class SunDomeController {
       if (vis) {
         const px = (this._projVec.x * 0.5 + 0.5) * width;
         const py = (-this._projVec.y * 0.5 + 0.5) * height;
+        const overlapsBuilding =
+          item.isArcLabel &&
+          hasBldgRect &&
+          px >= bMinX - pad &&
+          px <= bMaxX + pad &&
+          py >= bMinY - pad &&
+          py <= bMaxY + pad;
+        if (overlapsBuilding) {
+          item.el.style.display = 'none';
+          continue;
+        }
         item.el.style.display = 'block';
         item.el.style.transform = `translate3d(${px.toFixed(1)}px, ${py.toFixed(1)}px, 0) translate(-50%, -50%)`;
       } else {
