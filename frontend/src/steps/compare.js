@@ -443,28 +443,27 @@ export function renderCompareScreen(state, handlers) {
   altCard.appendChild(altTitle);
 
   const altList = document.createElement('div');
-  altList.style.display = 'grid';
-  altList.style.gap = '6px';
-  altList.style.marginTop = '8px';
+  altList.className = 'compare-alt-list';
 
   for (const alt of alts) {
     const rowWrap = document.createElement('div');
-    rowWrap.style.display = 'flex';
-    rowWrap.style.gap = '4px';
+    rowWrap.className = 'compare-alt-row';
 
     const btn = document.createElement('button');
     btn.type = 'button';
     const isSel = activeAlt && alt.id === activeAlt.id;
+    const fullTitle = `${alt.code} · ${alt.name}`;
     btn.className = `ghost compare-alt-btn${isSel ? ' is-active' : ''}`;
     btn.setAttribute('aria-pressed', isSel ? 'true' : 'false');
+    btn.title = fullTitle;
 
     const nameSp = document.createElement('span');
     nameSp.className = 'compare-alt-name';
-    nameSp.textContent = `${alt.code} · ${alt.name}`;
+    nameSp.title = fullTitle;
+    nameSp.textContent = fullTitle;
 
     const valSp = document.createElement('span');
-    valSp.className = 'num';
-    valSp.style.fontWeight = '700';
+    valSp.className = 'num compare-alt-val';
     valSp.textContent = fmtId(alt.analysisData?.ottv_total_wm2 ?? 0, 2);
 
     btn.append(nameSp, valSp);
@@ -485,12 +484,7 @@ export function renderCompareScreen(state, handlers) {
   // Toggle "+ Tambah alternatif" builder form
   const addBtn = document.createElement('button');
   addBtn.type = 'button';
-  addBtn.className = 'ghost';
-  addBtn.style.background = 'var(--glass-thin)';
-  addBtn.style.display = 'inline-flex';
-  addBtn.style.gap = '6px';
-  addBtn.style.alignItems = 'center';
-  addBtn.style.justifyContent = 'center';
+  addBtn.className = 'ghost compare-add-btn';
   addBtn.disabled = Boolean(state.compareBusy);
   addBtn.innerHTML = `${icon('plus', 14)}<span>${
     state.compareBusy ? 'Menghitung alternatif...' : 'Tambah alternatif'
