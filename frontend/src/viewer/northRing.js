@@ -222,21 +222,26 @@ export class NorthRingController {
       if (nextDeg !== null && Math.abs(nextDeg - this.currentDeg) >= 0.1) {
         this.currentDeg = nextDeg;
         this._updateLabelText();
-        this.onPreviewNorth?.(nextDeg);
+        // Pratinjau paling banyak sekali per frame; state global baru disimpan saat dilepas.
+        this._pendingPreview = nextDeg;
+        if (!this._previewRaf) {
+          this._previewRaf = window.requestAnimationFrame(() => {
+            this._previewRaf = 0;
+            if (this.dragging && this._pendingPreview !== null) this.onPreviewNorth?.(this._pendingPreview);
+            this._pendingPreview = null;
+          });
+        }
       }
     });
 
     const finishDrag = (e) => {
       if (!this.dragging) return;
-      e.preventDefault();
-      e.stopPropagation();
+      e?.preventDefault?.();
+      e?.stopPropagation?.();
       const committed = this.currentDeg;
-      this.dragging = false;
-      btn.classList.remove('is-dragging');
-      document.body.classList.remove('is-d5-rotating');
-      this.onDragStateChange?.(false);
+      this._endDragVisuals(btn);
       try {
-        btn.releasePointerCapture(e.pointerId);
+        if (e?.pointerId !== undefined && btn.hasPointerCapture?.(e.pointerId)) btn.releasePointerCapture(e.pointerId);
       } catch {
         // Ignore
       }
@@ -245,6 +250,23 @@ export class NorthRingController {
 
     btn.addEventListener('pointerup', finishDrag);
     btn.addEventListener('pointercancel', finishDrag);
+    // Jaring pengaman: kalau browser melepas capture (mis. elemen dipindah) atau tombol mouse
+    // dilepas di luar pegangan, seret tetap diakhiri sehingga kursor tidak macet.
+    btn.addEventListener('lostpointercapture', finishDrag);
+    window.addEventListener('pointerup', finishDrag);
+    window.addEventListener('blur', () => finishDrag(null));
+  }
+
+  _endDragVisuals(btn = this.handleBtn) {
+    this.dragging = false;
+    if (this._previewRaf) {
+      window.cancelAnimationFrame(this._previewRaf);
+      this._previewRaf = 0;
+    }
+    this._pendingPreview = null;
+    btn?.classList.remove('is-dragging');
+    document.body.classList.remove('is-d5-rotating');
+    this.onDragStateChange?.(false);
   }
 
   _updateLabelText() {
@@ -276,6 +298,7 @@ export class NorthRingController {
     if (!this.group) return;
     const isActive = Boolean(state.northRotateMode && bbox && state.step !== 'compare');
     this.active = isActive;
+    if (!isActive && this.dragging) this._endDragVisuals();
     if (!isActive) {
       if (this.lastSig !== 'hidden') {
         this._clear();

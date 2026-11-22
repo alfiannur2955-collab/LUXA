@@ -220,8 +220,8 @@ export class SunDomeController {
 
     const finishDrag = (e) => {
       if (!this.dragging) return;
-      e.preventDefault();
-      e.stopPropagation();
+      e?.preventDefault?.();
+      e?.stopPropagation?.();
       const finalR = this.dragRadius ?? this.currentRadius;
       this.dragging = false;
       this.dragRadius = null;
@@ -230,7 +230,7 @@ export class SunDomeController {
       this.onDragStateChange?.(false);
       if (this.handleLbl) this.handleLbl.style.display = 'none';
       try {
-        btn.releasePointerCapture(e.pointerId);
+        if (e?.pointerId !== undefined && btn.hasPointerCapture?.(e.pointerId)) btn.releasePointerCapture(e.pointerId);
       } catch {
         // Ignore
       }
@@ -239,6 +239,10 @@ export class SunDomeController {
 
     btn.addEventListener('pointerup', finishDrag);
     btn.addEventListener('pointercancel', finishDrag);
+    // Jaring pengaman agar kursor tidak macet bila capture lepas atau mouse dilepas di luar pegangan.
+    btn.addEventListener('lostpointercapture', finishDrag);
+    window.addEventListener('pointerup', finishDrag);
+    window.addEventListener('blur', () => finishDrag(null));
   }
 
   _clear() {
