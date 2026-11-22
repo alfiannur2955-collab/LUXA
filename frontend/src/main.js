@@ -731,6 +731,7 @@ async function runInspectAndOpenConfirm(
 async function refreshInspectReadOnly() {
   const s = getState();
   if (!s.modelId) return;
+  setState({ inspectBusy: true });
   try {
     const inspectData = await engine.inspect(s.modelId, s.config, {
       userAnswers: buildUserAnswers(s),
@@ -744,6 +745,8 @@ async function refreshInspectReadOnly() {
     saveProjectAutosave(next);
   } catch (err) {
     showToast(err.message || 'Gagal memperbarui inspeksi.', 'fail');
+  } finally {
+    setState({ inspectBusy: false });
   }
 }
 
@@ -1515,8 +1518,13 @@ function renderApp(state) {
           saveProjectAutosave(getState());
         },
         onProceedToInspect: async () => {
-          await refreshInspectReadOnly();
-          setState({ step: 'inspect', viewerMode: 'classification', openPopover: null });
+          if (getState().proceedBusy) return;
+          setState({ proceedBusy: true });
+          try {
+            await refreshInspectReadOnly();
+          } finally {
+            setState({ proceedBusy: false, step: 'inspect', viewerMode: 'classification', openPopover: null });
+          }
         },
       }),
     );

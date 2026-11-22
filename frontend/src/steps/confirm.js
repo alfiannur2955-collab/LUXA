@@ -630,8 +630,15 @@ export function renderConfirmScreen(state, handlers) {
   const cta = document.createElement('button');
   cta.type = 'button';
   cta.className = 'cta';
-  cta.disabled = !gate.ready;
-  cta.textContent = gate.ready ? 'Lanjut ke Inspeksi' : gate.missingLabel;
+  const busy = Boolean(state.proceedBusy);
+  cta.disabled = !gate.ready || busy;
+  if (busy) {
+    cta.classList.add('is-busy');
+    cta.setAttribute('aria-busy', 'true');
+    cta.innerHTML = '<span class="spin" aria-hidden="true"></span><span>Memeriksa model...</span>';
+  } else {
+    cta.textContent = gate.ready ? 'Lanjut ke Inspeksi' : gate.missingLabel;
+  }
   cta.addEventListener('click', () => handlers.onProceedToInspect());
 
   const hint = document.createElement('p');
@@ -639,9 +646,11 @@ export function renderConfirmScreen(state, handlers) {
   hint.style.margin = '0';
   hint.style.textAlign = 'center';
   hint.style.fontWeight = '500';
-  hint.textContent = gate.ready
-    ? 'Semua baris sudah hijau. Lanjut periksa grup dan kejanggalan.'
-    : 'Tombol aktif setelah semua baris berwarna hijau.';
+  hint.textContent = busy
+    ? 'Membaca grup, klasifikasi, dan kejanggalan model.'
+    : gate.ready
+      ? 'Semua baris sudah hijau. Lanjut periksa grup dan kejanggalan.'
+      : 'Tombol aktif setelah semua baris berwarna hijau.';
 
   footer.append(cta, hint);
   card.append(spacer, footer);
