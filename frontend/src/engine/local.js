@@ -284,3 +284,9 @@ export function getExportTips({ signal } = {}) {
 export async function parseEpw(file, { signal } = {}) {
   return api('parse_epw', { text: await file.text(), filename: file.name }, { signal });
 }
+
+/** Pins the main project's analysis in the worker so alternatives never evict it. */
+export async function pinAnalysis(analysisId, { signal } = {}) {
+  if (!analysisId) return { exists: false };
+  return api('pin_analysis', { analysis_id: analysisId }, { signal });
+}
