@@ -33,8 +33,12 @@ function positionStack() {
     return;
   }
   const vr = viewerEl.getBoundingClientRect();
-  const stack = viewerEl.querySelector('.viewer-bottom-stack');
-  const floorY = stack ? stack.getBoundingClientRect().top : vr.bottom - 16;
+  // Lantai toast = elemen bawah viewer yang paling tinggi (bar bawah, kartu selisih Bandingkan).
+  let floorY = vr.bottom - 16;
+  for (const el of viewerEl.querySelectorAll('.viewer-bottom-stack, .compare-diff-strip')) {
+    const r = el.getBoundingClientRect();
+    if (r.height > 0) floorY = Math.min(floorY, r.top);
+  }
   st.top = 'auto';
   st.right = `${Math.max(16, window.innerWidth - vr.right + 16)}px`;
   st.bottom = `${Math.max(16, window.innerHeight - floorY + 10)}px`;

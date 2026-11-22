@@ -168,7 +168,8 @@ const initialState = {
   formulaPillExpanded: false,
 
   // Fase 4c: Compare mode, design history & Workspace v1
-  alternatives: [], // [{ id, code, name, config, analysisData, createdAt }]
+  alternatives: [], // [{ id, code, name, kind: 'settings'|'model', config, analysisData, modelId?, filename?, createdAt }]
+  compareModelDraft: null, // Bandingkan: model kedua yang sedang disiapkan
   activeAlternativeId: null,
   compareSplitRatio: 0.5, // 0.10 .. 0.90
   compareBusy: false,

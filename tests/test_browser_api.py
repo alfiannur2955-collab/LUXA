@@ -99,8 +99,11 @@ def test_catalogues_match_server(both):
 def test_analysis_store_is_bounded_and_switching_model_clears(both):
     client, work = both
     _upload_both(client, work)
-    ids = [browser_api.analyze("m1")["analysis_id"] for _ in range(3)]
-    assert list(browser_api.ANALYSES) == ids[-2:]
+    browser_api._PINNED_ANALYSIS = None
+    browser_api.ANALYSES.clear()
+    n = browser_api.MAX_STORED_ANALYSES
+    ids = [browser_api.analyze("m1")["analysis_id"] for _ in range(n + 1)]
+    assert list(browser_api.ANALYSES) == ids[-n:]
     with pytest.raises(browser_api.EngineError) as e:
         browser_api.exposure(ids[0])
     assert e.value.status == 404
@@ -119,3 +122,44 @@ def test_old_template_prodi_format_returns_luxa_report(both):
     import openpyxl, io
     assert openpyxl.load_workbook(io.BytesIO(old["bytes"])).sheetnames[0] == "Ringkasan"
 
+
+
+def test_pinned_main_analysis_survives_alternatives_from_other_models(tmp_path):
+    """Bandingkan 'Model lain': analisis proyek utama dipin dan tetap bisa diekspor/diubah
+    setelah beberapa analisis model lain dihitung (dulu terbuang saat ganti model)."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    a_src = os.path.join(root, "fixtures", "synthetic", "09_sirip", "model.3dm")
+    b_src = os.path.join(root, "fixtures", "synthetic", "01_kotak_m", "model.3dm")
+    browser_api.register_upload("pin_a", a_src, "sirip.3dm", a_src)
+    browser_api.register_upload("pin_b", b_src, "kotak.3dm", b_src)
+    cfg = browser_api.default_config("sirip.3dm")
+    cfg["model"]["model_scope"] = "full_building"
+    main = browser_api.analyze("pin_a", cfg)
+    assert browser_api.pin_analysis(main["analysis_id"])["exists"] is True
+    try:
+        _run_pin_checks(main, cfg)
+    finally:
+        browser_api._PINNED_ANALYSIS = None
+
+
+def _run_pin_checks(main, cfg):
+    for _ in range(browser_api.MAX_STORED_ANALYSES + 2):
+        browser_api.analyze("pin_b", cfg)
+    out = browser_api.export_report(main["analysis_id"], "csv")
+    assert out["filename"].endswith(".csv") and len(out["bytes"]) > 100
+    assert browser_api.pin_analysis("tidak_ada")["exists"] is False
+
+
+def test_disabled_shading_group_changes_ottv():
+    """Bandingkan 'matikan grup': mematikan grup peneduh menghapus bayangannya dari SCeff."""
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = os.path.join(root, "fixtures", "synthetic", "09_sirip", "model.3dm")
+    browser_api.register_upload("dis_a", src, "sirip.3dm", src)
+    cfg = browser_api.default_config("sirip.3dm")
+    cfg["model"]["model_scope"] = "full_building"
+    with_fins = browser_api.analyze("dis_a", cfg)
+    shading = [g["group_name"] for g in with_fins["groups"] if g.get("category") == "shading"]
+    assert shading
+    cfg["roles"]["disabled_groups"] = shading
+    no_fins = browser_api.analyze("dis_a", cfg)
+    assert no_fins["ottv_total_wm2"] > with_fins["ottv_total_wm2"] + 0.5

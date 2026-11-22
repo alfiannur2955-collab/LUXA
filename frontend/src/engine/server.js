@@ -171,3 +171,8 @@ export async function parseEpw(file, { signal } = {}) {
   });
   return _jsonOrThrow(res, 'Gagal membaca file EPW.');
 }
+
+/** Server keeps 64 analyses; pinning is not needed there. */
+export async function pinAnalysis(analysisId) {
+  return { exists: Boolean(analysisId) };
+}

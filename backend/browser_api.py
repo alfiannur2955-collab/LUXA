@@ -45,11 +45,12 @@ from universal_pipeline import load_universal_model_stages_1_and_2
 
 ALLOWED_3D_EXTENSIONS = (".3dm", ".obj", ".ifc", ".glb", ".gltf", ".hbjson", ".json", ".stl", ".ply", ".zip")
 WORK_DIR = "/work"
-MAX_STORED_ANALYSES = 2  # browser memory budget (server keeps 64)
+MAX_STORED_ANALYSES = 3  # browser memory budget (server keeps 64); the pinned main analysis is extra
 
 MODELS: Dict[str, Tuple[str, str]] = {}  # model_id -> (fs_path, display_name)
 ANALYSES: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
 _ACTIVE_MODEL: Optional[str] = None
+_PINNED_ANALYSIS: Optional[str] = None  # analisis proyek utama; tidak pernah dibuang
 
 
 class EngineError(Exception):
@@ -68,8 +69,19 @@ class EngineError(Exception):
 def _store_analysis(aid: str, payload: Dict[str, Any]) -> None:
     ANALYSES[aid] = payload
     ANALYSES.move_to_end(aid)
-    while len(ANALYSES) > MAX_STORED_ANALYSES:
-        ANALYSES.popitem(last=False)
+    evictable = [k for k in ANALYSES if k != _PINNED_ANALYSIS]
+    while len(evictable) > MAX_STORED_ANALYSES:
+        ANALYSES.pop(evictable.pop(0), None)
+
+
+def pin_analysis(analysis_id: str) -> Dict[str, Any]:
+    """Tandai analisis proyek utama supaya tidak terbuang saat alternatif (atau model lain) dihitung.
+    Mengembalikan exists=False bila analisis itu sudah tidak ada (frontend lalu menghitung ulang)."""
+    global _PINNED_ANALYSIS
+    exists = analysis_id in ANALYSES
+    if exists:
+        _PINNED_ANALYSIS = analysis_id
+    return {"exists": exists, "pinned": _PINNED_ANALYSIS}
 
 
 def _get_analysis(aid: str) -> Dict[str, Any]:
@@ -90,8 +102,8 @@ def _switch_model(model_id: str) -> None:
             cache = getattr(mod, name, None)
             if hasattr(cache, "clear"):
                 cache.clear()
-    for aid in [k for k, v in ANALYSES.items() if v.get("model_id") != model_id]:
-        ANALYSES.pop(aid, None)
+    # Analisis model lain tetap disimpan (dibatasi oleh _store_analysis), supaya proyek utama tetap
+    # bisa diekspor/diubah materialnya setelah alternatif model lain dihitung di Bandingkan.
     gc.collect()
 
 
@@ -389,6 +401,7 @@ _OPS = {
     "exposure": exposure,
     "export_report": export_report,
     "rematerial": rematerial,
+    "pin_analysis": pin_analysis,
     "recommend": recommend,
     "list_materials": list_materials,
     "validate_material": validate_material,

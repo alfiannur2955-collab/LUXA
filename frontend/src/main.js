@@ -328,7 +328,7 @@ function handleChangeFacadeFilter(filterMode) {
   }
 }
 
-async function handleCreateAlternative({ name, glazingMaterialId, wallMaterialId, northAngleDeg }) {
+async function handleCreateAlternative({ name, glazingMaterialId, wallMaterialId, northAngleDeg, disabledGroups = [] }) {
   const s = getState();
   if (!s.modelId || !s.analysisData) return;
 
@@ -337,6 +337,11 @@ async function handleCreateAlternative({ name, glazingMaterialId, wallMaterialId
   if (wallMaterialId) altConfig.settings.wall_material_id = wallMaterialId;
   if (Number.isFinite(Number(northAngleDeg))) {
     altConfig.settings.north_angle_deg = Number(northAngleDeg);
+  }
+  if (disabledGroups.length) {
+    const cur = new Set(altConfig.roles?.disabled_groups || []);
+    for (const g of disabledGroups) cur.add(g);
+    altConfig.roles = { ...(altConfig.roles || {}), disabled_groups: [...cur] };
   }
 
   setState({ compareBusy: true });
@@ -348,6 +353,8 @@ async function handleCreateAlternative({ name, glazingMaterialId, wallMaterialId
       id: `alt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
       code: codeChar,
       name: String(name || `Variasi ${codeChar}`).trim(),
+      kind: 'settings',
+      disabledGroups: [...disabledGroups],
       config: altConfig,
       analysisData: result,
       createdAt: new Date().toISOString(),
@@ -372,14 +379,20 @@ function handleApplyAlternative(altId) {
   const prevGlz = (s.materials?.materials || []).find((m) => m.id === s.config?.settings?.glazing_material_id);
   const histEntry = {
     id: `hist_${Date.now().toString(36)}`,
-    label: prevGlz ? prevGlz.name : 'Desain sebelumnya',
+    label: alt.kind === 'model' ? s.filename || 'Model sebelumnya' : prevGlz ? prevGlz.name : 'Desain sebelumnya',
     config: mergeConfig(s.config),
     analysisData: s.analysisData,
+    modelId: s.modelId,
+    filename: s.filename,
+    inspectData: s.inspectData,
     savedAt: new Date().toISOString(),
   };
 
   viewer.clearCompareMode();
+  const modelSwitch =
+    alt.kind === 'model' ? { modelId: alt.modelId, filename: alt.filename, inspectData: alt.inspectData || s.inspectData } : {};
   const next = setState({
+    ...modelSwitch,
     config: mergeConfig(alt.config),
     analysisData: alt.analysisData,
     designHistory: [histEntry, ...(s.designHistory || [])].slice(0, 12),
@@ -402,13 +415,17 @@ function handleRestoreHistory(histId) {
   const curGlz = (s.materials?.materials || []).find((m) => m.id === s.config?.settings?.glazing_material_id);
   const swapEntry = {
     id: `hist_${Date.now().toString(36)}`,
-    label: curGlz ? curGlz.name : 'Desain sebelumnya',
+    label: item.modelId && item.modelId !== s.modelId ? s.filename || 'Model sebelumnya' : curGlz ? curGlz.name : 'Desain sebelumnya',
     config: mergeConfig(s.config),
     analysisData: s.analysisData,
+    modelId: s.modelId,
+    filename: s.filename,
+    inspectData: s.inspectData,
     savedAt: new Date().toISOString(),
   };
   const nextHistory = [swapEntry, ...(s.designHistory || []).filter((h) => h.id !== histId)].slice(0, 12);
   const next = setState({
+    ...(item.modelId ? { modelId: item.modelId, filename: item.filename, inspectData: item.inspectData || s.inspectData } : {}),
     config: mergeConfig(item.config),
     analysisData: item.analysisData,
     designHistory: nextHistory,
@@ -419,6 +436,141 @@ function handleRestoreHistory(histId) {
   });
   saveProjectAutosave(next);
   showToast(`Desain "${item.label}" dipulihkan.`, 'ok', 2600);
+}
+
+// ---------------------------------------------------------------------------
+// Bandingkan: alternatif "Model lain"
+// ---------------------------------------------------------------------------
+const MAX_MODEL_ALTERNATIVES = 3;
+
+/** Material per peran yang paling luas dipakai di proyek utama (nama grup model lain pasti beda). */
+function dominantMaterialsByRole(analysis) {
+  const byCat = {};
+  for (const g of analysis?.groups || []) {
+    if (!g.enabled && g.enabled !== undefined) continue;
+    const cat = g.category;
+    if (!g.material_id || !['glazing', 'wall', 'frame', 'roof'].includes(cat)) continue;
+    byCat[cat] = byCat[cat] || {};
+    byCat[cat][g.material_id] = (byCat[cat][g.material_id] || 0) + Number(g.outer_area_m2 || 0);
+  }
+  const pick = (cat) => {
+    const m = byCat[cat];
+    if (!m) return null;
+    return Object.entries(m).sort((a, b) => b[1] - a[1])[0][0];
+  };
+  return { glazing: pick('glazing'), wall: pick('wall'), frame: pick('frame'), roof: pick('roof') };
+}
+
+async function handlePrepareModelAlternative(file) {
+  const s = getState();
+  if (!file || !s.analysisData) return;
+  const modelAlts = (s.alternatives || []).filter((a) => a.kind === 'model').length;
+  if (modelAlts >= MAX_MODEL_ALTERNATIVES) {
+    showToast(`Maksimal ${MAX_MODEL_ALTERNATIVES} alternatif model lain supaya memori browser cukup. Hapus salah satu dulu.`, 'warn', 4200);
+    return;
+  }
+  setState({ compareModelDraft: { busy: true, filename: file.name } });
+  try {
+    const up = await engine.upload(file);
+    let cfg = up.config ? mergeConfig(up.config) : null;
+    if (!cfg) {
+      try {
+        cfg = mergeConfig((await engine.loadConfig(up.model_id))?.config);
+      } catch {
+        cfg = createDefaultConfig();
+      }
+    }
+    cfg.model.file = up.filename || file.name;
+    cfg.model.model_scope = cfg.model.model_scope || s.config?.model?.model_scope || 'full_building';
+    const ins = await engine.inspect(up.model_id, cfg, { userAnswers: {} });
+    if (!(ins.groups || []).length) throw new Error(`File "${file.name}" tidak menghasilkan bidang yang bisa dihitung.`);
+    const audit = ins.stage1_audit || {};
+    setState({
+      compareModelDraft: {
+        busy: false,
+        modelId: up.model_id,
+        filename: up.filename || file.name,
+        config: cfg,
+        inspectData: ins,
+        appliedUnit: audit.applied_unit || 'm',
+        unitNeedsConfirmation: Boolean(audit.unit_needs_confirmation),
+        appliedUpAxis: audit.detected_up_axis || 'Z',
+        flags: (ins.sanity_flags || []).map((f) => ({ code: f.code, title: f.title, severity: f.severity })),
+        bbox: ins.bounding_box || null,
+        groupCount: (ins.groups || []).length,
+        floors: ins.estimated_floors || null,
+      },
+    });
+  } catch (err) {
+    setState({ compareModelDraft: { busy: false, error: err.message || 'File tidak dapat dibaca.' } });
+  }
+}
+
+async function handleCreateModelAlternative({ unit, upAxis, scope, northAngleDeg, name }) {
+  const s = getState();
+  const d = s.compareModelDraft;
+  if (!d?.modelId || !s.analysisData) return;
+  const cfg = mergeConfig(d.config);
+  cfg.model.unit_mode = unit || 'auto';
+  cfg.model.up_axis = upAxis || 'auto';
+  cfg.model.model_scope = scope || cfg.model.model_scope;
+  // Kejanggalan model kedua diterima apa adanya (hasil ditandai SEMENTARA bila perlu).
+  cfg.model.accepted_flags = (d.flags || []).filter((f) => f.severity !== 'ok').map((f) => f.code);
+  // Pengaturan disamakan dengan proyek utama supaya perbandingan adil.
+  cfg.settings = { ...mergeConfig(s.config).settings };
+  const dom = dominantMaterialsByRole(s.analysisData);
+  if (dom.glazing) cfg.settings.glazing_material_id = dom.glazing;
+  if (dom.wall) cfg.settings.wall_material_id = dom.wall;
+  if (dom.frame) cfg.settings.frame_material_id = dom.frame;
+  if (dom.roof) cfg.settings.roof_material_id = dom.roof;
+  if (Number.isFinite(Number(northAngleDeg))) cfg.settings.north_angle_deg = ((Number(northAngleDeg) % 360) + 360) % 360;
+
+  setState({ compareBusy: true, compareModelDraft: { ...d, busy: true } });
+  try {
+    const result = await engine.analyze(d.modelId, cfg);
+    const existing = getState().alternatives || [];
+    const codeChar = String.fromCharCode(65 + (existing.length % 26));
+    const altRec = {
+      id: `alt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+      code: codeChar,
+      name: String(name || d.filename || `Model ${codeChar}`).trim(),
+      kind: 'model',
+      modelId: d.modelId,
+      filename: d.filename,
+      inspectData: d.inspectData,
+      config: cfg,
+      analysisData: result,
+      createdAt: new Date().toISOString(),
+    };
+    setState({
+      alternatives: [...existing, altRec],
+      activeAlternativeId: altRec.id,
+      compareBusy: false,
+      compareModelDraft: null,
+    });
+    showToast(`Alternatif ${codeChar} (${d.filename}) selesai dihitung: ${result.ottv_total_wm2} W/m².`, 'ok', 3200);
+  } catch (err) {
+    setState({ compareBusy: false, compareModelDraft: { ...d, busy: false, error: err.message || 'Gagal menghitung model ini.' } });
+  }
+}
+
+// Analisis proyek utama dipin di engine browser; bila ternyata sudah terbuang, hitung ulang diam-diam.
+let lastPinnedAnalysisId = null;
+async function pinMainAnalysis(state) {
+  const id = state.analysisData?.analysis_id;
+  if (!id || id === lastPinnedAnalysisId) return;
+  lastPinnedAnalysisId = id;
+  try {
+    const r = await engine.pinAnalysis(id);
+    if (r && r.exists === false) {
+      const cur = getState();
+      if (cur.analysisData?.analysis_id !== id || !cur.modelId) return;
+      const fresh = await engine.analyze(cur.modelId, cur.config);
+      if (getState().analysisData?.analysis_id === id) setState({ analysisData: fresh });
+    }
+  } catch {
+    // Tidak fatal: operasi berikutnya akan menampilkan pesan bila analisis memang hilang.
+  }
 }
 
 const vbarHandlers = {
@@ -1464,6 +1616,9 @@ function renderApp(state) {
           });
         },
         onCreateAlternative: handleCreateAlternative,
+        onPrepareModelAlternative: handlePrepareModelAlternative,
+        onCreateModelAlternative: handleCreateModelAlternative,
+        onCancelModelDraft: () => setState({ compareModelDraft: null }),
         onApplyAlternative: handleApplyAlternative,
         onRestoreHistory: handleRestoreHistory,
         onRerender: () => setState({}),
@@ -1743,6 +1898,9 @@ async function bootstrap() {
     }
   });
   subscribe(renderApp);
+  subscribe((st) => {
+    pinMainAnalysis(st);
+  });
   setState({
     theme: savedTheme,
     workspace: savedWs,

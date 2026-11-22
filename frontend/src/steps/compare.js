@@ -13,7 +13,36 @@ import { icon } from '../ui/icons.js';
 import { viewer } from '../viewer/viewer.js';
 
 let addFormOpen = false;
+let addTab = 'settings'; // 'settings' | 'model'
 let renamingAltId = null;
+
+const CATEGORY_ID = {
+  glazing: 'Kaca',
+  wall: 'Dinding',
+  spandrel: 'Spandrel',
+  frame: 'Rangka',
+  shading: 'Peneduh',
+  roof: 'Atap',
+  composite_cw: 'Curtain wall',
+  ignore: 'Diabaikan',
+  unknown: 'Belum jelas',
+};
+
+function totalHeatKw(analysis) {
+  let w = 0;
+  for (const o of analysis?.orientation_breakdown || []) w += Number(o.heat_gain_watts || 0);
+  return w / 1000;
+}
+
+function envelopeArea(analysis) {
+  return Number(analysis?.summary?.total_envelope_area_m2 ?? 0);
+}
+
+function altSubtitle(alt, state) {
+  if (alt.kind === 'model') return `Model: ${alt.filename || alt.name}`;
+  if (alt.disabledGroups?.length) return `Tanpa ${alt.disabledGroups.map((g) => g.split(' :: ')[0]).join(', ')}`;
+  return summarizeDesignSubtitle(alt.config, state.materials);
+}
 
 function findMaterial(materialsObj, matId) {
   const list = materialsObj?.materials || [];
@@ -115,7 +144,7 @@ export function renderCompareScreen(state, handlers) {
     headsLayer.appendChild(
       makeCompareHeaderCard(
         `Alternatif ${activeAlt.code}`,
-        summarizeDesignSubtitle(activeAlt.config, state.materials),
+        altSubtitle(activeAlt, state),
         altOttv,
         sniLimit,
         'is-right',
@@ -332,13 +361,46 @@ export function renderCompareScreen(state, handlers) {
     desc.textContent = `OTTV ${verb} ${fmtId(pct, 1)}%, dari ${fmtId(baseOttv, 2)} ke ${fmtId(altOttv, 2)}. ${passTxt}`;
 
     sumCard.append(fig, desc);
+
+    // Total panas dan luas: penting bila model berbeda (luas selubung tidak sama).
+    const hb = totalHeatKw(baseAnalysis);
+    const ha = totalHeatKw(activeAlt.analysisData);
+    const ab = envelopeArea(baseAnalysis);
+    const aa = envelopeArea(activeAlt.analysisData);
+    const extra = document.createElement('p');
+    extra.className = 'muted num';
+    extra.style.margin = '4px 0 0';
+    extra.style.fontSize = '12.5px';
+    extra.textContent = `Total panas ${fmtId(hb, 1)} → ${fmtId(ha, 1)} kW · luas selubung ${fmtId(ab, 0)} → ${fmtId(aa, 0)} m²`;
+    sumCard.appendChild(extra);
+
+    const sb = state.config?.settings || {};
+    const sa = activeAlt.config?.settings || {};
+    const unfair = [];
+    if (sb.city_preset !== sa.city_preset) unfair.push('lokasi');
+    if (sb.sf_source !== sa.sf_source) unfair.push('tabel SF');
+    if (sb.mode !== sa.mode) unfair.push('mode perhitungan');
+    if (unfair.length) {
+      const warn = document.createElement('p');
+      warn.className = 'lbl st-fail';
+      warn.style.margin = '6px 0 0';
+      warn.textContent = `Perhatian: ${unfair.join(', ')} berbeda, jadi perbandingan tidak setara.`;
+      sumCard.appendChild(warn);
+    }
+    if (activeAlt.analysisData?.summary?.is_provisional) {
+      const prov = document.createElement('p');
+      prov.className = 'lbl';
+      prov.style.margin = '6px 0 0';
+      prov.textContent = 'Hasil alternatif SEMENTARA: ada kejanggalan model yang diterima tanpa perbaikan.';
+      sumCard.appendChild(prov);
+    }
   } else {
     const emptyP = document.createElement('p');
     emptyP.className = 'muted';
     emptyP.style.margin = '8px 0 0';
     emptyP.style.fontSize = '13px';
     emptyP.textContent =
-      'Tambahkan minimal satu alternatif di bawah untuk membandingkan pengaruh penggantian kaca, dinding, atau arah utara.';
+      'Tambahkan alternatif di bawah: ganti material, matikan grup (mis. tanpa sirip), atau bandingkan dengan model lain.';
     sumCard.appendChild(emptyP);
   }
 
@@ -362,7 +424,26 @@ export function renderCompareScreen(state, handlers) {
     const altWall = findMaterial(state.materials, activeAlt.config?.settings?.wall_material_id);
 
     const diffRows = [];
-    if (altGlz && altGlz.id !== baseGlz?.id) {
+    if (activeAlt.kind === 'model') {
+      const b = baseAnalysis;
+      const a = activeAlt.analysisData;
+      diffRows.push(['Model', activeAlt.filename || activeAlt.name, true]);
+      diffRows.push(['Luas selubung', `${fmtId(envelopeArea(b), 0)} → ${fmtId(envelopeArea(a), 0)} m²`, false]);
+      diffRows.push([
+        'WWR',
+        `${fmtId((b?.summary?.effective_wwr ?? 0) * 100, 1)} → ${fmtId((a?.summary?.effective_wwr ?? 0) * 100, 1)}%`,
+        false,
+      ]);
+      diffRows.push(['Total panas', `${fmtId(totalHeatKw(b), 1)} → ${fmtId(totalHeatKw(a), 1)} kW`, false]);
+      const rb = b?.rttv?.applicable ? fmtId(b.rttv.rttv_wm2, 2) : '-';
+      const ra = a?.rttv?.applicable ? fmtId(a.rttv.rttv_wm2, 2) : '-';
+      diffRows.push(['RTTV', `${rb} → ${ra} W/m²`, false]);
+      diffRows.push(['Lantai', `${b?.summary?.total_floors ?? '-'} → ${a?.summary?.total_floors ?? '-'}`, false]);
+    }
+    if (activeAlt.disabledGroups?.length) {
+      diffRows.push(['Grup dimatikan', activeAlt.disabledGroups.map((g) => g.split(' :: ')[0]).join(', '), true]);
+    }
+    if (activeAlt.kind !== 'model' && altGlz && altGlz.id !== baseGlz?.id) {
       diffRows.push(['Kaca', altGlz.name, true]);
       if (baseGlz?.sc != null && altGlz.sc != null) {
         diffRows.push(['SC', `${fmtId(baseGlz.sc, 2)} → ${fmtId(altGlz.sc, 2)}`, false]);
@@ -371,7 +452,7 @@ export function renderCompareScreen(state, handlers) {
         diffRows.push(['Uf', `${fmtId(baseGlz.u_value, 2)} → ${fmtId(altGlz.u_value, 2)}`, false]);
       }
     }
-    if (altWall && altWall.id !== baseWall?.id) {
+    if (activeAlt.kind !== 'model' && altWall && altWall.id !== baseWall?.id) {
       diffRows.push(['Dinding', altWall.name, true]);
       if (baseWall?.u_value != null && altWall.u_value != null) {
         diffRows.push(['Uw', `${fmtId(baseWall.u_value, 2)} → ${fmtId(altWall.u_value, 2)}`, false]);
@@ -418,7 +499,9 @@ export function renderCompareScreen(state, handlers) {
     tbl.appendChild(tbody);
     chgCard.appendChild(tbl);
 
-    const catalogNote = getMaterialCatalogNote(altGlz) || getMaterialCatalogNote(altWall);
+    const glzChanged = activeAlt.kind !== 'model' && altGlz && altGlz.id !== baseGlz?.id;
+    const wallChanged = activeAlt.kind !== 'model' && altWall && altWall.id !== baseWall?.id;
+    const catalogNote = (glzChanged && getMaterialCatalogNote(altGlz)) || (wallChanged && getMaterialCatalogNote(altWall)) || '';
     if (catalogNote) {
       const noteP = document.createElement('p');
       noteP.className = 'lbl';
@@ -556,88 +639,35 @@ export function renderCompareScreen(state, handlers) {
   });
   altList.appendChild(addBtn);
 
-  if (addFormOpen || alts.length === 0) {
-    const form = document.createElement('form');
-    form.className = 'glass-thin compare-add-form';
+  if (addFormOpen || alts.length === 0 || state.compareModelDraft) {
+    if (state.compareModelDraft) addTab = 'model';
+    const wrap = document.createElement('div');
+    wrap.className = 'glass-thin compare-add-form';
 
-    const glzMats = state.materials?.glazing_materials || [];
-    const wallMats = state.materials?.wall_materials || [];
-
-    // Default suggestion: Kaca Elektrokromik if not already active
-    const curGlzId = state.config?.settings?.glazing_material_id;
-    const defaultAltGlz =
-      curGlzId !== 'glz_kaca_elektrokromik' && glzMats.some((m) => m.id === 'glz_kaca_elektrokromik')
-        ? 'glz_kaca_elektrokromik'
-        : curGlzId;
-
-    const glzLbl = document.createElement('label');
-    glzLbl.className = 'lbl';
-    glzLbl.textContent = 'Material kaca alternatif';
-    const glzSel = document.createElement('select');
-    glzSel.className = 'field-select field-select-sm';
-    for (const m of glzMats) {
-      const opt = document.createElement('option');
-      opt.value = m.id;
-      opt.textContent = `${m.name} (SC ${fmtId(m.sc ?? 0, 2)})`;
-      if (m.id === defaultAltGlz) opt.selected = true;
-      glzSel.appendChild(opt);
-    }
-
-    const wallLbl = document.createElement('label');
-    wallLbl.className = 'lbl';
-    wallLbl.textContent = 'Material dinding / spandrel';
-    const wallSel = document.createElement('select');
-    wallSel.className = 'field-select field-select-sm';
-    const curWallId = state.config?.settings?.wall_material_id;
-    for (const m of wallMats) {
-      const opt = document.createElement('option');
-      opt.value = m.id;
-      opt.textContent = `${m.name} (Uw ${fmtId(m.u_value ?? 0, 2)})`;
-      if (m.id === curWallId) opt.selected = true;
-      wallSel.appendChild(opt);
-    }
-
-    const northLbl = document.createElement('label');
-    northLbl.className = 'lbl';
-    northLbl.textContent = 'Arah utara (derajat)';
-    const northInp = document.createElement('input');
-    northInp.type = 'number';
-    northInp.min = '0';
-    northInp.max = '359';
-    northInp.className = 'field-input num';
-    northInp.style.height = '34px';
-    northInp.value = String(Math.round(Number(state.config?.settings?.north_angle_deg || 0)));
-
-    const submitBtn = document.createElement('button');
-    submitBtn.type = 'submit';
-    submitBtn.className = 'cta';
-    submitBtn.style.height = '40px';
-    submitBtn.style.fontSize = '13px';
-    submitBtn.disabled = Boolean(state.compareBusy);
-    submitBtn.textContent = state.compareBusy ? 'Menghitung...' : 'Hitung alternatif ini';
-
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const chosenGlz = glzMats.find((m) => m.id === glzSel.value);
-      const chosenWall = wallMats.find((m) => m.id === wallSel.value);
-      const nextNorth = ((Number(northInp.value) || 0) % 360 + 360) % 360;
-      let autoName = chosenGlz && chosenGlz.id !== curGlzId ? chosenGlz.name : '';
-      if (!autoName && chosenWall && chosenWall.id !== curWallId) autoName = chosenWall.name;
-      if (!autoName && Math.round(nextNorth) !== Math.round(Number(state.config?.settings?.north_angle_deg || 0))) {
-        autoName = `Utara ${Math.round(nextNorth)}°`;
-      }
-      if (!autoName) autoName = chosenGlz?.name || 'Variasi desain';
-      addFormOpen = false;
-      handlers.onCreateAlternative({
-        name: autoName,
-        glazingMaterialId: glzSel.value,
-        wallMaterialId: wallSel.value,
-        northAngleDeg: nextNorth,
+    const tabs = document.createElement('div');
+    tabs.className = 'legend-toggle compare-add-tabs';
+    tabs.setAttribute('role', 'tablist');
+    for (const [id, lbl] of [
+      ['settings', 'Pengaturan'],
+      ['model', 'Model lain'],
+    ]) {
+      const t = document.createElement('button');
+      t.type = 'button';
+      t.setAttribute('role', 'tab');
+      t.setAttribute('aria-selected', addTab === id ? 'true' : 'false');
+      t.className = addTab === id ? 'on' : '';
+      t.textContent = lbl;
+      t.addEventListener('click', () => {
+        addTab = id;
+        handlers.onRerender();
       });
-    });
+      tabs.appendChild(t);
+    }
+    wrap.appendChild(tabs);
 
-    form.append(glzLbl, glzSel, wallLbl, wallSel, northLbl, northInp, submitBtn);
-    altList.appendChild(form);
+    if (addTab === 'settings') wrap.appendChild(buildSettingsForm(state, handlers));
+    else wrap.appendChild(buildModelForm(state, handlers));
+    altList.appendChild(wrap);
   }
 
   altCard.appendChild(altList);
@@ -727,4 +757,293 @@ export function renderCompareScreen(state, handlers) {
   });
 
   return main;
+}
+
+
+function buildSettingsForm(state, handlers) {
+  const form = document.createElement('form');
+  form.className = 'compare-add-body';
+
+  const glzMats = state.materials?.glazing_materials || [];
+  const wallMats = state.materials?.wall_materials || [];
+  const curGlzId = state.config?.settings?.glazing_material_id;
+  const curWallId = state.config?.settings?.wall_material_id;
+
+  const glzLbl = document.createElement('label');
+  glzLbl.className = 'lbl';
+  glzLbl.textContent = 'Material kaca';
+  const glzSel = document.createElement('select');
+  glzSel.className = 'field-select field-select-sm';
+  for (const m of glzMats) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = `${m.name} (SC ${fmtId(m.sc ?? 0, 2)})`;
+    if (m.id === curGlzId) opt.selected = true;
+    glzSel.appendChild(opt);
+  }
+
+  const wallLbl = document.createElement('label');
+  wallLbl.className = 'lbl';
+  wallLbl.textContent = 'Material dinding / spandrel';
+  const wallSel = document.createElement('select');
+  wallSel.className = 'field-select field-select-sm';
+  for (const m of wallMats) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = `${m.name} (Uw ${fmtId(m.u_value ?? 0, 2)})`;
+    if (m.id === curWallId) opt.selected = true;
+    wallSel.appendChild(opt);
+  }
+
+  const northLbl = document.createElement('label');
+  northLbl.className = 'lbl';
+  northLbl.textContent = 'Arah utara (derajat)';
+  const northInp = document.createElement('input');
+  northInp.type = 'number';
+  northInp.min = '0';
+  northInp.max = '359';
+  northInp.className = 'field-input num';
+  northInp.style.height = '34px';
+  northInp.value = String(Math.round(Number(state.config?.settings?.north_angle_deg || 0)));
+
+  // Matikan grup: misalnya Peneduh untuk membandingkan tanpa sirip/overhang.
+  const grpLbl = document.createElement('p');
+  grpLbl.className = 'lbl';
+  grpLbl.style.margin = '4px 0 0';
+  grpLbl.textContent = 'Matikan grup (opsional)';
+  const grpHint = document.createElement('p');
+  grpHint.className = 'muted';
+  grpHint.style.margin = '0';
+  grpHint.style.fontSize = '11.5px';
+  grpHint.textContent = 'Contoh: matikan grup peneduh untuk melihat OTTV tanpa sirip. Bayangannya ikut hilang dari hitungan.';
+  const grpList = document.createElement('div');
+  grpList.className = 'compare-group-list';
+  const alreadyOff = new Set(state.config?.roles?.disabled_groups || []);
+  const groups = (state.analysisData?.groups || [])
+    .filter((g) => g.group_name && !alreadyOff.has(g.group_name) && g.category !== 'ignore')
+    .sort((x, y) => (x.category === 'shading' ? -1 : 0) - (y.category === 'shading' ? -1 : 0));
+  const checks = [];
+  for (const g of groups) {
+    const row = document.createElement('label');
+    row.className = 'compare-group-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = g.group_name;
+    const nm = document.createElement('span');
+    nm.className = 'compare-group-name';
+    nm.textContent = g.group_name.split(' :: ')[0];
+    nm.title = g.group_name;
+    const cat = document.createElement('span');
+    cat.className = 'muted compare-group-cat';
+    cat.textContent = CATEGORY_ID[g.category] || g.category || '';
+    row.append(cb, nm, cat);
+    grpList.appendChild(row);
+    checks.push(cb);
+  }
+  if (!groups.length) {
+    const none = document.createElement('p');
+    none.className = 'muted';
+    none.style.fontSize = '12px';
+    none.textContent = 'Tidak ada grup yang bisa dimatikan.';
+    grpList.appendChild(none);
+  }
+
+  const submitBtn = document.createElement('button');
+  submitBtn.type = 'submit';
+  submitBtn.className = 'cta';
+  submitBtn.style.height = '40px';
+  submitBtn.style.fontSize = '13px';
+  submitBtn.disabled = Boolean(state.compareBusy);
+  submitBtn.textContent = state.compareBusy ? 'Menghitung...' : 'Hitung alternatif ini';
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const chosenGlz = glzMats.find((m) => m.id === glzSel.value);
+    const chosenWall = wallMats.find((m) => m.id === wallSel.value);
+    const nextNorth = ((Number(northInp.value) || 0) % 360 + 360) % 360;
+    const off = checks.filter((c) => c.checked).map((c) => c.value);
+    const parts = [];
+    if (off.length) parts.push(`Tanpa ${off.map((g) => g.split(' :: ')[0]).join(', ')}`);
+    if (chosenGlz && chosenGlz.id !== curGlzId) parts.push(chosenGlz.name);
+    if (chosenWall && chosenWall.id !== curWallId) parts.push(chosenWall.name);
+    if (Math.round(nextNorth) !== Math.round(Number(state.config?.settings?.north_angle_deg || 0))) parts.push(`Utara ${Math.round(nextNorth)}°`);
+    addFormOpen = false;
+    handlers.onCreateAlternative({
+      name: parts.join(' · ') || 'Variasi desain',
+      glazingMaterialId: glzSel.value,
+      wallMaterialId: wallSel.value,
+      northAngleDeg: nextNorth,
+      disabledGroups: off,
+    });
+  });
+
+  form.append(glzLbl, glzSel, wallLbl, wallSel, northLbl, northInp, grpLbl, grpHint, grpList, submitBtn);
+  return form;
+}
+
+function buildModelForm(state, handlers) {
+  const box = document.createElement('div');
+  box.className = 'compare-add-body';
+  const d = state.compareModelDraft;
+
+  const intro = document.createElement('p');
+  intro.className = 'muted';
+  intro.style.margin = '0';
+  intro.style.fontSize = '12px';
+  intro.textContent =
+    'Unggah model kedua (mis. versi dengan peneduh). Lokasi, tabel SF, mode, dan material disamakan dengan proyek ini supaya adil.';
+  box.appendChild(intro);
+
+  if (!d || (!d.modelId && !d.busy)) {
+    const fileLbl = document.createElement('label');
+    fileLbl.className = 'ghost compare-file-btn';
+    fileLbl.innerHTML = `${icon('upload', 14)}<span>Pilih file model</span>`;
+    const inp = document.createElement('input');
+    inp.type = 'file';
+    inp.accept = '.3dm,.ifc,.obj,.glb,.gltf,.zip,.hbjson,.json,.stl,.ply';
+    inp.className = 'sr-only';
+    inp.addEventListener('change', () => {
+      if (inp.files?.[0]) handlers.onPrepareModelAlternative(inp.files[0]);
+    });
+    fileLbl.appendChild(inp);
+    box.appendChild(fileLbl);
+    if (d?.error) {
+      const err = document.createElement('p');
+      err.className = 'lbl st-fail';
+      err.style.margin = '0';
+      err.textContent = d.error;
+      box.appendChild(err);
+    }
+    return box;
+  }
+
+  if (d.busy && !d.modelId) {
+    const p = document.createElement('p');
+    p.className = 'lbl';
+    p.style.margin = '0';
+    p.textContent = `Membaca ${d.filename}...`;
+    box.appendChild(p);
+    return box;
+  }
+
+  // Cek singkat model kedua
+  const head = document.createElement('p');
+  head.className = 'lbl';
+  head.style.margin = '0';
+  head.style.color = 'var(--ink)';
+  head.textContent = d.filename;
+  const span = d.bbox?.span || [];
+  const info = document.createElement('p');
+  info.className = 'muted num';
+  info.style.margin = '0';
+  info.style.fontSize = '12px';
+  info.textContent = `${span.map((v) => fmtId(v, 1)).join(' × ')} m · ${d.groupCount} grup${d.floors ? ` · ${d.floors} lantai` : ''}`;
+  box.append(head, info);
+
+  const row = (label, el) => {
+    const r = document.createElement('label');
+    r.className = 'compare-check-row';
+    const l = document.createElement('span');
+    l.className = 'lbl';
+    l.textContent = label;
+    r.append(l, el);
+    return r;
+  };
+  const mkSel = (opts, val) => {
+    const sel = document.createElement('select');
+    sel.className = 'field-select field-select-sm';
+    for (const [v, t] of opts) {
+      const o = document.createElement('option');
+      o.value = v;
+      o.textContent = t;
+      if (v === val) o.selected = true;
+      sel.appendChild(o);
+    }
+    return sel;
+  };
+  const unitSel = mkSel(
+    [
+      ['auto', `Otomatis (${d.appliedUnit})`],
+      ['m', 'Meter'],
+      ['cm', 'Sentimeter'],
+      ['mm', 'Milimeter'],
+      ['ft', 'Kaki'],
+      ['in', 'Inci'],
+    ],
+    d.unitNeedsConfirmation ? d.appliedUnit || 'auto' : 'auto',
+  );
+  const axisSel = mkSel(
+    [
+      ['auto', `Otomatis (${d.appliedUpAxis}-atas)`],
+      ['Z', 'Z ke atas'],
+      ['Y', 'Y ke atas'],
+    ],
+    'auto',
+  );
+  const scopeSel = mkSel(
+    [
+      ['facade_only', 'Fasad saja'],
+      ['full_building', 'Gedung lengkap'],
+      ['building_site', 'Gedung dan tapak'],
+    ],
+    d.config?.model?.model_scope || 'full_building',
+  );
+  const northInp = document.createElement('input');
+  northInp.type = 'number';
+  northInp.min = '0';
+  northInp.max = '359';
+  northInp.className = 'field-input num';
+  northInp.style.height = '32px';
+  northInp.value = String(Math.round(Number(state.config?.settings?.north_angle_deg || 0)));
+  northInp.title = 'Samakan dengan proyek ini, atau ubah bila model kedua digambar dengan orientasi lain';
+
+  box.append(row('Satuan', unitSel), row('Sumbu atas', axisSel), row('Isi model', scopeSel), row('Arah utara (°)', northInp));
+
+  const warnFlags = (d.flags || []).filter((f) => f.severity !== 'ok');
+  if (warnFlags.length) {
+    const fl = document.createElement('p');
+    fl.className = 'lbl';
+    fl.style.margin = '0';
+    fl.style.fontWeight = '500';
+    fl.textContent = `Catatan model: ${warnFlags.map((f) => f.title).join('; ')}. Hasil akan ditandai SEMENTARA.`;
+    box.appendChild(fl);
+  }
+  if (d.error) {
+    const err = document.createElement('p');
+    err.className = 'lbl st-fail';
+    err.style.margin = '0';
+    err.textContent = d.error;
+    box.appendChild(err);
+  }
+
+  const btnRow = document.createElement('div');
+  btnRow.style.display = 'grid';
+  btnRow.style.gridTemplateColumns = 'auto 1fr';
+  btnRow.style.gap = '6px';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'ghost ghost-sm';
+  cancel.style.height = '40px';
+  cancel.textContent = 'Batal';
+  cancel.addEventListener('click', () => handlers.onCancelModelDraft());
+  const go = document.createElement('button');
+  go.type = 'button';
+  go.className = 'cta';
+  go.style.height = '40px';
+  go.style.fontSize = '13px';
+  go.disabled = Boolean(d.busy || state.compareBusy);
+  go.textContent = d.busy ? 'Menghitung...' : 'Hitung model ini';
+  go.addEventListener('click', () => {
+    addFormOpen = false;
+    handlers.onCreateModelAlternative({
+      unit: unitSel.value,
+      upAxis: axisSel.value,
+      scope: scopeSel.value,
+      northAngleDeg: Number(northInp.value),
+      name: d.filename,
+    });
+  });
+  btnRow.append(cancel, go);
+  box.appendChild(btnRow);
+  return box;
 }

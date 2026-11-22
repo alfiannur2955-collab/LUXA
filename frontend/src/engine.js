@@ -28,6 +28,7 @@ export const {
   listLocations,
   getExportTips,
   parseEpw,
+  pinAnalysis,
 } = impl;
 
 /** Starts loading the in-browser engine in the background (no-op in server mode). */
@@ -62,4 +63,5 @@ export const engine = {
   listLocations,
   getExportTips,
   parseEpw,
+  pinAnalysis,
 };

@@ -597,6 +597,7 @@ class LuxaViewer {
     if (this.compareAltRoot) {
       this._clearGroup(this.compareAltRoot);
       this.compareAltRoot.visible = false;
+      this.compareAltRoot.position.set(0, 0, 0);
     }
   }
 
@@ -621,7 +622,32 @@ class LuxaViewer {
       return;
     }
     this.setCompareSplitRatio(splitRatio);
-    const altKey = `${altAnalysis.analysis_id || 'alt'}|${state.theme}|${state.heatmapGranularity || 'orientation'}|${Boolean(state.heatmapSmooth)}`;
+
+    // Model lain bisa punya koordinat berbeda: geser alternatif supaya titik tengah denah dan
+    // muka tanahnya berimpit dengan model utama, lalu bingkai kamera memakai gabungan keduanya.
+    const bMain = state.analysisData?.summary?.bounding_box;
+    const bAlt = altAnalysis.summary?.bounding_box;
+    let off = [0, 0, 0];
+    if (bMain?.center && bAlt?.center && bMain?.min && bAlt?.min) {
+      off = [bMain.center[0] - bAlt.center[0], bMain.center[1] - bAlt.center[1], bMain.min[2] - bAlt.min[2]];
+      const o3 = toThreeCoords(off[0], off[1], off[2]);
+      this.compareAltRoot.position.set(o3.x, o3.y, o3.z);
+      const min = [0, 1, 2].map((i) => Math.min(bMain.min[i], bAlt.min[i] + off[i]));
+      const max = [0, 1, 2].map((i) => Math.max(bMain.max[i], bAlt.max[i] + off[i]));
+      const span = [0, 1, 2].map((i) => max[i] - min[i]);
+      this.rig.setBBox({
+        ...bMain,
+        min,
+        max,
+        span,
+        center: [0, 1, 2].map((i) => (min[i] + max[i]) / 2),
+        max_span: Math.max(...span),
+      });
+    } else {
+      this.compareAltRoot.position.set(0, 0, 0);
+    }
+
+    const altKey = `${altAnalysis.analysis_id || 'alt'}|${state.theme}|${state.heatmapGranularity || 'orientation'}|${off.join(',')}`;
     if (altKey === this.lastCompareAltKey) return;
     this.lastCompareAltKey = altKey;
 
