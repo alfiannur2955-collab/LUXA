@@ -409,7 +409,7 @@ export function createRailPanelBuilders(handlers) {
             for (const code of ORIENTATION_CODES) {
               const cell = document.createElement('div');
               cell.style.textAlign = 'center';
-              cell.innerHTML = `<div class="lbl">${code}</div><b>${fmtId(sfMap[code] ?? 0, 0)}</b>`;
+              cell.innerHTML = `<div class="lbl">${code}</div><b>${fmtId(sfMap[code] ?? (code === 'TG' ? sfMap.TGR : sfMap.TG) ?? 0, 0)}</b>`;
               sfGrid.appendChild(cell);
             }
             infoBox.appendChild(sfGrid);
