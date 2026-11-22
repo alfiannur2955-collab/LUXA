@@ -1248,15 +1248,3 @@ def lookup_sceff_detailed(
         "corrections": dedup,
         "table_mode": mode,
     }
-
-
-def lookup_sceff(
-    orientation_code: str,
-    r1_horizontal: float = 0.0,
-    r2_vertical: float = 0.0,
-    tilt_deg: float = 0.0,
-    table_mode: str = "terkoreksi",
-) -> float:
-    """Backward-compatible scalar SC_eff lookup (use `lookup_sceff_detailed` for errata metadata)."""
-    return float(lookup_sceff_detailed(orientation_code, r1_horizontal, r2_vertical, tilt_deg, table_mode)["sc_eff"])
-

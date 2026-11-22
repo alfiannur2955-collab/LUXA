@@ -1167,6 +1167,12 @@ export function createRailPanelBuilders(handlers) {
         scBtn.innerHTML = `${icon('keyboard', 15)}<span>Lihat daftar pintasan (?)</span>`;
         scBtn.addEventListener('click', () => handlers.onOpenShortcuts?.());
         container.appendChild(scBtn);
+        const ver = document.createElement('p');
+        ver.className = 'muted';
+        ver.style.margin = '12px 0 0';
+        ver.style.fontSize = '12px';
+        ver.textContent = `LUXA versi ${typeof __LUXA_VERSION__ !== 'undefined' ? __LUXA_VERSION__ : '-'}`;
+        container.appendChild(ver);
       },
     },
   };

@@ -86,7 +86,7 @@ def _switch_model(model_id: str) -> None:
         return
     _ACTIVE_MODEL = model_id
     for mod in (universal_pipeline, ottv_engine):
-        for name in ("_UNIVERSAL_FILE_CACHE", "_PARSED_FILE_CACHE", "_RAYCAST_TRI_CACHE"):
+        for name in ("_UNIVERSAL_FILE_CACHE", "_RAYCAST_TRI_CACHE"):
             cache = getattr(mod, name, None)
             if hasattr(cache, "clear"):
                 cache.clear()
@@ -101,6 +101,10 @@ def enable_ifc() -> bool:
     import ifcopenshell.geom  # noqa: F401
     import ifcopenshell.util.unit  # noqa: F401
 
+    import loaders.ifc as ifc_loader
+
+    ifc_loader.ifcopenshell = ifcopenshell
+    ifc_loader.HAS_IFCOPENSHELL = True
     universal_pipeline.ifcopenshell = ifcopenshell
     universal_pipeline.HAS_IFCOPENSHELL = True
     return True

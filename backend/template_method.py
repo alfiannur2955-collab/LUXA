@@ -25,7 +25,6 @@ from sni_tables import (
     SNI_TABLE_EGGCRATE_SCEFF,
     SNI_TABLE_HORIZONTAL_SCEFF,
     SNI_TABLE_VERTICAL_SCEFF,
-    get_sf_for_source,
 )
 
 SCEFF_EGG_ANGLES_DEG: Tuple[int, ...] = (0, 10, 20, 30, 40)
@@ -301,42 +300,3 @@ class TemplateShadingRegistry:
             reg._by_code[code] = {"kind": "SE", "code": code, "p1": p1, "h": h_m, "p2": p2, "w": w_m, "tilt": tilt}
             reg._key_to_code[("SE", round(p1 / h_m, 2) if h_m else 0.0, round(p2 / w_m, 2) if w_m else 0.0, tilt)] = code
         return reg
-
-
-def compute_template_radiation_term(
-    city_preset: Optional[str],
-    orientation_code: str,
-    wwr: float,
-    glz_mat: Optional[Dict[str, Any]],
-    r1: float,
-    r2: float,
-    phi1_deg: float,
-    registry: Optional[TemplateShadingRegistry] = None,
-    fallback_sc: float = 0.23,
-) -> Dict[str, Any]:
-    """
-    Menghitung suku radiasi surya persis seperti `template_prodi.xlsx`:
-      - `SF` dari `'ref.'!A5:J22`
-      - `SCk = SHGC / 0.86`
-      - `SCeff` dari lembar `BO` (`scefn..scefsw`) berdasarkan kode peneduh bersama
-      - `SC = SCk * SCeff`
-      - `q_solar_wm2 = SF * WWR * SC`
-    """
-    reg = registry if registry is not None else TemplateShadingRegistry()
-    sf_wm2 = get_sf_for_source(city_preset, orientation_code, "template_prodi")
-    shgc, sc_k = compute_template_shgc_and_sck(glz_mat, fallback_sc=fallback_sc)
-    shade_yn, shade_code = reg.register(r1, r2, phi1_deg)
-    sc_eff = reg.lookup_bo_sceff(orientation_code, shade_yn, shade_code)
-    sc_total = sc_k * sc_eff
-    q_solar = sf_wm2 * float(wwr) * sc_total
-    return {
-        "sf_wm2": sf_wm2,
-        "shgc": shgc,
-        "sc_k": sc_k,
-        "shade_yn": shade_yn,
-        "shade_code": shade_code,
-        "bo_scef_range": ORIENTATION_TO_BO_SCEF_RANGE.get((orientation_code or "U").upper(), "scefn"),
-        "sc_eff": sc_eff,
-        "sc": sc_total,
-        "q_solar_wm2": q_solar,
-    }

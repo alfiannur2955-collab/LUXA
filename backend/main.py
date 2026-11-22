@@ -50,6 +50,7 @@ from materials_and_epw import (
     parse_epw_content,
     validate_custom_material,
 )
+from version import __version__
 from ottv_engine import (
     ORIENTATION_BASE_SF,
     ORIENTATION_NAMES,
@@ -57,10 +58,6 @@ from ottv_engine import (
     SNI_SF_ANCHORS,
     analyze_building_ottv,
     compute_panel_exposure_for_date,
-    create_sample_hbjson_preset,
-    create_sample_ifc_preset,
-    create_sample_obj_preset,
-    create_sample_rhino_3dm_preset,
 )
 from recommender import (
     optimize_material_combinations,
@@ -306,34 +303,8 @@ def _resolve_preset_file_path(pdef: Dict[str, Any]) -> str:
 
 
 def ensure_sample_files() -> Dict[str, str]:
+    """Model contoh statis di backend/samples (tidak lagi dibuat saat startup)."""
     paths: Dict[str, str] = {}
-
-    p_cw = os.path.join(SAMPLES_DIR, PRESET_DEFINITIONS["fasad_tower_twisted"]["filename"])
-    if os.path.exists(p_cw):
-        paths["fasad_tower_twisted"] = p_cw
-
-    p_ifc = os.path.join(SAMPLES_DIR, PRESET_DEFINITIONS["archicad_bim_ifc"]["filename"])
-    if not os.path.exists(p_ifc):
-        create_sample_ifc_preset(p_ifc)
-    paths["archicad_bim_ifc"] = p_ifc
-
-    p_3dm = os.path.join(SAMPLES_DIR, PRESET_DEFINITIONS["rhino_nurbs_tower"]["filename"])
-    if not os.path.exists(p_3dm):
-        create_sample_rhino_3dm_preset(p_3dm)
-    paths["rhino_nurbs_tower"] = p_3dm
-    if "fasad_tower_twisted" not in paths:
-        paths["fasad_tower_twisted"] = p_3dm
-
-    p_obj = os.path.join(SAMPLES_DIR, PRESET_DEFINITIONS["bioclimatic_office_obj"]["filename"])
-    if not os.path.exists(p_obj):
-        create_sample_obj_preset(p_obj)
-    paths["bioclimatic_office_obj"] = p_obj
-
-    p_hb = os.path.join(SAMPLES_DIR, PRESET_DEFINITIONS["honeybee_zone_hbjson"]["filename"])
-    if not os.path.exists(p_hb):
-        create_sample_hbjson_preset(p_hb)
-    paths["honeybee_zone_hbjson"] = p_hb
-
     for pid, pdef in PRESET_DEFINITIONS.items():
         if pid in paths:
             continue
@@ -451,7 +422,7 @@ def get_dynamic_model_catalog(readonly: bool = False) -> Tuple[List[Dict[str, An
 
 app = FastAPI(
     title="OTTV 3D Parametric Studio API v2 (SNI 6389:2020)",
-    version="2.0.0",
+    version=__version__,
 )
 
 app.add_middleware(
@@ -476,6 +447,7 @@ def on_startup() -> None:
 def get_health() -> Dict[str, Any]:
     return {
         "status": "ok",
+        "luxa_version": __version__,
         "api_version": 2,
         "standard": "SNI 6389:2020",
         "sni_limit_wm2": SNI_6389_LIMIT_WM2,
