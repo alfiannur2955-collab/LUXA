@@ -499,7 +499,9 @@ export function renderCompareScreen(state, handlers) {
     tbl.appendChild(tbody);
     chgCard.appendChild(tbl);
 
-    const catalogNote = getMaterialCatalogNote(altGlz) || getMaterialCatalogNote(altWall);
+    const glzChanged = activeAlt.kind !== 'model' && altGlz && altGlz.id !== baseGlz?.id;
+    const wallChanged = activeAlt.kind !== 'model' && altWall && altWall.id !== baseWall?.id;
+    const catalogNote = (glzChanged && getMaterialCatalogNote(altGlz)) || (wallChanged && getMaterialCatalogNote(altWall)) || '';
     if (catalogNote) {
       const noteP = document.createElement('p');
       noteP.className = 'lbl';
@@ -646,7 +648,7 @@ export function renderCompareScreen(state, handlers) {
     tabs.className = 'legend-toggle compare-add-tabs';
     tabs.setAttribute('role', 'tablist');
     for (const [id, lbl] of [
-      ['settings', 'Ubah pengaturan'],
+      ['settings', 'Pengaturan'],
       ['model', 'Model lain'],
     ]) {
       const t = document.createElement('button');
