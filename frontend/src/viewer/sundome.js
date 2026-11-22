@@ -504,16 +504,42 @@ export class SunDomeController {
     this.lastHeight = height;
     if (!this.overlayLayer || !camera || width <= 0 || height <= 0) return;
 
-    // Project D5 horizon resize handle on camera-facing side of sun dome ring
+    // Project D5 horizon resize handle. Review 4d: the camera-facing point of the ring
+    // usually falls below the viewport, so sample the horizon ring and keep the handle on
+    // the visible point nearest the right-middle of the viewer (clear of the bottom pills).
     if (this.handleBtn) {
       if (this.isVisible) {
-        const toCamX = camera.position.x - this.centerThree.x;
-        const toCamZ = camera.position.z - this.centerThree.z;
-        const len = Math.hypot(toCamX, toCamZ) || 1;
-        const hx = this.centerThree.x + (toCamX / len) * this.currentRadius;
-        const hz = this.centerThree.z + (toCamZ / len) * this.currentRadius;
-        this._projVec.set(hx, this.centerThree.y + 0.04, hz).project(camera);
+        if (!this.dragging || this._handleAngle === undefined) {
+          let best = null;
+          for (let i = 0; i < 48; i += 1) {
+            const a = (i / 48) * Math.PI * 2;
+            this._projVec
+              .set(
+                this.centerThree.x + Math.cos(a) * this.currentRadius,
+                this.centerThree.y + 0.04,
+                this.centerThree.z + Math.sin(a) * this.currentRadius,
+              )
+              .project(camera);
+            const { x, y, z } = this._projVec;
+            if (z < -1 || z > 1 || Math.abs(x) > 0.9 || y < -0.55 || y > 0.8) continue;
+            const score = Math.abs(x - 0.8) + Math.abs(y) * 0.6;
+            if (!best || score < best.score) best = { a, score };
+          }
+          this._handleAngle = best ? best.a : null;
+        }
+        const ang = this._handleAngle;
+        if (ang !== null && ang !== undefined) {
+          this._projVec
+            .set(
+              this.centerThree.x + Math.cos(ang) * this.currentRadius,
+              this.centerThree.y + 0.04,
+              this.centerThree.z + Math.sin(ang) * this.currentRadius,
+            )
+            .project(camera);
+        }
         const vis =
+          ang !== null &&
+          ang !== undefined &&
           this._projVec.z >= -1 &&
           this._projVec.z <= 1 &&
           this._projVec.x >= -0.98 &&

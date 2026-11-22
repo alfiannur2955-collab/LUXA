@@ -194,3 +194,10 @@ Dokumen ini mencatat perubahan arsitektur antarmuka dan pendukung backend pada F
 
 
 
+
+## Review Fase 4d dan 4e (22 Nov 2026, dikerjakan Claude)
+
+- Heatmap Halus: rata-rata per titik kini hanya mencampur panel sejenis (kaca dengan kaca, masif dengan masif) pada bidang yang hampir sejajar (< 30°). Sebelumnya kaca dan spandrel tercampur sehingga muncul pita hijau-biru palsu di setiap batas baris (`viewer/viewer.js`).
+- Pegangan radius kubah: sebelumnya ditaruh di titik cincin terdekat kamera yang hampir selalu di luar layar, sehingga tidak pernah terlihat. Kini dipilih titik cincin yang terlihat di sisi kanan viewer (`viewer/sundome.js`).
+- Rekomendasi: angka di kalimat memakai koma desimal, opsi tanpa perubahan tidak lagi menampilkan tombol Terapkan/Jadikan alternatif, ΔOTTV nol ditulis "tidak berubah", dan tabel peringkat memakai tinggi layar yang tersedia.
+- Slider rentang di katalog memakai warna aksen LUXA.

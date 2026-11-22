@@ -3430,7 +3430,7 @@ body.is-d5-rotating * {
 
 .mat-rec-table-wrap {
   overflow-x: auto;
-  max-height: 280px;
+  max-height: max(280px, calc(100vh - 470px));
   overflow-y: auto;
 }
 
@@ -3496,4 +3496,9 @@ body.is-d5-rotating * {
   .mat-opt-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* Review 4e: range sliders in the catalog use the LUXA accent, not the browser default blue. */
+.mat-catalog-overlay input[type="range"] {
+  accent-color: var(--sun);
 }
