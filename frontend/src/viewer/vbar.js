@@ -36,6 +36,13 @@ const DIRECTIONS_ORDERED = ['U', 'TL', 'T', 'TG', 'S', 'BD', 'B', 'BL', 'Atas'];
 // Track which saved view is currently in inline rename mode
 let renamingViewId = null;
 
+const SUN_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+function fmtSunDateShort(ymd) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd || ''));
+  if (!m) return 'Tanggal';
+  return `${Number(m[3])} ${SUN_MONTHS[Number(m[2]) - 1] || ''}`;
+}
+
 export function renderViewerBottomBar(state, handlers) {
   const bar = document.createElement('div');
   bar.className = 'vbar';
@@ -78,7 +85,7 @@ export function renderViewerBottomBar(state, handlers) {
   dirBtn.setAttribute('aria-expanded', state.openPopover === 'direction' ? 'true' : 'false');
   const dirLabel = formatCameraDirectionLabel(state.cameraProjection, state.cameraDirection || 'TG');
   const dirCode = state.cameraDirection || 'TG';
-  dirBtn.title = `Arah pandang: ${dirLabel} (tahan V untuk pie 8 arah)`;
+  dirBtn.title = `Arah pandang: ${dirLabel} (tahan V untuk menu arah)`;
   dirBtn.setAttribute('aria-label', `Arah pandang ${dirLabel}`);
   dirBtn.innerHTML = `${icon('compass', 15)}<span class="num">${dirCode}</span>${icon('chevronDown', 12)}`;
   dirBtn.addEventListener('click', () =>
@@ -87,14 +94,25 @@ export function renderViewerBottomBar(state, handlers) {
 
   leftPill.append(seg, div1, dirBtn);
 
+  if (handlers.onFitCamera) {
+    const fitBtn = document.createElement('button');
+    fitBtn.type = 'button';
+    fitBtn.className = 'b b-icon';
+    fitBtn.title = 'Pas ke model (F)';
+    fitBtn.setAttribute('aria-label', 'Pas ke model, pintasan F');
+    fitBtn.innerHTML = icon('fit', 16);
+    fitBtn.addEventListener('click', () => handlers.onFitCamera());
+    leftPill.appendChild(fitBtn);
+  }
+
   // Fase 4d D2: North rotation ring toggle button (shortcut R)
   if (handlers.onToggleNorthRotateMode) {
     const northBtn = document.createElement('button');
     northBtn.type = 'button';
     northBtn.className = `b b-icon${state.northRotateMode ? ' on' : ''}`;
-    northBtn.title = 'Putar arah utara dengan cincin D5 (Pintasan R)';
+    northBtn.title = 'Atur arah utara (R)';
     northBtn.setAttribute('aria-pressed', state.northRotateMode ? 'true' : 'false');
-    northBtn.setAttribute('aria-label', 'Putar arah utara (pintasan R)');
+    northBtn.setAttribute('aria-label', 'Atur arah utara (pintasan R)');
     northBtn.innerHTML = icon('rotateCw', 16);
     northBtn.addEventListener('click', () => handlers.onToggleNorthRotateMode());
     leftPill.appendChild(northBtn);
@@ -144,58 +162,87 @@ export function renderViewerBottomBar(state, handlers) {
 
     leftPill.append(div2, playBtn, slider, hourTxt);
 
-    // Tampilkan bidang yang terkena matahari langsung pada jam aktif (bayangan dihitung per jam).
-    if (handlers.onToggleSunlit) {
-      const isOn = state.facadeFilter === 'sunlit_now';
-      const sunBtn = document.createElement('button');
-      sunBtn.type = 'button';
-      sunBtn.className = `b b-icon${isOn ? ' on' : ''}`;
-      sunBtn.setAttribute('aria-pressed', isOn ? 'true' : 'false');
-      sunBtn.setAttribute('aria-label', 'Tampilkan fasad yang terkena matahari pada jam ini');
-      sunBtn.title = isOn
-        ? 'Sembunyikan tampilan terkena matahari'
-        : 'Tampilkan fasad yang terkena matahari pada jam ini (bayangan ikut dihitung)';
-      sunBtn.innerHTML =
-        isOn && state.exposureLoading ? '<span class="spin spin-sm" aria-hidden="true"></span>' : icon('sunFacade', 17);
-      sunBtn.addEventListener('click', () => handlers.onToggleSunlit());
-      leftPill.appendChild(sunBtn);
-    }
-
-    if (handlers.onChangeSunDomeRadius) {
-      const domeBtn = document.createElement('button');
-      domeBtn.type = 'button';
-      domeBtn.className = `b${state.openPopover === 'sundome' ? ' on' : ''}`;
-      domeBtn.style.padding = '0 7px';
-      domeBtn.title = 'Kubah matahari: garis oranye = lintasan matahari. Klik untuk atur radius (meter)';
-      domeBtn.setAttribute('aria-haspopup', 'dialog');
-      domeBtn.setAttribute('aria-expanded', state.openPopover === 'sundome' ? 'true' : 'false');
-      domeBtn.setAttribute('aria-label', 'Atur radius kubah matahari');
-      domeBtn.innerHTML = icon('sun', 14);
-      domeBtn.addEventListener('click', () =>
-        handlers.onTogglePopover(state.openPopover === 'sundome' ? null : 'sundome'),
+    // Chip tanggal: pilih tanggal (atau Sekarang) dan ukuran kubah matahari.
+    if (handlers.onChangeSunDate) {
+      const dateBtn = document.createElement('button');
+      dateBtn.type = 'button';
+      dateBtn.className = `b vbar-date-chip${state.openPopover === 'sundate' ? ' on' : ''}`;
+      dateBtn.title = 'Tanggal matahari dan ukuran kubah';
+      dateBtn.setAttribute('aria-haspopup', 'dialog');
+      dateBtn.setAttribute('aria-expanded', state.openPopover === 'sundate' ? 'true' : 'false');
+      dateBtn.setAttribute('aria-label', `Tanggal matahari ${fmtSunDateShort(state.sunDate)}. Klik untuk mengganti`);
+      dateBtn.innerHTML = `<span class="num">${fmtSunDateShort(state.sunDate)}</span>${icon('chevronDown', 12)}`;
+      dateBtn.addEventListener('click', () =>
+        handlers.onTogglePopover(state.openPopover === 'sundate' ? null : 'sundate'),
       );
-      leftPill.appendChild(domeBtn);
+      leftPill.appendChild(dateBtn);
     }
   }
 
   leftWrap.appendChild(leftPill);
 
   // Fase 4d D1: Sun dome manual radius popover (log slider 0.2x..10x + "Radius __ m" input)
-  if (state.openPopover === 'sundome' && handlers.onChangeSunDomeRadius) {
+  if ((state.openPopover === 'sundate' || state.openPopover === 'sundome') && handlers.onChangeSunDomeRadius) {
     const bbox = state.analysisData?.summary?.bounding_box || state.inspectData?.bounding_box || null;
     const initR = Math.max(4, Number(state.sunDomeInitialRadiusM || computeInitialSunDomeRadiusM(bbox)));
     const curR = Math.max(1, Number(state.sunDomeRadiusM ?? state.config?.settings?.sun_dome_radius_m ?? initR));
 
     const pop = document.createElement('div');
-    pop.className = 'glass vbar-popover';
+    pop.className = 'glass vbar-popover vbar-popover-sun';
     pop.setAttribute('role', 'dialog');
-    pop.setAttribute('aria-label', 'Radius kubah matahari');
+    pop.setAttribute('aria-label', 'Tanggal matahari dan ukuran kubah');
+
+    // --- Tanggal ---
+    const dTtl = document.createElement('div');
+    dTtl.className = 'lbl';
+    dTtl.style.color = 'var(--ink)';
+    dTtl.style.marginBottom = '6px';
+    dTtl.textContent = 'Tanggal matahari';
+    const dSeg = document.createElement('div');
+    dSeg.className = 'vbar-date-seg';
+    dSeg.setAttribute('role', 'radiogroup');
+    dSeg.setAttribute('aria-label', 'Tanggal matahari');
+    const presets = [
+      ['2026-06-21', '21 Jun'],
+      ['2026-09-23', '23 Sep'],
+      ['2026-12-21', '21 Des'],
+    ];
+    for (const [val, txt] of presets) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      const on = state.sunDate === val;
+      b.className = on ? 'on' : '';
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      b.textContent = txt;
+      b.addEventListener('click', () => handlers.onChangeSunDate(val));
+      dSeg.appendChild(b);
+    }
+    if (handlers.onSunNow) {
+      const nowBtn = document.createElement('button');
+      nowBtn.type = 'button';
+      nowBtn.textContent = 'Sekarang';
+      nowBtn.title = 'Pakai tanggal dan jam saat ini';
+      nowBtn.addEventListener('click', () => handlers.onSunNow());
+      dSeg.appendChild(nowBtn);
+    }
+    const dInp = document.createElement('input');
+    dInp.type = 'date';
+    dInp.className = 'field-input num vbar-date-inp';
+    dInp.value = /^\d{4}-\d{2}-\d{2}$/.test(String(state.sunDate || '')) ? state.sunDate : '';
+    dInp.setAttribute('aria-label', 'Tanggal lain');
+    dInp.addEventListener('change', () => {
+      if (dInp.value) handlers.onChangeSunDate(dInp.value);
+    });
+
+    const sep = document.createElement('hr');
+    sep.className = 'vbar-pop-sep';
 
     const ttl = document.createElement('div');
     ttl.className = 'lbl';
     ttl.style.color = 'var(--ink)';
     ttl.style.marginBottom = '8px';
-    ttl.textContent = 'Radius kubah matahari (skala logaritmik)';
+    ttl.textContent = 'Ukuran kubah matahari';
 
     const logSlider = document.createElement('input');
     logSlider.type = 'range';
@@ -203,7 +250,7 @@ export function renderViewerBottomBar(state, handlers) {
     logSlider.max = '1000';
     logSlider.step = '1';
     logSlider.value = String(radiusToLogSlider(curR, initR));
-    logSlider.setAttribute('aria-label', 'Slider logaritmik radius kubah');
+    logSlider.setAttribute('aria-label', 'Ukuran kubah matahari');
     logSlider.style.width = '100%';
     logSlider.style.accentColor = 'var(--sun)';
     logSlider.addEventListener('input', () => {
@@ -219,7 +266,7 @@ export function renderViewerBottomBar(state, handlers) {
     const lbl = document.createElement('label');
     lbl.className = 'lbl';
     lbl.htmlFor = 'vbar-dome-radius-inp';
-    lbl.textContent = 'Radius';
+    lbl.textContent = 'Ukuran';
 
     const inp = document.createElement('input');
     inp.id = 'vbar-dome-radius-inp';
@@ -255,9 +302,9 @@ export function renderViewerBottomBar(state, handlers) {
     hint.className = 'lbl';
     hint.style.margin = '6px 0 0';
     hint.style.fontWeight = '500';
-    hint.textContent = 'Atau tarik pegangan bulat di cincin horizon kubah (Shift = 5 m).';
+    hint.textContent = 'Atau tarik pegangan bulat di tepi kubah (Shift = 5 m).';
 
-    pop.append(ttl, logSlider, inputRow, hint);
+    pop.append(dTtl, dSeg, dInp, sep, ttl, logSlider, inputRow, hint);
     leftWrap.appendChild(pop);
   }
 
@@ -321,7 +368,7 @@ export function renderViewerBottomBar(state, handlers) {
   const rightPill = document.createElement('div');
   rightPill.className = 'glass pill';
   rightPill.setAttribute('role', 'toolbar');
-  rightPill.setAttribute('aria-label', 'View tersimpan dan capture');
+  rightPill.setAttribute('aria-label', 'View tersimpan, presentasi, dan simpan gambar');
 
   const views = state.config?.saved_views || [];
   const activeView = views.find((v) => v.id === state.activeViewId);
@@ -359,8 +406,8 @@ export function renderViewerBottomBar(state, handlers) {
   const captureBtn = document.createElement('button');
   captureBtn.type = 'button';
   captureBtn.className = 'b b-icon dark';
-  captureBtn.title = `Capture PNG ${state.captureScale}x (C)`;
-  captureBtn.setAttribute('aria-label', `Capture PNG ${state.captureScale}x, pintasan C`);
+  captureBtn.title = `Simpan gambar ${state.captureScale}x (C)`;
+  captureBtn.setAttribute('aria-label', `Simpan gambar ${state.captureScale}x, pintasan C`);
   captureBtn.setAttribute('aria-haspopup', 'menu');
   captureBtn.setAttribute('aria-expanded', state.openPopover === 'capture' ? 'true' : 'false');
   captureBtn.innerHTML = icon('camera', 16);
@@ -369,6 +416,18 @@ export function renderViewerBottomBar(state, handlers) {
   );
 
   rightPill.append(viewsBtn, saveBtn, captureBtn);
+  if (handlers.onTogglePresentation) {
+    const presOn = state.workspace?.preset === 'presentasi';
+    const presBtn = document.createElement('button');
+    presBtn.type = 'button';
+    presBtn.className = `b b-icon${presOn ? ' on' : ''}`;
+    presBtn.title = presOn ? 'Keluar Presentasi (Esc)' : 'Presentasi: viewer layar penuh';
+    presBtn.setAttribute('aria-pressed', presOn ? 'true' : 'false');
+    presBtn.setAttribute('aria-label', presOn ? 'Keluar Presentasi' : 'Presentasi, viewer layar penuh');
+    presBtn.innerHTML = icon('present', 16);
+    presBtn.addEventListener('click', () => handlers.onTogglePresentation());
+    rightPill.insertBefore(presBtn, captureBtn);
+  }
   rightWrap.appendChild(rightPill);
 
   // Saved views popover (apply, inline rename, delete)
@@ -510,7 +569,7 @@ export function renderCapturePopover(state, handlers, { onDone = null } = {}) {
   const pop = document.createElement('div');
   pop.className = 'glass vbar-popover vbar-popover-right capture-pop';
   pop.setAttribute('role', 'dialog');
-  pop.setAttribute('aria-label', 'Pengaturan capture PNG');
+  pop.setAttribute('aria-label', 'Pengaturan simpan gambar');
 
   const sec = (label) => {
     const t = document.createElement('div');
@@ -591,7 +650,7 @@ export function renderCapturePopover(state, handlers, { onDone = null } = {}) {
   const goBtn = document.createElement('button');
   goBtn.type = 'button';
   goBtn.className = 'cta capture-pop-go';
-  goBtn.innerHTML = `${icon('camera', 16)}<span>Unduh PNG ${state.captureScale || 2}x</span>`;
+  goBtn.innerHTML = `${icon('camera', 16)}<span>Simpan gambar ${state.captureScale || 2}x</span>`;
   goBtn.addEventListener('click', () => {
     handlers.onTogglePopover?.(null);
     onDone?.();

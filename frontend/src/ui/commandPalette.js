@@ -32,13 +32,16 @@ function buildCommandItems(state, actions) {
     }
 
     items.push(
-      { id: 'north-rotate', label: state.northRotateMode ? 'Keluar mode putar arah utara' : 'Putar arah utara (cincin D5)', hint: 'R', keywords: 'putar utara rotasi north kompas r', run: () => actions.onToggleNorthRotateMode?.() },
+      { id: 'north-rotate', label: state.northRotateMode ? 'Selesai atur arah utara' : 'Atur arah utara', hint: 'R', keywords: 'putar utara rotasi north kompas r', run: () => actions.onToggleNorthRotateMode?.() },
       { id: 'mode-orient', label: 'Mode tampilan Orientasi (warna arah hadap)', hint: 'Mode', keywords: 'mode orientasi arah hadap azimut warna', run: () => actions.onChangeViewerMode?.('orientation') },
+      { id: 'mode-sun', label: 'Mode tampilan Matahari', hint: 'Mode', keywords: 'mode matahari paparan sinar bayangan terkena', run: () => actions.onChangeViewerMode?.('sun') },
+      { id: 'tool-xray', label: state.overlayXray ? 'Matikan Transparan' : 'Nyalakan Transparan', hint: 'Alat', keywords: 'transparan xray tembus pandang', run: () => actions.onToggleOverlay?.('xray', !state.overlayXray) },
+      { id: 'tool-check', label: state.overlayCheck ? 'Matikan Perlu dicek' : 'Nyalakan Perlu dicek', hint: 'Alat', keywords: 'perlu dicek periksa catatan kejanggalan', run: () => actions.onToggleOverlay?.('check', !state.overlayCheck) },
       { id: 'cam-fit', label: 'Pas kamera ke model', hint: 'F', keywords: 'fit zoom pas model kamera', run: () => actions.onFitCamera() },
       { id: 'view-save', label: 'Simpan view sekarang', hint: 'S', keywords: 'simpan view kamera', run: () => actions.onSaveView() },
-      { id: 'cap-1x', label: 'Capture PNG (1x)', hint: 'PNG', keywords: 'capture gambar screenshot 1x', run: () => actions.onCapturePng(1) },
-      { id: 'cap-2x', label: 'Capture PNG (2x)', hint: 'C', keywords: 'capture gambar screenshot 2x', run: () => actions.onCapturePng(2) },
-      { id: 'cap-4x', label: 'Capture PNG resolusi tinggi (4x)', hint: '4x', keywords: 'capture gambar screenshot 4x hd', run: () => actions.onCapturePng(4) },
+      { id: 'cap-1x', label: 'Simpan gambar (1x)', hint: 'PNG', keywords: 'simpan gambar capture screenshot png 1x', run: () => actions.onCapturePng(1) },
+      { id: 'cap-2x', label: 'Simpan gambar (2x)', hint: 'C', keywords: 'simpan gambar capture screenshot png 2x', run: () => actions.onCapturePng(2) },
+      { id: 'cap-4x', label: 'Simpan gambar resolusi tinggi (4x)', hint: '4x', keywords: 'simpan gambar capture screenshot png 4x hd', run: () => actions.onCapturePng(4) },
     );
 
     for (const v of state.config?.saved_views || []) {

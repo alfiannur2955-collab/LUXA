@@ -30,6 +30,7 @@ import {
   ottvToPastelThreeColor,
   ottvToThreeColor,
   readThemeTokens,
+  resolveViewerMode,
 } from './modes.js';
 import { populateSelectionHighlightGroup, summarizeSelectedPanels } from './selection.js';
 
@@ -758,7 +759,8 @@ class LuxaViewer {
     }
     const tokens = readThemeTokens();
     const hasAnalysis = Boolean(state.analysisData?.panels?.length);
-    const mode = state.viewerMode || (hasAnalysis ? 'heatmap' : 'classification');
+    const view = resolveViewerMode(state);
+    const mode = view.renderMode;
     const bbox = state.analysisData?.summary?.bounding_box || state.inspectData?.bounding_box || null;
     const zCut = Number(state.config?.model?.z_ground_cutoff_m || 0);
     const northDeg = Number(state.config?.settings?.north_angle_deg || 0);
@@ -786,7 +788,7 @@ class LuxaViewer {
     this.labelsOverlay.setPanelLabel(state.step === 'results' ? selSummary : null);
 
     // Update numbered anomaly markers on Inspeksi or Kejanggalan mode
-    if (mode === 'anomalies' || state.step === 'inspect') {
+    if (view.check || state.step === 'inspect') {
       this.labelsOverlay.setFlagMarkers(_collectAnomalyMarkers(state));
     } else {
       this.labelsOverlay.setFlagMarkers([]);
@@ -803,6 +805,8 @@ class LuxaViewer {
       step: state.step,
       theme: state.theme,
       mode,
+      xray: view.xray,
+      check: view.check,
       heatmapGranularity: state.heatmapGranularity || 'orientation',
       exposureShading: state.exposureShading !== false,
       facadeFilter: state.facadeFilter || 'all',
@@ -810,6 +814,7 @@ class LuxaViewer {
       hasAnalysis,
       selectedGroup: state.selectedGroup || null,
       selectedOrientation: state.selectedOrientation || null,
+      isolatedOrientation: state.isolatedOrientation || null,
       zCut,
       northDeg: mode === 'orientation' ? northDeg : 0,
       overrides: state.config?.roles?.group_category_overrides || {},
@@ -826,12 +831,13 @@ class LuxaViewer {
     this._clearGroup(this.modelRoot);
     this._buildGroundPlane(bbox, zCut, tokens);
 
+    const rs = { ...state, overlayXray: view.xray, overlayCheck: view.check };
     if (hasAnalysis && state.step === 'results') {
-      this._renderAnalysisPanels(state, mode, tokens);
+      this._renderAnalysisPanels(rs, mode, tokens);
     } else if (state.inspectData?.preview_meshes?.length) {
-      this._renderPreviewMeshes(state, mode, tokens);
+      this._renderPreviewMeshes(rs, mode, tokens);
     } else if (hasAnalysis) {
-      this._renderAnalysisPanels(state, mode, tokens);
+      this._renderAnalysisPanels(rs, mode, tokens);
     }
 
     if (bbox && modelKey !== this.lastModelKey) {
@@ -880,13 +886,24 @@ class LuxaViewer {
     const selectedGroup = state.selectedGroup;
     const flaggedGroups = _computeFlaggedGroupSet(state.inspectData);
     const northDeg = Number(state.config?.settings?.north_angle_deg || 0);
+    const xray = Boolean(state.overlayXray);
+    const check = Boolean(state.overlayCheck);
+    const anyFlagged = check && meshes.some((m) => flaggedGroups.has(m.group_name) || (overrides[m.group_name] || m.category) === 'unknown');
+    // Transparan di atas mode apa pun: buat material tembus pandang.
+    const seeThrough = (mesh) => {
+      if (!xray || !mesh.material) return;
+      mesh.material.transparent = true;
+      mesh.material.opacity = Math.min(mesh.material.opacity ?? 1, 0.28);
+      mesh.material.depthWrite = false;
+    };
 
     for (const pm of meshes) {
       if (!pm.vertices?.length || !pm.tris?.length) continue;
       const gName = pm.group_name;
       const cat = overrides[gName] || pm.category || 'wall';
       const isDisabled = disabled.has(gName);
-      if (isDisabled && mode !== 'xray') continue;
+      if (isDisabled && !xray) continue;
+      const isFlagged = check && (flaggedGroups.has(gName) || cat === 'unknown');
 
       if (mode === 'orientation') {
         // D3: Smooth per-vertex cyclic pastel azimuth with 1mm welding & <30° crease threshold
@@ -934,10 +951,19 @@ class LuxaViewer {
         geom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
         geom.setAttribute('normal', new THREE.Float32BufferAttribute(norms, 3));
         geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-        const mesh = new THREE.Mesh(geom, makeColorAccurateMaterial());
+        if (isDisabled) {
+          const edgeGeo = new THREE.EdgesGeometry(geom, 18);
+          this._addDashedExcludedWireframe(Array.from(edgeGeo.attributes.position.array), tokens);
+          edgeGeo.dispose();
+          geom.dispose();
+          continue;
+        }
+        const mesh = new THREE.Mesh(geom, isFlagged ? makeAnomalyMaterial(true, tokens) : makeColorAccurateMaterial());
         mesh.userData = { groupName: gName, category: cat };
+        if (anyFlagged && !isFlagged) { mesh.material.transparent = true; mesh.material.opacity = 0.35; }
+        seeThrough(mesh);
         this.modelRoot.add(mesh);
-        this._addEdgeLines(geom, tokens, { opacity: 0.30 });
+        this._addEdgeLines(geom, tokens, { opacity: isFlagged ? 0.55 : 0.30 });
         continue;
       }
 
@@ -962,7 +988,7 @@ class LuxaViewer {
       geom.setIndex(new THREE.BufferAttribute(indices, 1));
       geom.computeVertexNormals();
 
-      if (mode === 'xray') {
+      if (xray) {
         if (isDisabled || cat === 'ignore') {
           const edgeGeo = new THREE.EdgesGeometry(geom, 18);
           this._addDashedExcludedWireframe(Array.from(edgeGeo.attributes.position.array), tokens);
@@ -970,15 +996,15 @@ class LuxaViewer {
           geom.dispose();
           continue;
         }
-        const mesh = new THREE.Mesh(geom, makeXrayMaterial(cat, tokens));
+        const mesh = new THREE.Mesh(geom, isFlagged ? makeAnomalyMaterial(true, tokens) : makeXrayMaterial(cat, tokens));
+        if (isFlagged) seeThrough(mesh);
         mesh.userData = { groupName: gName, category: cat };
         this.modelRoot.add(mesh);
         this._addEdgeLines(geom, tokens, { opacity: 0.30 });
         continue;
       }
 
-      if (mode === 'anomalies') {
-        const isFlagged = flaggedGroups.has(gName) || cat === 'unknown';
+      if (check && anyFlagged) {
         const mesh = new THREE.Mesh(geom, makeAnomalyMaterial(isFlagged, tokens));
         mesh.userData = { groupName: gName, category: cat };
         this.modelRoot.add(mesh);
@@ -1054,7 +1080,9 @@ class LuxaViewer {
     const useOrientSmooth = mode === 'orientation' && (state.facadeFilter || 'all') !== 'sunlit_now';
     const needSmoothNormals = useSmooth || useOrientSmooth;
     const facadeFilter = state.facadeFilter || 'all';
-    const selOrient = state.selectedOrientation || null;
+    const selOrient = state.isolatedOrientation || null;
+    const xray = Boolean(state.overlayXray);
+    const check = Boolean(state.overlayCheck);
     const northDeg = Number(state.config?.settings?.north_angle_deg || 0);
     const analysisNorthDeg = Number(analysis?.summary?.north_angle_deg || 0);
     const northDelta = northDeg - analysisNorthDeg;
@@ -1067,6 +1095,7 @@ class LuxaViewer {
       if (sp?.threeDir) sunVec = [sp.threeDir.x, -sp.threeDir.z, sp.threeDir.y];
     }
     const flaggedGroups = _computeFlaggedGroupSet(state.inspectData);
+    const checkFlagged = check && panels.some((p) => p.active && (flaggedGroups.has(p.group_name) || p.element_type === 'unknown'));
 
     // D3: Precompute 1mm-welded area-weighted OTTV averages & <30° smooth vertex normals
     const smoothVertexVal = useSmooth ? new Map() : null;
@@ -1172,7 +1201,7 @@ class LuxaViewer {
       if (!Array.isArray(p.vertices) || p.vertices.length < 3) continue;
 
       if (!p.active) {
-        if (mode === 'xray') {
+        if (xray) {
           const pts = p.vertices.map((v) => _coordsArr(v[0], v[1], v[2]));
           for (let i = 0; i < pts.length; i += 1) {
             const a = pts[i];
@@ -1216,22 +1245,20 @@ class LuxaViewer {
         color = ottvToThreeColor(val, tokens);
       } else if (mode === 'orientation') {
         color = Math.abs(fn[2]) > 0.7 ? cHoriz : orientationToThreeColor(code, tokens);
-      } else if (mode === 'anomalies') {
-        const isFlagged = flaggedGroups.has(p.group_name) || p.element_type === 'unknown';
-        color = isFlagged ? cWarn : cWall;
-        isDimmed = !isFlagged;
-      } else if (mode === 'xray') {
-        color = p.element_type === 'glazing' || p.element_type === 'composite_cw' ? cGlz : cWall;
-        isDimmed = true;
       } else {
         color = p.element_type === 'glazing' || p.element_type === 'composite_cw' ? cGlz : cWall;
       }
 
-      if (facadeFilter === 'selected_orientation' && selOrient && code !== selOrient) {
-        isDimmed = true;
-      } else if (facadeFilter === 'all' && mode === 'heatmap' && selOrient && code !== selOrient) {
+      // Isolasi arah (klik baris "Per arah"): arah lain diredupkan di mode apa pun.
+      if (selOrient && code !== selOrient && facadeFilter !== 'sunlit_now') {
         isDimmed = true;
       }
+      if (check && checkFlagged) {
+        const isFlagged = flaggedGroups.has(p.group_name) || p.element_type === 'unknown';
+        if (isFlagged) color = cWarn;
+        else isDimmed = true;
+      }
+      if (xray) isDimmed = true;
 
       const vs = p.vertices;
       const p0 = _coordsArr(vs[0][0], vs[0][1], vs[0][2]);
@@ -1336,28 +1363,28 @@ class LuxaViewer {
         geom,
         makePanelMat({
           transparent: true,
-          opacity: mode === 'xray' ? 0.22 : 0.20,
-          depthWrite: mode !== 'xray',
+          opacity: xray ? 0.22 : 0.20,
+          depthWrite: !xray,
         }),
       );
       mesh.userData = { triToPanel: dimTriToPanel };
       this.modelRoot.add(mesh);
-      this._addEdgeLines(geom, tokens, { opacity: mode === 'xray' ? 0.30 : 0.16 });
+      this._addEdgeLines(geom, tokens, { opacity: xray ? 0.30 : 0.16 });
     }
 
-    if (mode === 'xray' && excludedLineCoords.length > 0) {
+    if (xray && excludedLineCoords.length > 0) {
       this._addDashedExcludedWireframe(excludedLineCoords, tokens);
     }
 
-    const ctxDim = mode === 'xray' || mode === 'anomalies' || Boolean(selOrient) || facadeFilter === 'sunlit_now';
-    this._renderContextElements(analysis.shading_elements, 'shading', tokens, ctxDim, mode === 'xray');
-    this._renderContextElements(analysis.frame_elements, 'frame', tokens, ctxDim || mode === 'heatmap' || mode === 'exposure', mode === 'xray');
+    const ctxDim = xray || (check && checkFlagged) || Boolean(selOrient) || facadeFilter === 'sunlit_now';
+    this._renderContextElements(analysis.shading_elements, 'shading', tokens, ctxDim, xray);
+    this._renderContextElements(analysis.frame_elements, 'frame', tokens, ctxDim || mode === 'heatmap' || mode === 'exposure', xray);
     this._renderContextElements(
       analysis.roof_elements,
       'roof',
       tokens,
       mode !== 'orientation',
-      mode === 'xray',
+      xray,
       mode === 'orientation',
     );
   }

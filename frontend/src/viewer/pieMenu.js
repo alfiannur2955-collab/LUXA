@@ -100,7 +100,7 @@ class RadialPieMenu {
     const wrap = document.createElement('div');
     wrap.className = 'pie-menu-overlay';
     wrap.setAttribute('role', 'menu');
-    wrap.setAttribute('aria-label', 'Pie menu arah pandang');
+    wrap.setAttribute('aria-label', 'Menu arah pandang');
     wrap.style.left = `${this.centerX}px`;
     wrap.style.top = `${this.centerY}px`;
 

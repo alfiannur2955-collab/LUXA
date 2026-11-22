@@ -133,7 +133,10 @@ const initialState = {
 
   // UI flags & selections
   acknowledgedFlags: {}, // { [flagId]: { action, provisional } }
-  viewerMode: 'classification', // 'classification' | 'orientation' | 'heatmap' | 'exposure' | 'anomalies' | 'xray'
+  viewerMode: 'classification', // 'classification' | 'orientation' | 'heatmap' | 'sun'
+  sunView: 'year', // mode Matahari: 'year' (sepanjang tahun) | 'now' (tanggal & jam aktif)
+  overlayCheck: false, // alat periksa: Perlu dicek
+  overlayXray: false, // alat periksa: Transparan
   heatmapGranularity: 'orientation', // 'orientation' | 'panel'
   heatmapSmooth: false, // lama (Halus); digantikan mode 'exposure'
   exposureShading: true, // mode Paparan: kalikan faktor peneduh 3D
@@ -147,6 +150,7 @@ const initialState = {
   materialCatalog: null, // null | { open: true, mode: 'browse'|'pick', tab: 'catalog'|'recommend', lockedCategory, targetField, targetOrientCode, targetLabel }
   selectedGroup: null,
   selectedOrientation: null,
+  isolatedOrientation: null, // arah yang diisolasi dari kartu "Per arah" (arah lain diredupkan)
   selectedPanelIds: [],
   needsRecompute: false,
 

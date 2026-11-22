@@ -7,13 +7,13 @@ import { icon } from './icons.js';
 const SHORTCUT_ROWS = [
   { keys: ['1', '2', '3', '4'], desc: 'Perspektif, 2 titik, aksonometri, tampak' },
   { keys: ['tahan', 'V'], desc: 'Pie 8 arah pandang & Orientasi (lepas untuk memilih; Esc batal)' },
-  { keys: ['R'], desc: 'Mode putar arah utara (cincin D5 · Shift 15° · Esc keluar)' },
+  { keys: ['R'], desc: 'Atur arah utara (Shift = langkah 15° · Esc selesai)' },
   { keys: ['F'], desc: 'Pas kamera ke model' },
   { keys: ['S'], desc: 'Simpan view kamera' },
-  { keys: ['C'], desc: 'Capture gambar PNG' },
+  { keys: ['C'], desc: 'Simpan gambar PNG' },
   { keys: ['Spasi'], desc: 'Putar matahari satu hari' },
   { keys: ['Shift', 'klik'], desc: 'Tambah panel ke pilihan' },
-  { keys: ['Esc'], desc: 'Keluar rotasi utara, tutup kartu, palet, pie menu, atau Presentasi' },
+  { keys: ['Esc'], desc: 'Selesai atur arah utara, tutup kartu, palet, menu arah, atau Presentasi' },
   { keys: ['Ctrl', 'K'], desc: 'Cari perintah' },
   { keys: ['?'], desc: 'Daftar pintasan ini' },
 ];

@@ -507,446 +507,119 @@ export function createRailPanelBuilders(handlers) {
     display: {
       title: 'Tampilan',
       renderBody(container, state) {
-        // Section 1: Kamera (mirrors mockup 6-panel-tampilan.html)
-        const camSec = document.createElement('div');
-        camSec.className = 'psec';
-        camSec.style.borderTop = '0';
-        camSec.style.paddingTop = '0';
+        // Kartu ini khusus pengaturan. Kontrol yang sering dipakai (kamera, jam, tanggal,
+        // mode warna) ada langsung di viewer.
+        const mkSec = (iconName, title, first = false) => {
+          const sec = document.createElement('div');
+          sec.className = 'psec';
+          if (first) {
+            sec.style.borderTop = '0';
+            sec.style.paddingTop = '0';
+          }
+          const h = document.createElement('h3');
+          h.innerHTML = `${iconName ? icon(iconName, 14) : ''}<span>${title}</span>`;
+          sec.appendChild(h);
+          return sec;
+        };
+        const note = (txt) => {
+          const p = document.createElement('p');
+          p.className = 'lbl';
+          p.style.margin = '6px 0 0';
+          p.style.fontWeight = '500';
+          p.textContent = txt;
+          return p;
+        };
 
-        const camHead = document.createElement('h3');
-        camHead.innerHTML = `${icon('eye', 14)}<span>Kamera</span>`;
-        camSec.appendChild(camHead);
-
-        const projSeg = document.createElement('div');
-        projSeg.className = 'seg';
-        projSeg.setAttribute('role', 'radiogroup');
-        projSeg.setAttribute('aria-label', 'Proyeksi kamera');
-
-        for (const [id, label, key] of [
-          ['perspective', 'Persp', '1'],
-          ['two_point', '2 titik', '2'],
-          ['axonometric', 'Akso', '3'],
-          ['elevation', 'Tampak', '4'],
-        ]) {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.setAttribute('role', 'radio');
-          const isOn = state.cameraProjection === id;
-          btn.setAttribute('aria-checked', isOn ? 'true' : 'false');
-          if (isOn) btn.classList.add('on');
-          btn.title = `Pintasan ${key}`;
-          btn.textContent = label;
-          btn.addEventListener('click', () => handlers.onSetProjection(id));
-          projSeg.appendChild(btn);
-        }
-        camSec.appendChild(projSeg);
-
-        // 3x3 direction grid + Arah utara
-        const dirRow = document.createElement('div');
-        dirRow.style.display = 'grid';
-        dirRow.style.gridTemplateColumns = '132px minmax(0, 1fr)';
-        dirRow.style.gap = '12px';
-        dirRow.style.alignItems = 'center';
-
-        const dirGrid = document.createElement('div');
-        dirGrid.className = 'cam-dir-grid';
-        dirGrid.setAttribute('role', 'group');
-        dirGrid.setAttribute('aria-label', 'Arah tampak');
-
-        const gridCells = [
-          ['BL', 'Barat Laut'],
-          ['U', 'Utara'],
-          ['TL', 'Timur Laut'],
-          ['B', 'Barat'],
-          ['Atas', 'Atas'],
-          ['T', 'Timur'],
-          ['BD', 'Barat Daya'],
-          ['S', 'Selatan'],
-          ['TG', 'Tenggara'],
-        ];
-        for (const [code, fullName] of gridCells) {
-          const b = document.createElement('button');
-          b.type = 'button';
-          const isCur = state.cameraDirection === code;
-          b.className = `dir-menu-btn${isCur ? ' on' : ''}`;
-          b.setAttribute('aria-label', `Tampak ${fullName}`);
-          b.setAttribute('aria-pressed', isCur ? 'true' : 'false');
-          b.textContent = code;
-          b.addEventListener('click', () => handlers.onSelectDirection(code));
-          dirGrid.appendChild(b);
-        }
-
-        const northCol = document.createElement('div');
-        northCol.style.display = 'grid';
-        northCol.style.gap = '6px';
-
-        const northLbl = document.createElement('label');
-        northLbl.className = 'lbl';
-        northLbl.htmlFor = 'panel-north-angle';
-        northLbl.textContent = 'Arah utara';
-
+        // 1) Arah utara proyek (angka presisi)
+        const northSec = mkSec('compass', 'Arah utara proyek', true);
         const northRow = document.createElement('div');
         northRow.style.display = 'flex';
-        northRow.style.gap = '6px';
+        northRow.style.gap = '8px';
         northRow.style.alignItems = 'center';
-
+        northRow.style.flexWrap = 'wrap';
         const northInp = document.createElement('input');
         northInp.id = 'panel-north-angle';
         northInp.type = 'number';
         northInp.min = '0';
         northInp.max = '359';
+        northInp.step = '0.1';
         northInp.className = 'field-input num';
-        northInp.style.width = '68px';
+        northInp.style.width = '76px';
+        northInp.setAttribute('aria-label', 'Arah utara dalam derajat');
         northInp.value = String(state.config?.settings?.north_angle_deg || 0);
         northInp.addEventListener('change', () => {
           const deg = ((Number(northInp.value) || 0) % 360 + 360) % 360;
           handlers.onChangeNorth(deg);
         });
-
         const degUnit = document.createElement('span');
         degUnit.className = 'muted';
         degUnit.textContent = 'derajat';
-        northRow.append(northInp, degUnit);
+        const ringBtn = document.createElement('button');
+        ringBtn.type = 'button';
+        ringBtn.className = `ghost ghost-sm${state.northRotateMode ? ' on' : ''}`;
+        ringBtn.textContent = state.northRotateMode ? 'Selesai (R)' : 'Atur di model (R)';
+        ringBtn.addEventListener('click', () => handlers.onToggleNorthRotateMode?.());
+        northRow.append(northInp, degUnit, ringBtn);
+        northSec.append(northRow, note('Mengubah arah utara perlu Hitung ulang. Kompas di viewer hanya untuk navigasi: klik untuk menghadap utara.'));
+        container.appendChild(northSec);
 
-        const pieHint = document.createElement('p');
-        pieHint.className = 'lbl';
-        pieHint.style.margin = '0';
-        pieHint.style.fontWeight = '500';
-        pieHint.innerHTML = 'Tahan <kbd>V</kbd> untuk pie 8 arah. Tekan <kbd>F</kbd> untuk pas ke model.';
-
-        northCol.append(northLbl, northRow, pieHint);
-        dirRow.append(dirGrid, northCol);
-        camSec.appendChild(dirRow);
-
-        const fitBtn = document.createElement('button');
-        fitBtn.type = 'button';
-        fitBtn.className = 'ghost ghost-sm';
-        fitBtn.textContent = 'Pas ke model (F)';
-        fitBtn.addEventListener('click', () => handlers.onFitCamera());
-        camSec.appendChild(fitBtn);
-
-        container.appendChild(camSec);
-
-        // Section 2: Matahari (mirrors mockup 6-panel-tampilan.html & spec §4.4)
-        const sunSec = document.createElement('div');
-        sunSec.className = 'psec';
-        const sunHead = document.createElement('h3');
-        sunHead.innerHTML = `${icon('sun', 14)}<span>Matahari</span>`;
-        sunSec.appendChild(sunHead);
-
-        const curDate = state.sunDate || '2026-09-23';
-        const PRESET_DATES = [
-          ['2026-06-21', '21 Jun'],
-          ['2026-09-23', '23 Sep'],
-          ['2026-12-21', '21 Des'],
-        ];
-        const isPreset = PRESET_DATES.some(([d]) => d === curDate);
-
-        const dateSeg = document.createElement('div');
-        dateSeg.className = 'seg';
-        dateSeg.setAttribute('role', 'radiogroup');
-        dateSeg.setAttribute('aria-label', 'Tanggal matahari');
-
-        for (const [iso, lbl] of PRESET_DATES) {
-          const b = document.createElement('button');
-          b.type = 'button';
-          b.setAttribute('role', 'radio');
-          const on = curDate === iso;
-          b.setAttribute('aria-checked', on ? 'true' : 'false');
-          if (on) b.classList.add('on');
-          b.textContent = lbl;
-          b.addEventListener('click', () => handlers.onChangeSunDate?.(iso));
-          dateSeg.appendChild(b);
-        }
-        const bOther = document.createElement('button');
-        bOther.type = 'button';
-        bOther.setAttribute('role', 'radio');
-        bOther.setAttribute('aria-checked', !isPreset ? 'true' : 'false');
-        if (!isPreset) bOther.classList.add('on');
-        bOther.textContent = 'Lainnya';
-        bOther.addEventListener('click', () => {
-          if (isPreset) handlers.onChangeSunDate?.('2026-03-21');
-        });
-        dateSeg.appendChild(bOther);
-        sunSec.appendChild(dateSeg);
-
-        if (!isPreset) {
-          const dateInp = document.createElement('input');
-          dateInp.type = 'date';
-          dateInp.className = 'field-input';
-          dateInp.value = curDate;
-          dateInp.setAttribute('aria-label', 'Pilih tanggal kustom');
-          dateInp.addEventListener('change', () => {
-            if (dateInp.value) handlers.onChangeSunDate?.(dateInp.value);
-          });
-          sunSec.appendChild(dateInp);
-        }
-
-        // Jam slider
-        const hourRow = document.createElement('div');
-        hourRow.className = 'prow';
-        const hourLbl = document.createElement('label');
-        hourLbl.className = 'lbl';
-        hourLbl.htmlFor = 'panel-sun-hour';
-        hourLbl.textContent = 'Jam';
-
-        const hourSlider = document.createElement('input');
-        hourSlider.id = 'panel-sun-hour';
-        hourSlider.type = 'range';
-        hourSlider.min = '6';
-        hourSlider.max = '18';
-        hourSlider.step = '1';
-        hourSlider.value = String(Math.round(Number(state.sunHour ?? 13)));
-        hourSlider.style.accentColor = 'var(--sun)';
-        hourSlider.style.width = '100%';
-        hourSlider.addEventListener('input', () => handlers.onChangeSunHour?.(Number(hourSlider.value)));
-
-        const hourVal = document.createElement('span');
-        hourVal.className = 'num';
-        hourVal.style.fontWeight = '700';
-        hourVal.style.width = '44px';
-        hourVal.style.textAlign = 'right';
-        hourVal.textContent = `${String(Math.round(Number(state.sunHour ?? 13))).padStart(2, '0')}.00`;
-        hourRow.append(hourLbl, hourSlider, hourVal);
-        sunSec.appendChild(hourRow);
-
-        // Altitude / azimuth micro readout
-        const latDeg = Number(state.analysisData?.location_info?.latitude_deg ?? -6.2088);
-        const northDeg = Number(state.config?.settings?.north_angle_deg ?? 0);
-        const sp = computeSolarPosition(latDeg, curDate, Number(state.sunHour ?? 13), northDeg);
-        const sunInfo = document.createElement('div');
-        sunInfo.className = 'lbl num';
-        sunInfo.style.fontWeight = '500';
-        sunInfo.textContent = sp.aboveHorizon
-          ? `Tinggi matahari ${Math.round(sp.altitudeDeg)}° · Azimut ${Math.round(sp.azimuthDeg)}°`
-          : 'Matahari di bawah ufuk pada jam ini.';
-        sunSec.appendChild(sunInfo);
-
-        // Fase 4d D1: Manual sun dome radius (logarithmic slider 0.2x..10x initial radius + numeric "Radius __ m")
-        const bbox = state.analysisData?.summary?.bounding_box || state.inspectData?.bounding_box || null;
-        const initR = Math.max(4, Number(state.sunDomeInitialRadiusM || computeInitialSunDomeRadiusM(bbox)));
-        const curR = Math.max(1, Number(state.sunDomeRadiusM ?? state.config?.settings?.sun_dome_radius_m ?? initR));
-        const minR = Math.max(1, initR * 0.2);
-        const maxR = Math.max(minR * 2, initR * 10);
-        const logVal = Math.round((Math.log(Math.max(minR, Math.min(maxR, curR)) / minR) / Math.log(maxR / minR)) * 1000);
-
-        const domeRow = document.createElement('div');
-        domeRow.className = 'prow';
-        const domeLbl = document.createElement('label');
-        domeLbl.className = 'lbl';
-        domeLbl.htmlFor = 'panel-dome-radius-slider';
-        domeLbl.textContent = 'Radius kubah';
-
-        const domeSlider = document.createElement('input');
-        domeSlider.id = 'panel-dome-radius-slider';
-        domeSlider.type = 'range';
-        domeSlider.min = '0';
-        domeSlider.max = '1000';
-        domeSlider.step = '1';
-        domeSlider.value = String(logVal);
-        domeSlider.style.accentColor = 'var(--sun)';
-        domeSlider.style.width = '100%';
-        domeSlider.addEventListener('input', () => {
-          const t = Math.max(0, Math.min(1, Number(domeSlider.value) / 1000));
-          const nextR = Math.round(minR * Math.pow(maxR / minR, t) * 10) / 10;
-          handlers.onChangeSunDomeRadius?.(nextR);
-        });
-
-        const domeInpWrap = document.createElement('span');
-        domeInpWrap.style.display = 'inline-flex';
-        domeInpWrap.style.alignItems = 'center';
-        domeInpWrap.style.gap = '4px';
-
-        const domeInp = document.createElement('input');
-        domeInp.id = 'panel-dome-radius-input';
-        domeInp.type = 'text';
-        domeInp.inputMode = 'decimal';
-        domeInp.className = 'field-input num';
-        domeInp.style.width = '64px';
-        domeInp.style.height = '28px';
-        domeInp.style.padding = '0 6px';
-        domeInp.style.textAlign = 'right';
-        domeInp.setAttribute('aria-label', 'Radius kubah dalam meter');
-        domeInp.value = fmtId(curR, curR % 1 ? 1 : 0);
-        const commitTypedR = () => {
-          const parsed = parseDecimalInput(domeInp.value);
-          if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 5000) {
-            handlers.onChangeSunDomeRadius?.(Math.round(parsed * 10) / 10);
-          } else {
-            domeInp.value = fmtId(curR, curR % 1 ? 1 : 0);
-          }
-        };
-        domeInp.addEventListener('change', commitTypedR);
-        domeInp.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            commitTypedR();
-          }
-        });
-        const domeUnit = document.createElement('span');
-        domeUnit.className = 'lbl';
-        domeUnit.textContent = 'm';
-        domeInpWrap.append(domeInp, domeUnit);
-
-        domeRow.append(domeLbl, domeSlider, domeInpWrap);
-        sunSec.appendChild(domeRow);
-
-        // Putar satu hari + Putar arah utara (D2) — NO "Pas ke model" button for sun dome per D1!
-        const sunActions = document.createElement('div');
-        sunActions.style.display = 'flex';
-        sunActions.style.gap = '6px';
-
-        const playDayBtn = document.createElement('button');
-        playDayBtn.type = 'button';
-        playDayBtn.className = 'ghost ghost-sm';
-        playDayBtn.style.flex = '1';
-        playDayBtn.style.background = 'var(--glass-thin)';
-        playDayBtn.innerHTML = `${icon(state.sunPlaying ? 'pause' : 'play', 12)}<span>${
-          state.sunPlaying ? 'Jeda' : 'Putar satu hari'
-        }</span>`;
-        playDayBtn.addEventListener('click', () => handlers.onToggleSunPlay?.());
-
-        const rotNorthBtn = document.createElement('button');
-        rotNorthBtn.type = 'button';
-        rotNorthBtn.className = `ghost ghost-sm${state.northRotateMode ? ' is-active' : ''}`;
-        rotNorthBtn.style.flex = '1';
-        rotNorthBtn.style.background = state.northRotateMode ? 'var(--surface)' : 'var(--glass-thin)';
-        rotNorthBtn.innerHTML = `${icon('rotateCw', 12)}<span>${
-          state.northRotateMode ? 'Selesai putar (R)' : 'Putar utara (R)'
-        }</span>`;
-        rotNorthBtn.addEventListener('click', () => handlers.onToggleNorthRotateMode?.());
-
-        sunActions.append(playDayBtn, rotNorthBtn);
-        sunSec.appendChild(sunActions);
-        container.appendChild(sunSec);
-
-        // Section 3: Tampilkan fasad (mirrors mockup 6-panel-tampilan.html & spec §4.6)
-        const filterFs = document.createElement('fieldset');
-        filterFs.className = 'psec';
-        filterFs.style.border = '0';
-        filterFs.style.margin = '0';
-
-        const filterLeg = document.createElement('legend');
-        filterLeg.style.padding = '0';
-        filterLeg.style.width = '100%';
-        const filterH = document.createElement('h3');
-        filterH.innerHTML = `${icon('layers', 14)}<span>Tampilkan fasad</span>`;
-        filterLeg.appendChild(filterH);
-        filterFs.appendChild(filterLeg);
-
-        const radioWrap = document.createElement('div');
-        radioWrap.style.display = 'grid';
-        radioWrap.style.gap = '2px';
-        radioWrap.style.fontSize = '13px';
-
-        const filterOpts = [
-          ['all', 'Semua arah'],
-          ['selected_orientation', 'Arah yang dipilih'],
-          ['sunlit_now', 'Yang terkena matahari jam ini'],
-        ];
-        const curFilter = state.facadeFilter || 'all';
-        for (const [val, txt] of filterOpts) {
-          const lbl = document.createElement('label');
-          lbl.className = 'confirm-radio';
-          lbl.style.minHeight = '30px';
-          if (curFilter === val) lbl.style.fontWeight = '600';
-          const radio = document.createElement('input');
-          radio.type = 'radio';
-          radio.name = 'luxa_facade_filter';
-          radio.value = val;
-          radio.checked = curFilter === val;
-          radio.disabled = val === 'sunlit_now' && !state.analysisData;
-          radio.addEventListener('change', () => {
-            if (radio.checked) handlers.onChangeFacadeFilter?.(val);
-          });
-          const spanTxt = document.createElement('span');
-          spanTxt.textContent = txt;
-          lbl.append(radio, spanTxt);
-          radioWrap.appendChild(lbl);
-        }
-        filterFs.appendChild(radioWrap);
-
-        const sfNote = document.createElement('p');
-        sfNote.className = 'lbl';
-        sfNote.style.margin = '0';
-        sfNote.style.fontWeight = '500';
-        sfNote.style.lineHeight = '17px';
-        sfNote.textContent =
-          'Filter ini membantu melihat sisi mana yang sedang kena matahari. Angka OTTV tetap memakai faktor SF tahunan dari SNI, jadi tidak berubah saat jam digeser.';
-        filterFs.appendChild(sfNote);
-        container.appendChild(filterFs);
-
-        // Section 4: Workspace v1 (`docs/FASE4_UI_SPEC.md` §5 + mockup 6-panel-tampilan.html)
-        const wsSec = document.createElement('div');
-        wsSec.className = 'psec';
-        const wsHead = document.createElement('h3');
-        wsHead.innerHTML = `${icon('sliders', 14)}<span>Workspace</span>`;
-        wsSec.appendChild(wsHead);
-
-        const wsPreset = state.workspace?.preset || 'belajar';
-        const wsSeg = document.createElement('div');
-        wsSeg.className = 'seg';
-        wsSeg.setAttribute('role', 'radiogroup');
-        wsSeg.setAttribute('aria-label', 'Preset workspace');
-
-        for (const [id, lbl] of [
-          ['belajar', 'Belajar'],
-          ['lanjut', 'Lanjut'],
-          ['presentasi', 'Presentasi'],
+        // 2) Tata letak
+        const layoutSec = mkSec('sliders', 'Tata letak');
+        const posLbl = document.createElement('div');
+        posLbl.className = 'lbl';
+        posLbl.style.marginBottom = '6px';
+        posLbl.textContent = 'Posisi bar mode tampilan';
+        const posSeg = document.createElement('div');
+        posSeg.className = 'seg';
+        posSeg.setAttribute('role', 'radiogroup');
+        posSeg.setAttribute('aria-label', 'Posisi bar mode tampilan');
+        const curPos = state.workspace?.modeBarPosition === 'bottom' ? 'bottom' : 'top';
+        for (const [val, txt] of [
+          ['top', 'Atas viewer'],
+          ['bottom', 'Bawah viewer'],
         ]) {
           const b = document.createElement('button');
           b.type = 'button';
+          b.className = curPos === val ? 'on' : '';
           b.setAttribute('role', 'radio');
-          const on = wsPreset === id;
-          b.setAttribute('aria-checked', on ? 'true' : 'false');
-          if (on) b.classList.add('on');
-          b.textContent = lbl;
-          b.addEventListener('click', () => handlers.onSetWorkspacePreset?.(id));
-          wsSeg.appendChild(b);
+          b.setAttribute('aria-checked', curPos === val ? 'true' : 'false');
+          b.textContent = txt;
+          b.addEventListener('click', () => handlers.onSetModeBarPosition?.(val));
+          posSeg.appendChild(b);
         }
-        wsSec.appendChild(wsSeg);
-
-        const wsDesc = document.createElement('p');
-        wsDesc.className = 'lbl';
-        wsDesc.style.margin = '0';
-        wsDesc.style.fontWeight = '500';
-        wsDesc.textContent =
-          wsPreset === 'presentasi'
-            ? 'Rel dan kolom samping disembunyikan untuk viewer penuh.'
-            : wsPreset === 'lanjut'
-            ? 'Menampilkan tabel per bidang dan override material per orientasi.'
-            : 'Tooltip istilah SNI dengan rujukan pasal aktif.';
-        wsSec.appendChild(wsDesc);
-
         const custBtn = document.createElement('button');
         custBtn.type = 'button';
-        custBtn.className = 'lbl';
-        custBtn.style.border = '0';
-        custBtn.style.background = 'none';
-        custBtn.style.padding = '0';
-        custBtn.style.textAlign = 'left';
-        custBtn.style.textDecoration = 'underline';
-        custBtn.textContent = 'Atur urutan dan isi dock';
+        custBtn.className = 'ghost ghost-sm';
+        custBtn.style.marginTop = '10px';
+        custBtn.textContent = 'Atur menu samping';
         custBtn.addEventListener('click', () => handlers.onOpenDockCustomizer?.());
-        wsSec.appendChild(custBtn);
+        layoutSec.append(posLbl, posSeg, custBtn);
+        container.appendChild(layoutSec);
 
-        container.appendChild(wsSec);
-
-        // Section 5: Tema
-        const modeSec = document.createElement('div');
-        modeSec.className = 'psec';
-        const modeHead = document.createElement('h3');
-        modeHead.textContent = 'Tema';
-        modeSec.appendChild(modeHead);
-
-        const themeBtn = document.createElement('button');
-        themeBtn.type = 'button';
-        themeBtn.className = 'ghost ghost-sm';
-        themeBtn.textContent = state.theme === 'dark' ? 'Ganti ke tema terang' : 'Ganti ke tema gelap';
-        themeBtn.addEventListener('click', () => handlers.onToggleTheme());
-        modeSec.appendChild(themeBtn);
-
-        container.appendChild(modeSec);
+        // 3) Pintasan
+        const keySec = mkSec('keyboard', 'Pintasan keyboard');
+        const list = document.createElement('ul');
+        list.className = 'display-keys';
+        for (const [k, d] of [
+          ['V', 'Tahan untuk menu arah pandang'],
+          ['F', 'Pas ke model'],
+          ['R', 'Atur arah utara'],
+          ['Spasi', 'Putar matahari satu hari'],
+          ['S', 'Simpan view'],
+          ['C', 'Simpan gambar'],
+        ]) {
+          const li = document.createElement('li');
+          li.innerHTML = `<kbd>${k}</kbd><span>${d}</span>`;
+          list.appendChild(li);
+        }
+        const allBtn = document.createElement('button');
+        allBtn.type = 'button';
+        allBtn.className = 'ghost ghost-sm';
+        allBtn.style.marginTop = '8px';
+        allBtn.textContent = 'Semua pintasan';
+        allBtn.addEventListener('click', () => handlers.onOpenShortcuts?.());
+        keySec.append(list, allBtn);
+        container.appendChild(keySec);
       },
     },
 
@@ -1001,7 +674,7 @@ export function createRailPanelBuilders(handlers) {
           const line2 = document.createElement('div');
           line2.className = `lbl ${isProv ? 'st-warn' : ok ? 'st-ok' : 'st-fail'}`;
           line2.textContent = isProv
-            ? 'Status: Sementara (ada kejanggalan yang belum diperbaiki)'
+            ? 'Status: Sementara (ada catatan yang belum diselesaikan)'
             : ok
             ? `Status: Memenuhi (≤ ${fmtId(limit, 0)} W/m²)`
             : `Status: Tidak memenuhi, batas ${fmtId(limit, 0)}`;
@@ -1139,7 +812,7 @@ export function createRailPanelBuilders(handlers) {
         for (const [h, body] of [
           [
             '4 langkah kerja',
-            '1) Unggah model 3D (.3dm, .ifc, .obj, .glb). 2) Konfirmasi satuan, muka tanah, dan isi model. 3) Periksa grup dan kejanggalan. 4) Hitung OTTV, bandingkan alternatif, lalu unduh laporan.',
+            '1) Unggah model 3D (.3dm, .ifc, .obj, .glb). 2) Konfirmasi satuan, muka tanah, dan isi model. 3) Periksa grup dan catatan pemeriksaan. 4) Hitung OTTV, bandingkan alternatif, lalu unduh laporan.',
           ],
           [
             'Tips Rhino (.3dm)',

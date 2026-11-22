@@ -104,8 +104,8 @@ export class ViewerLabelsOverlay {
       const el = document.createElement('div');
       el.className = `viewer-flag-pin${it.severity === 'error' ? ' is-error' : ''}`;
       el.textContent = String(it.index);
-      el.title = it.title || `Kejanggalan ${it.index}`;
-      el.setAttribute('aria-label', `Penanda kejanggalan ${it.index}: ${it.title || ''}`);
+      el.title = it.title || `Perlu dicek ${it.index}`;
+      el.setAttribute('aria-label', `Penanda perlu dicek ${it.index}: ${it.title || ''}`);
       this.layer.appendChild(el);
       this.flagPins.push({
         el,

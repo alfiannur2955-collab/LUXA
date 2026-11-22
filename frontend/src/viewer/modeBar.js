@@ -1,12 +1,13 @@
 /**
- * Unified 5-mode viewer toolbar (`docs/FASE4_UI_SPEC.md` §4.2 & §5):
- * Klasifikasi, Orientasi, Heatmap | Kejanggalan, X-ray
+ * Bar mode tampilan: 4 mode pewarnaan (Klasifikasi, Orientasi, Heatmap, Matahari)
+ * + 2 alat periksa yang bisa digabung (Perlu dicek, Transparan).
+ * Heatmap & Matahari baru muncul setelah OTTV dihitung.
  */
 
 import { icon } from '../ui/icons.js';
-import { VIEWER_MODES } from './modes.js';
+import { VIEWER_MODES, VIEWER_OVERLAYS, resolveViewerMode } from './modes.js';
 
-export function renderViewerModeBar(state, onSelectMode) {
+export function renderViewerModeBar(state, onSelectMode, { onToggleOverlay = null } = {}) {
   const bar = document.createElement('div');
   const atBottom = state.workspace?.modeBarPosition === 'bottom';
   bar.className = `glass modes${atBottom ? ' modes-bottom' : ''}`;
@@ -14,32 +15,37 @@ export function renderViewerModeBar(state, onSelectMode) {
   bar.setAttribute('aria-label', 'Mode tampilan');
 
   const hasAnalysis = Boolean(state.analysisData);
-  const activeMode = state.viewerMode || (hasAnalysis ? 'heatmap' : 'classification');
+  const view = resolveViewerMode(state);
 
-  let prevGroup = null;
   for (const m of VIEWER_MODES) {
-    if (prevGroup && prevGroup !== m.group) {
-      const hr = document.createElement('hr');
-      hr.setAttribute('aria-hidden', 'true');
-      bar.appendChild(hr);
-    }
-    prevGroup = m.group;
-
+    if (m.needsAnalysis && !hasAnalysis) continue;
     const btn = document.createElement('button');
     btn.type = 'button';
-    const isHeatDisabled = (m.id === 'heatmap' || m.id === 'exposure') && !hasAnalysis;
-    const isOn = activeMode === m.id && !isHeatDisabled;
+    const isOn = view.mode === m.id;
     if (isOn) btn.className = 'on';
-    btn.disabled = isHeatDisabled;
     btn.setAttribute('aria-pressed', isOn ? 'true' : 'false');
-    // Ringkas: hanya mode aktif yang menampilkan label; lainnya ikon + tooltip.
-    btn.title = isHeatDisabled ? `${m.label}: tersedia setelah OTTV dihitung` : m.hint || m.label;
-    btn.setAttribute('aria-label', m.label);
+    btn.title = m.hint || m.label;
     btn.innerHTML = `${icon(m.icon, 16)}<span class="modes-lbl">${m.label}</span>`;
-    btn.addEventListener('click', () => {
-      if (!isHeatDisabled) onSelectMode(m.id);
-    });
+    btn.addEventListener('click', () => onSelectMode(m.id));
     bar.appendChild(btn);
+  }
+
+  if (typeof onToggleOverlay === 'function') {
+    const hr = document.createElement('hr');
+    hr.setAttribute('aria-hidden', 'true');
+    bar.appendChild(hr);
+    for (const o of VIEWER_OVERLAYS) {
+      const on = Boolean(view[o.id]);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `modes-tool${on ? ' on' : ''}`;
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      btn.setAttribute('aria-label', o.label);
+      btn.title = `${o.label}: ${o.hint}${on ? ' (aktif, klik untuk matikan)' : ''}`;
+      btn.innerHTML = `${icon(o.icon, 16)}<span class="modes-lbl">${o.label}</span>`;
+      btn.addEventListener('click', () => onToggleOverlay(o.id, !on));
+      bar.appendChild(btn);
+    }
   }
 
   return bar;

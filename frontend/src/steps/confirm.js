@@ -649,9 +649,9 @@ export function renderConfirmScreen(state, handlers) {
   hint.style.textAlign = 'center';
   hint.style.fontWeight = '500';
   hint.textContent = busy
-    ? 'Membaca grup, klasifikasi, dan kejanggalan model.'
+    ? 'Membaca grup, klasifikasi, dan catatan pemeriksaan model.'
     : gate.ready
-      ? 'Semua baris sudah hijau. Lanjut periksa grup dan kejanggalan.'
+      ? 'Semua baris sudah hijau. Lanjut periksa grup dan catatan pemeriksaan.'
       : 'Tombol aktif setelah semua baris berwarna hijau.';
 
   footer.append(cta, hint);

@@ -794,7 +794,7 @@ def analyze_model(
         summary = dict(payload.get("summary") or {})
         warnings_list = list(summary.get("warnings") or payload.get("warnings") or [])
         flag_msg = (
-            "Kejanggalan diterima tanpa perbaikan sebelum hitung: "
+            "Catatan pemeriksaan diterima tanpa perbaikan sebelum hitung: "
             + ", ".join(str(f) for f in accepted_flags)
             + "."
         )
