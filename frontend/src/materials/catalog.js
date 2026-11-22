@@ -1060,7 +1060,8 @@ function renderRecommendTab(state, handlers) {
       const tdDelta = document.createElement('td');
       tdDelta.className = row.delta_ottv_wm2 <= 0 ? 'st-ok' : 'st-fail';
       const sign = row.delta_ottv_wm2 > 0 ? '+' : '−';
-      tdDelta.textContent = `${sign}${fmtId(Math.abs(row.delta_ottv_wm2), 2)}`;
+      tdDelta.textContent =
+        Math.abs(row.delta_ottv_wm2) < 0.005 ? 'tidak berubah' : `${sign}${fmtId(Math.abs(row.delta_ottv_wm2), 2)}`;
 
       const tdVlt = document.createElement('td');
       tdVlt.textContent = row.vlt != null ? `${Math.round(row.vlt * 100)}%` : '-';
@@ -1228,7 +1229,10 @@ function renderRecommendTab(state, handlers) {
       metric.style.fontWeight = '700';
       metric.style.margin = '6px 0';
       const sign = opt.delta_ottv_wm2 > 0 ? '+' : '−';
-      metric.textContent = `${fmtId(opt.new_ottv_wm2, 2)} W/m² (${sign}${fmtId(Math.abs(opt.delta_ottv_wm2), 2)})`;
+      metric.textContent =
+        Math.abs(opt.delta_ottv_wm2) < 0.005
+          ? `${fmtId(opt.new_ottv_wm2, 2)} W/m²`
+          : `${fmtId(opt.new_ottv_wm2, 2)} W/m² (${sign}${fmtId(Math.abs(opt.delta_ottv_wm2), 2)})`;
 
       const chList = document.createElement('ul');
       chList.className = 'mat-opt-changes';
@@ -1267,7 +1271,10 @@ function renderRecommendTab(state, handlers) {
       appB.addEventListener('click', () => handlers.onApplyRecommendPatch(opt.title, opt.apply_patch));
 
       actRow.append(altB, appB);
-      c.append(title, sub, metric, chList, actRow);
+      // Review 4e: an option with no changes (design already meets the target) has nothing to apply.
+      const hasChanges = Number(opt.changed_count ?? (opt.changes || []).length) > 0;
+      if (hasChanges) c.append(title, sub, metric, chList, actRow);
+      else c.append(title, sub, metric);
       cardsRow.appendChild(c);
     }
     secB.appendChild(cardsRow);

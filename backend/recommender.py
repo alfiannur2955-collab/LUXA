@@ -37,6 +37,13 @@ from template_method import compute_template_shgc_and_sck
 ORIENTATION_CODES: Tuple[str, ...] = ("U", "TL", "T", "TGR", "S", "BD", "B", "BL")
 
 
+def _fmt_id(value: float, decimals: int = 2) -> str:
+    """Review 4d/4e: Indonesian decimal comma for user-facing copy (20,43 / 35)."""
+    v = round(float(value), decimals)
+    txt = f"{v:.{decimals}f}".rstrip("0").rstrip(".") if decimals and float(v).is_integer() else f"{v:.{decimals}f}"
+    return txt.replace(".", ",")
+
+
 def _wall_tdek_from_mat(mat_dict: Optional[Dict[str, Any]], fallback_td: float, is_sni_mode: bool) -> float:
     if is_sni_mode:
         if mat_dict and mat_dict.get("massa_kg_m2") is not None:
@@ -838,7 +845,7 @@ def optimize_material_combinations(
         options.append({
             "option_id": "least_changes",
             "title": "Paling sedikit perubahan",
-            "subtitle": f"Desain sekarang ({cur_ottv:.2f} W/m²) sudah memenuhi target ≤ {target_ottv_wm2:.1f} W/m².",
+            "subtitle": f"Desain sekarang ({_fmt_id(cur_ottv)} W/m²) sudah memenuhi target ≤ {_fmt_id(target_ottv_wm2, 1)} W/m². Tidak perlu mengganti kaca.",
             "new_ottv_wm2": round(cur_ottv, 2),
             "delta_ottv_wm2": 0.0,
             "meets_target": True,
@@ -1011,7 +1018,7 @@ def optimize_material_combinations(
                     _build_option_payload(
                         "lowest_cost",
                         "Biaya terendah",
-                        f"Kombinasi termurah yang mencapai target ≤ {target_ottv_wm2:.1f} W/m².",
+                        f"Kombinasi termurah yang mencapai target ≤ {_fmt_id(target_ottv_wm2, 1)} W/m².",
                         best_assign,
                         is_uniform=False,
                     )

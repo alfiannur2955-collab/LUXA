@@ -37,6 +37,29 @@ function _vKey1mm(pt) {
   return `${Math.round(Number(pt[0]) * 1000)},${Math.round(Number(pt[1]) * 1000)},${Math.round(Number(pt[2]) * 1000)}`;
 }
 
+function _smoothClass(p) {
+  return p.element_type === 'glazing' || p.element_type === 'composite_cw' ? 'g' : 'o';
+}
+
+/**
+ * Review 4d: area-weighted average of the panels sharing a welded vertex, limited to
+ * the same element class and to faces within 30° of `faceNormal`. Returns null when
+ * nothing qualifies so the caller falls back to the panel's own colour.
+ */
+function _smoothValueFor(list, faceNormal, cls) {
+  if (!Array.isArray(list) || !list.length) return null;
+  let sv = 0;
+  let sa = 0;
+  for (const e of list) {
+    if (e.cls !== cls) continue;
+    const dot = e.n[0] * faceNormal[0] + e.n[1] * faceNormal[1] + e.n[2] * faceNormal[2];
+    if (dot < CREASE_COS_30_DEG) continue;
+    sv += e.v * e.a;
+    sa += e.a;
+  }
+  return sa > 1e-9 ? sv / sa : null;
+}
+
 function _computeFaceNormalBackend(v0, v1, v2) {
   const ax = Number(v1[0]) - Number(v0[0]);
   const ay = Number(v1[1]) - Number(v0[1]);
@@ -898,13 +921,12 @@ class LuxaViewer {
         for (const pt of p.vertices) {
           const k = _vKey1mm(pt);
           if (accum) {
-            const cur = accum.get(k);
-            if (cur) {
-              cur.sumValArea += val * area;
-              cur.sumArea += area;
-            } else {
-              accum.set(k, { sumValArea: val * area, sumArea: area });
-            }
+            // Review 4d: keep per-panel entries so smoothing only blends panels of the
+            // same element class (glazing vs opaque) on nearly coplanar faces (< 30°).
+            const entry = { v: val, a: area, n: fn, cls: _smoothClass(p) };
+            const list = accum.get(k);
+            if (list) list.push(entry);
+            else accum.set(k, [entry]);
           }
           if (normalsByKey) {
             const list = normalsByKey.get(k);
@@ -914,9 +936,7 @@ class LuxaViewer {
         }
       }
       if (accum && smoothVertexVal) {
-        for (const [k, acc] of accum.entries()) {
-          smoothVertexVal.set(k, acc.sumValArea / Math.max(1e-6, acc.sumArea));
-        }
+        for (const [k, list] of accum.entries()) smoothVertexVal.set(k, list);
       }
     }
 
@@ -1007,8 +1027,8 @@ class LuxaViewer {
 
       const cForVert = (pt, sn) => {
         if (useSmooth) {
-          const avgV = smoothVertexVal.get(_vKey1mm(pt));
-          return avgV !== undefined ? ottvToPastelThreeColor(avgV, tokens) : color;
+          const avgV = _smoothValueFor(smoothVertexVal.get(_vKey1mm(pt)), fn, _smoothClass(p));
+          return avgV !== null ? ottvToPastelThreeColor(avgV, tokens) : color;
         }
         if (useOrientSmooth) {
           if (Math.abs(sn[2]) > 0.7 || Math.hypot(sn[0], sn[1]) < 1e-4) return cHoriz;
