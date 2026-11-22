@@ -222,7 +222,8 @@ export function buildPastelGradientCss(tokensOverride = null) {
   const c25 = ottvToPastelCss(25, tokens);
   const c35 = ottvToPastelCss(35, tokens);
   const c50 = ottvToPastelCss(50, tokens);
-  return `linear-gradient(90deg, ${c0} 0%, ${c25} 41.7%, ${c35} 58.3%, ${c50} 83.3%, ${c50} 100%)`;
+  // Halus memakai skala relatif: rentang model dipetakan ke 0..50 pada palet (lihat viewer relColor).
+  return `linear-gradient(90deg, ${c0} 0%, ${c25} 50%, ${c35} 70%, ${c50} 100%)`;
 }
 
 /**

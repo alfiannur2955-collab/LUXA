@@ -60,6 +60,28 @@ function _smoothValueFor(list, faceNormal, cls) {
   return sa > 1e-9 ? sv / sa : null;
 }
 
+function _fmtWm2(v) {
+  return (Math.round(v * 10) / 10).toFixed(1).replace('.', ',');
+}
+
+/** Mengisi legenda Halus (dibuat di steps/results.js) dengan rentang nilai model. */
+function _updateSmoothLegend(range) {
+  if (typeof document === 'undefined' || !range) return;
+  for (const el of document.querySelectorAll('[data-luxa-smooth-legend]')) {
+    el.innerHTML = smoothLegendTicksHtml(range);
+  }
+  for (const el of document.querySelectorAll('[data-luxa-smooth-limit]')) {
+    const t = (35 - range.min) / (range.max - range.min);
+    el.style.display = t >= 0 && t <= 1 ? 'block' : 'none';
+    el.style.left = `${Math.max(0, Math.min(1, t)) * 100}%`;
+  }
+}
+
+export function smoothLegendTicksHtml(range) {
+  if (!range) return '<span>Rendah</span><span>Tinggi</span>';
+  return `<span>${_fmtWm2(range.min)}</span><span class="is-limit">W/m²</span><span>${_fmtWm2(range.max)}</span>`;
+}
+
 function _computeFaceNormalBackend(v0, v1, v2) {
   const ax = Number(v1[0]) - Number(v0[0]);
   const ay = Number(v1[1]) - Number(v0[1]);
@@ -911,6 +933,21 @@ class LuxaViewer {
       return a + (b - a) * t;
     };
     const orientKey = (c) => (c === 'TG' ? 'TGR' : c);
+    // Nilai OTTV halus di satu titik (null = pakai warna panel biasa).
+    const smoothValueAt = (p, sn) => {
+      if (Math.abs(sn[2]) > 0.7 || Math.hypot(sn[0], sn[1]) < 1e-4) return null;
+      const az = normalToAzimuthDeg(sn[0], sn[1], northDeg);
+      if (granularity === 'panel') {
+        const sf = ringAt(sfRing, az);
+        if (sf === null) return null;
+        return (
+          Number(p.ottv_panel_wm2 || 0) -
+          Number(p.q_solar_wm2 || 0) +
+          Number(p.wwr_panel || 0) * Number(p.sc_effective || 0) * sf
+        );
+      }
+      return ringAt(ottvRing, az);
+    };
     const useSmooth = Boolean(state.heatmapSmooth) && mode === 'heatmap' && (state.facadeFilter || 'all') !== 'sunlit_now';
     const useOrientSmooth = mode === 'orientation' && (state.facadeFilter || 'all') !== 'sunlit_now';
     const needSmoothNormals = useSmooth || useOrientSmooth;
@@ -965,6 +1002,42 @@ class LuxaViewer {
         for (const [k, list] of accum.entries()) smoothVertexVal.set(k, list);
       }
     }
+
+    // Halus memakai skala relatif model (Rendah -> Tinggi): cari rentang nilai titik dulu.
+    let smoothMin = Infinity;
+    let smoothMax = -Infinity;
+    if (useSmooth) {
+      for (const p of panels) {
+        if (!p.active || !Array.isArray(p.vertices) || p.vertices.length < 3) continue;
+        const fnp = Array.isArray(p.normal) && p.normal.length >= 3
+          ? (() => {
+              const l = Math.hypot(p.normal[0], p.normal[1], p.normal[2]) || 1;
+              return [p.normal[0] / l, p.normal[1] / l, p.normal[2] / l];
+            })()
+          : _computeFaceNormalBackend(p.vertices[0], p.vertices[1], p.vertices[2]);
+        for (const pt of p.vertices) {
+          const v = smoothValueAt(p, _resolveSmoothNormalBackend(_vKey1mm(pt), fnp, normalsByKey));
+          const vv = v !== null && Number.isFinite(v) ? v : Number(granularity === 'panel' ? p.ottv_panel_wm2 : orientOttv[orientKey(p.orientation_code || 'U')]) || 0;
+          if (vv < smoothMin) smoothMin = vv;
+          if (vv > smoothMax) smoothMax = vv;
+        }
+      }
+      if (!Number.isFinite(smoothMin)) {
+        smoothMin = 0;
+        smoothMax = 60;
+      }
+      if (smoothMax - smoothMin < 0.5) {
+        const mid = (smoothMax + smoothMin) / 2;
+        smoothMin = mid - 0.25;
+        smoothMax = mid + 0.25;
+      }
+      this.lastSmoothRange = { min: smoothMin, max: smoothMax };
+      _updateSmoothLegend(this.lastSmoothRange);
+    } else {
+      this.lastSmoothRange = null;
+    }
+    // Pemetaan nilai -> warna pastel: rentang model direntangkan ke seluruh gradasi (0..50 pada palet).
+    const relColor = (v) => ottvToPastelThreeColor(((v - smoothMin) / (smoothMax - smoothMin)) * 50, tokens);
 
     const cHeat1 = new THREE.Color(tokens.heat1);
     const cWall = new THREE.Color(tokens.wall);
@@ -1023,7 +1096,7 @@ class LuxaViewer {
         color = isSunlit ? cHeat1 : cWall;
       } else if (mode === 'heatmap') {
         const val = granularity === 'panel' ? Number(p.ottv_panel_wm2 || 0) : (orientOttv[orientKey(code)] ?? 0);
-        color = useSmooth ? ottvToPastelThreeColor(val, tokens) : ottvToThreeColor(val, tokens);
+        color = useSmooth ? relColor(val) : ottvToThreeColor(val, tokens);
       } else if (mode === 'orientation') {
         color = Math.abs(fn[2]) > 0.7 ? cHoriz : orientationToThreeColor(code, tokens);
       } else if (mode === 'anomalies') {
@@ -1053,25 +1126,10 @@ class LuxaViewer {
 
       const cForVert = (pt, sn) => {
         if (useSmooth) {
-          const horiz = Math.abs(sn[2]) > 0.7 || Math.hypot(sn[0], sn[1]) < 1e-4;
-          if (!horiz) {
-            const az = normalToAzimuthDeg(sn[0], sn[1], northDeg);
-            let v = null;
-            if (granularity === 'panel') {
-              const sf = ringAt(sfRing, az);
-              if (sf !== null) {
-                v =
-                  Number(p.ottv_panel_wm2 || 0) -
-                  Number(p.q_solar_wm2 || 0) +
-                  Number(p.wwr_panel || 0) * Number(p.sc_effective || 0) * sf;
-              }
-            } else {
-              v = ringAt(ottvRing, az);
-            }
-            if (v !== null && Number.isFinite(v)) return ottvToPastelThreeColor(v, tokens);
-          }
+          const v = smoothValueAt(p, sn);
+          if (v !== null && Number.isFinite(v)) return relColor(v);
           const avgV = _smoothValueFor(smoothVertexVal.get(_vKey1mm(pt)), fn, _smoothClass(p));
-          return avgV !== null ? ottvToPastelThreeColor(avgV, tokens) : color;
+          return avgV !== null ? relColor(avgV) : color;
         }
         if (useOrientSmooth) {
           if (Math.abs(sn[2]) > 0.7 || Math.hypot(sn[0], sn[1]) < 1e-4) return cHoriz;
