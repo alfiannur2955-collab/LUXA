@@ -124,8 +124,11 @@ export function renderResultsScreen(state, handlers) {
         <span class="legend-item"><i class="swatch sunlit-grad-swatch" aria-hidden="true"></i>Terkena</span>
         <span class="legend-item"><i class="swatch" style="background:var(--data-wall);"></i>Bayangan</span>
         <span class="legend-item num sunlit-stat"></span>`;
-      legend.querySelector('.sunlit-stat').textContent =
-        `${hLabel} · ${fmtId(pct, 0)}% fasad terkena${topName ? ` · terbanyak: ${topName}` : ''}`;
+      const topCode = top ? (top[0] === 'TGR' ? 'TG' : top[0]) : null;
+      const stat = legend.querySelector('.sunlit-stat');
+      stat.textContent = `${hLabel} · ${fmtId(pct, 0)}%${topCode ? ` · ${topCode}` : ''}`;
+      stat.title = `${fmtId(pct, 0)}% luas fasad terkena matahari pukul ${hLabel}${topName ? `; terbanyak di arah ${topName}` : ''}.`;
+      stat.setAttribute('aria-label', stat.title);
     }
   } else if (activeMode === 'heatmap') {
     const gran = state.heatmapGranularity || 'orientation';
