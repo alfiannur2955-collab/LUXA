@@ -103,12 +103,14 @@ export function renderConfirmScreen(state, handlers) {
   viewerStage.appendChild(canvasHost);
 
   // Left compass
-  const compass = document.createElement('div');
-  compass.className = 'glass compass compass-left';
+  const compass = document.createElement('button');
+  compass.type = 'button';
+  compass.className = 'glass compass compass-left compass-indicator compass-live';
   const northDeg = Number(state.config?.settings?.north_angle_deg || 0);
-  compass.setAttribute('role', 'img');
-  compass.setAttribute('aria-label', `Kompas arah utara, ${northDeg} derajat`);
-  compass.innerHTML = compassDialSvg(northDeg);
+  compass.setAttribute('aria-label', `Kompas, utara proyek ${northDeg} derajat. Klik untuk menghadap utara`);
+  compass.title = 'Klik: hadap utara';
+  compass.innerHTML = compassDialSvg(viewer._compassDeg ?? northDeg);
+  compass.addEventListener('click', () => viewer.faceNorth());
   viewerStage.appendChild(compass);
 
   viewerSec.appendChild(viewerStage);

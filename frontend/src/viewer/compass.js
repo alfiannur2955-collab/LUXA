@@ -1,13 +1,15 @@
 /**
- * Read-Only North Compass Indicator (`docs/RENCANA.md` Fase 4d D2):
+ * Kompas viewer (`docs/RENCANA.md` Fase 4d D2):
  * - 52 px glass ring at top-right (`top: 16px, right: 16px`).
- * - Pure directional indicator (non-clickable, non-draggable) with `aria-label="Utara di ...°"`.
- * - North rotation is performed exclusively via the D5 floor rotation ring (`northRing.js`, shortcut `R`).
+ * - Jarum ikut berputar mengikuti kamera (diperbarui viewer tiap frame lewat `.compass-live`).
+ * - Klik: pandangan diputar menghadap utara (utara di atas layar).
+ * - Mengubah arah utara proyek tetap lewat cincin putar D5 (`northRing.js`, tombol `R`).
  * - Displays `"Hitung ulang"` chip beneath compass when `needsRecompute` is true.
  */
 
 import { fmtId } from '../ui/escapeHtml.js';
 import { compassDialSvg, icon } from '../ui/icons.js';
+import { viewer } from './viewer.js';
 
 function normalizeDeg(deg) {
   const n = Number(deg) || 0;
@@ -23,12 +25,13 @@ export function renderInteractiveCompass(state, { onRecompute } = {}) {
     ? `${Math.round(northDeg)}°`
     : `${fmtId(northDeg, 1)}°`;
 
-  const indicator = document.createElement('div');
-  indicator.className = 'glass compass compass-indicator';
-  indicator.setAttribute('role', 'img');
-  indicator.setAttribute('aria-label', `Utara di ${degTxt}`);
-  indicator.title = `Utara di ${degTxt} (tekan R untuk memutar utara)`;
-  indicator.innerHTML = compassDialSvg(northDeg);
+  const indicator = document.createElement('button');
+  indicator.type = 'button';
+  indicator.className = 'glass compass compass-indicator compass-live';
+  indicator.setAttribute('aria-label', `Kompas, utara proyek ${degTxt}. Klik untuk menghadap utara`);
+  indicator.title = `Klik: hadap utara · Utara proyek ${degTxt} (tekan R untuk mengubah)`;
+  indicator.innerHTML = compassDialSvg(viewer._compassDeg ?? northDeg);
+  indicator.addEventListener('click', () => viewer.faceNorth());
 
   wrap.appendChild(indicator);
 
