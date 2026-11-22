@@ -94,7 +94,7 @@ export async function exposure(analysisId, date, hours = null, { northAngleDeg =
   return _jsonOrThrow(res, 'Gagal menghitung paparan matahari.');
 }
 
-export async function exportReport(analysisId, fmt = 'template_prodi', { signal } = {}) {
+export async function exportReport(analysisId, fmt = 'xlsx', { signal } = {}) {
   const res = await fetch(
     `/api/analyses/${encodeURIComponent(analysisId)}/export/${encodeURIComponent(fmt)}`,
     { signal },

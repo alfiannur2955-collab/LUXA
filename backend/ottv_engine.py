@@ -99,7 +99,7 @@ class EnvelopeParameters:
     z_ground_cutoff_m: float = 0.0  # Ground plane Z0 cutoff (excludes basement faces below Z0)
     restore_filtered: List[str] = field(default_factory=list)  # M4/M6: IDs of filtered_items to restore
     calculation_mode: str = "simulasi"  # 'sni' | 'simulasi'
-    sf_source: str = "template_prodi"  # 'template_prodi' | 'sni2020'
+    sf_source: str = "sni2020"  # 'sni2020' (default) | 'template_prodi' (tabel SF lama)
     sceff_table_mode: str = "terkoreksi"  # 'terkoreksi' | 'ketat_pdf'
 
     # Stage 2: 3-Tier Sub-Element Decomposer & 6-Role Envelope Classification
@@ -1928,12 +1928,12 @@ def _compute_sni_rttv(
         "skylight_area_m2": round(a_sky, 2),
         "total_roof_area_m2": round(a_tot, 2),
         "srr": round(a_sky / a_tot, 4),
-        "alpha_roof": round(sum_alpha_a / a_opaque_roof, 3) if a_opaque_roof > 1e-4 else 0.0,
-        "u_roof": round(sum_ur_a / a_opaque_roof, 3) if a_opaque_roof > 1e-4 else 0.0,
+        "alpha_roof": round(sum_alpha_a / a_opaque_roof, 6) if a_opaque_roof > 1e-4 else 0.0,
+        "u_roof": round(sum_ur_a / a_opaque_roof, 6) if a_opaque_roof > 1e-4 else 0.0,
         "massa_kg_m2": round(sum_mass_a / a_opaque_roof, 1) if a_opaque_roof > 1e-4 else 0.0,
         "td_eq_k": round(sum_tdeq_a / a_opaque_roof, 1) if a_opaque_roof > 1e-4 else 0.0,
-        "u_skylight": round(u_s, 3),
-        "sc_skylight": round(sc_s, 3),
+        "u_skylight": round(u_s, 6),
+        "sc_skylight": round(sc_s, 6),
         "sf_roof_wm2": sf_roof,
         "delta_t_k": SNI_DELTA_T_K,
         "q_roof_conduction_wm2": round(q_roof_cond, 2),
@@ -1956,9 +1956,9 @@ def analyze_building_ottv(
 
     calc_mode = (params.calculation_mode or "simulasi").strip().lower()
     is_sni_mode = calc_mode == "sni"
-    sf_source = (params.sf_source or "template_prodi").strip().lower()
+    sf_source = (params.sf_source or "sni2020").strip().lower()
     if sf_source not in ("template_prodi", "sni2020"):
-        sf_source = "template_prodi"
+        sf_source = "sni2020"
     sceff_table_mode = (params.sceff_table_mode or "terkoreksi").strip().lower()
     if sceff_table_mode not in ("terkoreksi", "ketat_pdf"):
         sceff_table_mode = "terkoreksi"

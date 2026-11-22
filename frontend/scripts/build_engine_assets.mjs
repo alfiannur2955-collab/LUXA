@@ -49,11 +49,6 @@ function backendBundle() {
       }
     }
   })(path.join(ROOT, 'backend'), '');
-  // Template laporan prodi (dipakai report_template_map.DEFAULT_TEMPLATE_PATH = /docs/templates/...).
-  const tpl = path.join(ROOT, 'docs', 'templates', 'template_prodi.xlsx');
-  if (fs.existsSync(tpl) && process.env.LUXA_INCLUDE_TEMPLATE !== '0') {
-    files.push({ path: 'docs/templates/template_prodi.xlsx', b64: fs.readFileSync(tpl).toString('base64') });
-  }
   return files;
 }
 
@@ -87,7 +82,6 @@ export function buildEngineAssets({ quiet = false } = {}) {
   for (const f of ['rhino3dm.module.js', 'rhino3dm.wasm']) copy(path.join(cache, 'rhino3dm', f), path.join(OUT, 'rhino3dm', f));
 
   const bundle = { files: backendBundle() };
-  manifest.template = bundle.files.some((f) => f.path.endsWith('template_prodi.xlsx'));
   const bundleJson = JSON.stringify(bundle);
   fs.writeFileSync(path.join(OUT, 'backend_bundle.json'), bundleJson);
 

@@ -33,7 +33,7 @@ npm run build                         # hasil di frontend/dist, termasuk templat
 
 Isi `frontend/dist` bisa dilayani dari folder mana pun karena semua path relatif. Untuk mencobanya: `python -m http.server 8000` di dalam `frontend/dist`.
 
-Template laporan ikut di setiap build. (`LUXA_INCLUDE_TEMPLATE=0` masih bisa dipakai untuk build tanpa template; tombol "Unduh laporan" lalu mengunduh laporan Excel umum dengan catatan.)
+Laporan Excel dibuat oleh `backend/luxa_report.py` di dalam engine, jadi tidak ada file template yang perlu disertakan. openpyxl dimuat saat laporan pertama diunduh.
 
 ## Terbit ke GitHub Pages
 

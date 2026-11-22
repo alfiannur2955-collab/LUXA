@@ -307,24 +307,24 @@ def test_provisional_status_label_and_exports_by_analysis_id(isolated_client):
     assert "HASIL SEMENTARA" in csv_text
     assert "MISSING_MESH" in csv_text
 
-    # Export XLSX by analysis_id and verify SUMMARY OTTV shows provisional status & warning
+    # Export XLSX (laporan LUXA) by analysis_id: Ringkasan shows provisional status & warning code
     xlsx_resp = client.get(f"/api/analyses/{aid}/export/xlsx")
     assert xlsx_resp.status_code == 200
     wb = openpyxl.load_workbook(io.BytesIO(xlsx_resp.content))
-    ws_sum = wb["SUMMARY OTTV"]
-    assert ws_sum["G21"].value == "HASIL SEMENTARA — perlu konfirmasi"
-    sum_values = [cell.value for row in ws_sum.iter_rows(min_row=38, max_row=45) for cell in row if cell.value]
-    assert any("MISSING_MESH" in str(v) for v in sum_values)
+    ws_sum = wb["Ringkasan"]
+    sum_values = [str(c.value) for row in ws_sum.iter_rows() for c in row if c.value is not None]
+    assert data["status_label"] in sum_values
+    assert any("MISSING_MESH" in v for v in sum_values)
 
     # Export PDF by analysis_id
     pdf_resp = client.get(f"/api/analyses/{aid}/export/pdf")
     assert pdf_resp.status_code == 200
     assert pdf_resp.content.startswith(b"%PDF")
 
-    # Export Template Prodi by analysis_id (pure zip/XML)
+    # Format lama 'template_prodi' dihapus di Fase 5c; tautan lama mendapat laporan LUXA
     tpl_resp = client.get(f"/api/analyses/{aid}/export/template_prodi")
     assert tpl_resp.status_code == 200
-    assert tpl_resp.content[:2] == b"PK"
+    assert "Ringkasan" in openpyxl.load_workbook(io.BytesIO(tpl_resp.content)).sheetnames
 
     # Unknown analysis_id -> 404; invalid format -> 400
     assert client.get("/api/analyses/nonexistent_id/export/csv").status_code == 404

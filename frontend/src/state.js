@@ -32,7 +32,7 @@ export function createDefaultConfig() {
       city_preset: 'jakarta',
       custom_epw: null,
       mode: 'sni',
-      sf_source: 'template_prodi',
+      sf_source: 'sni2020',
       sceff_table_mode: 'terkoreksi',
       design_month: 9,
       north_angle_deg: 0.0,

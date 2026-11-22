@@ -248,7 +248,7 @@ export function exposure(analysisId, date, hours = null, { northAngleDeg = null,
   return api('exposure', { analysis_id: analysisId, date, hours: Array.isArray(hours) && hours.length ? hours : null, north_angle_deg: nad }, { signal });
 }
 
-export async function exportReport(analysisId, fmt = 'template_prodi', { signal } = {}) {
+export async function exportReport(analysisId, fmt = 'xlsx', { signal } = {}) {
   const out = await api('export_report', { analysis_id: analysisId, fmt }, { signal });
   const bin = Uint8Array.from(atob(out.bytes_b64), (c) => c.charCodeAt(0));
   return { blob: new Blob([bin], { type: out.media_type }), filename: out.filename, warnings: out.warnings || [] };

@@ -564,8 +564,8 @@ export function renderConfirmScreen(state, handlers) {
   sfSel.className = 'field-select';
   sfSel.setAttribute('aria-label', 'Sumber tabel faktor surya');
   for (const [val, txt] of [
-    ['template_prodi', 'Tabel SF: template laporan'],
     ['sni2020', 'Tabel SF: SNI 6389:2020 (54 kota)'],
+    ['template_prodi', 'Tabel SF lama (template PUPR)'],
   ]) {
     const opt = document.createElement('option');
     opt.value = val;

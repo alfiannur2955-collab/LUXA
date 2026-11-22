@@ -991,6 +991,15 @@ Tugas Alfian sebelum publik:
 
 ### Keputusan 22 Nov sore dan rencana Fase 5c: template laporan LUXA
 
+**Status: Fase 5c selesai (22 Nov, dikerjakan Claude, branch `fase-5c-template-luxa`).** Ringkasnya:
+
+- `backend/luxa_report.py` jadi satu-satunya laporan Excel: Ringkasan, Material, 8 lembar arah, Atap RTTV, Per lantai, Referensi. Rumus hidup, tanpa batas baris, tanpa rumus kolom penuh, baris cek "Excel − aplikasi" = 0,00.
+- Hitung ulang LibreOffice cocok dengan aplikasi (selisih 0) pada 7 model uji, sampel Fasad tower twisted, dan unduhan dari engine browser.
+- Default SF sekarang SNI 6389:2020 Tabel 8; tabel lama tetap bisa dipilih sebagai "Tabel SF lama (template PUPR)". SC = SHGC/0,87 di semua mode. Angka contoh ikut berubah (kotak sintetis 20,43 → 19,37 W/m²).
+- Template lama, `report_template_map.py`, `template_filler.py` dan generator Excel generik lama (K4) dihapus. Format `template_prodi` jadi alias laporan LUXA.
+- Contoh: `docs/contoh/Laporan_OTTV_LUXA_Fasad_Tower_Twisted.xlsx`. Rincian di `docs/CHANGELOG-fase5.md`.
+- Berikutnya: sisa Fase 6 (K4 sudah tertutup oleh 5c), lalu publish.
+
 **Koreksi status:**
 
 - Template Excel yang dipakai selama ini ("Building Envelope Compliance Form V2.0", beredar luas dari PUPR dan juga dipakai UGM) **tidak bermasalah untuk dipublikasikan**. Catatan "izin prodi" di bagian sebelumnya dicabut, dan template sekarang ikut di setiap build.

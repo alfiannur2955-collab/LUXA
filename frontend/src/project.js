@@ -209,7 +209,7 @@ export async function readProjectFile(file) {
       settings: {
         city_preset: raw.city_preset || 'jakarta',
         mode: raw.mode || 'sni',
-        sf_source: raw.sf_source || 'template_prodi',
+        sf_source: raw.sf_source || 'sni2020',
         north_angle_deg: Number(raw.north_angle_deg || 0),
         glazing_material_id: raw.glazing_material_id || 'glz_igu_triple_silver',
         wall_material_id: raw.wall_material_id || 'wal_spandrel_insulasi_50',

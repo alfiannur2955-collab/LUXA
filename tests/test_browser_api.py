@@ -106,17 +106,16 @@ def test_analysis_store_is_bounded_and_switching_model_clears(both):
     assert e.value.status == 404
 
 
-def test_template_prodi_falls_back_to_generic_excel_when_missing(both, monkeypatch):
+def test_old_template_prodi_format_returns_luxa_report(both):
+    """Fase 5c: format 'template_prodi' dihapus; tautan lama mendapat laporan LUXA yang sama dengan xlsx."""
     client, work = both
     _upload_both(client, work)
     aid = browser_api.analyze("m1")["analysis_id"]
-    import report_template_map
-
-    def _missing(*a, **k):
-        raise FileNotFoundError("template_prodi.xlsx tidak ada")
-
-    monkeypatch.setattr(report_template_map, "export_template_prodi_xlsx", _missing)
-    out = browser_api.export_report(aid, "template_prodi")
-    assert out["filename"].endswith(".xlsx") and len(out["bytes"]) > 1000
-    assert out["warnings"] and "Template laporan prodi" in out["warnings"][0]
+    old = browser_api.export_report(aid, "template_prodi")
+    new = browser_api.export_report(aid, "xlsx")
+    assert old["filename"] == new["filename"]
+    assert old["filename"].startswith("Laporan_OTTV_LUXA_") and old["filename"].endswith(".xlsx")
+    assert old["warnings"] == []
+    import openpyxl, io
+    assert openpyxl.load_workbook(io.BytesIO(old["bytes"])).sheetnames[0] == "Ringkasan"
 

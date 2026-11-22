@@ -18,10 +18,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from materials_and_epw import SC_TO_SHGC_RATIO, get_material_shgc
 
-# Hardcoded divisor inside the university Excel workbook `template_prodi.xlsx` (`UTARA!T32 = D32/0.86`).
-# Kept distinct from `SC_TO_SHGC_RATIO = 0.87` (used for material conversion & brand datasheets)
-# so LibreOffice recalculation of filled `template_prodi.xlsx` remains within <= 0.05 W/m2 parity.
-TEMPLATE_PRODI_SHGC_DIVISOR: float = 0.86
+# Fase 5c: template lama memakai SHGC/0,86; LUXA memakai 0,87 (standar datasheet) di semua mode.
+TEMPLATE_PRODI_SHGC_DIVISOR: float = SC_TO_SHGC_RATIO
 from sni_tables import (
     SCEFF_1D_ANGLES_DEG,
     SNI_TABLE_EGGCRATE_SCEFF,
@@ -90,7 +88,7 @@ def compute_template_shgc_and_sck(
     """
     Menghitung `(SHGC, SCk)` sesuai rumus sel `Mat!D32` dan `UTARA!T32 = D32/0.86` pada `template_prodi.xlsx`:
       - `SHGC` diambil dari field `shgc` material (atau `round(sc * 0.87, 4)` via `SC_TO_SHGC_RATIO` jika `shgc` kosong).
-      - `SCk = SHGC / 0.86` (pembagi tetap milik rumus Excel template prodi).
+      - `SCk = SHGC / 0.87` (dulu 0,86 di template lama).
     """
     shgc = get_material_shgc(glz_mat, fallback_sc=fallback_sc)
     sc_k = shgc / TEMPLATE_PRODI_SHGC_DIVISOR

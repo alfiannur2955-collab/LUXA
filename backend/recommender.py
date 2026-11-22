@@ -165,7 +165,7 @@ def rematerial_analysis(
 
     calc_mode = str(out.get("calculation_mode") or "sni").lower()
     is_sni_mode = calc_mode == "sni"
-    sf_source = str(out.get("sf_source") or "template_prodi").lower()
+    sf_source = str(out.get("sf_source") or "sni2020").lower()
     is_template_method = is_sni_mode and (sf_source == "template_prodi")
 
     delta_t = float(SNI_DELTA_T_K if is_sni_mode else prev_params.get("delta_t", 5.0))
@@ -496,7 +496,7 @@ def _extract_orientation_terms(analysis: Dict[str, Any]) -> Dict[str, Any]:
     """
     calc_mode = str(analysis.get("calculation_mode") or "sni").lower()
     is_sni_mode = calc_mode == "sni"
-    sf_source = str(analysis.get("sf_source") or "template_prodi").lower()
+    sf_source = str(analysis.get("sf_source") or "sni2020").lower()
     is_template_method = is_sni_mode and (sf_source == "template_prodi")
     prev_params = analysis.get("parameters_used") or {}
     delta_t = float(SNI_DELTA_T_K if is_sni_mode else prev_params.get("delta_t", 5.0))

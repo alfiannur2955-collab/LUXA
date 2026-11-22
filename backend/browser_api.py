@@ -257,32 +257,20 @@ def export_report(analysis_id: str, fmt: str) -> Dict[str, Any]:
     """Returns {bytes, filename, media_type, warnings}. PDF needs reportlab (server only)."""
     data = _get_analysis(analysis_id)
     fmt_lo = (fmt or "").strip().lower()
-    base = os.path.splitext(data.get("filename", "OTTV_Report"))[0]
-    short_id = analysis_id[:8]
+    if fmt_lo == "template_prodi":  # format lama dihapus di Fase 5c
+        fmt_lo = "xlsx"
+    from report_exporter import report_filename
+
     if fmt_lo == "xlsx":
         from report_exporter import generate_excel_report
 
-        return {"bytes": generate_excel_report(data),
-                "filename": f"Laporan_OTTV_{base}_{short_id}_SNI6389.xlsx",
+        return {"bytes": generate_excel_report(data), "filename": report_filename(data, "xlsx"),
                 "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "warnings": []}
     if fmt_lo == "csv":
         from report_exporter import generate_csv_report
 
-        return {"bytes": generate_csv_report(data), "filename": f"Laporan_OTTV_{base}_{short_id}_SNI6389.csv",
+        return {"bytes": generate_csv_report(data), "filename": report_filename(data, "csv"),
                 "media_type": "text/csv; charset=utf-8", "warnings": []}
-    if fmt_lo == "template_prodi":
-        from report_template_map import export_template_prodi_xlsx
-
-        try:
-            tpl_bytes, tpl_warnings, _ = export_template_prodi_xlsx(data)
-        except FileNotFoundError:
-            # Public builds may ship without the prodi template (LUXA_INCLUDE_TEMPLATE=0).
-            out = export_report(analysis_id, "xlsx")
-            out["warnings"] = ["Template laporan prodi tidak disertakan di versi ini, jadi yang diunduh laporan Excel umum."]
-            return out
-        return {"bytes": tpl_bytes, "filename": f"Template_Prodi_OTTV_{base}_{short_id}.xlsx",
-                "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                "warnings": list(tpl_warnings or [])}
     if fmt_lo == "pdf":
         raise EngineError("Laporan PDF belum tersedia di versi browser. Unduh versi Excel.", 400)
     raise EngineError(f"Format laporan '{fmt}' tidak dikenal.", 400)

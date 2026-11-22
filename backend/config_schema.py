@@ -146,7 +146,7 @@ class SettingsConfig(BaseModel):
     city_preset: str = "jakarta"
     custom_epw: Optional[Dict[str, Any]] = None
     mode: Literal["sni", "simulasi"] = "sni"
-    sf_source: Literal["template_prodi", "sni2020"] = "template_prodi"
+    sf_source: Literal["template_prodi", "sni2020"] = "sni2020"
     sceff_table_mode: Literal["terkoreksi", "ketat_pdf"] = "terkoreksi"
     design_month: int = Field(default=9, ge=1, le=12)
     north_angle_deg: float = Field(default=0.0, ge=0.0, le=360.0)
