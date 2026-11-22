@@ -228,16 +228,49 @@ function makeDrawer(ctx, k, tokens, isDark) {
     ctx.font = font(w, px);
     return ctx.measureText(s).width;
   };
-  const card = (x, y, w, h) => {
+  // Kaca: bayangan lembut, latar di belakang kartu diburamkan, isian tembus, tepi terang.
+  let backdrop = null;
+  const setBackdrop = (c) => {
+    backdrop = c;
+  };
+  const card = (x, y, w, h, r = 14 * k) => {
     ctx.save();
-    roundRect(ctx, x, y, w, h, 14 * k);
-    ctx.fillStyle = panelFill;
-    ctx.shadowColor = 'rgba(0,0,0,0.10)';
-    ctx.shadowBlur = 18 * k;
-    ctx.shadowOffsetY = 4 * k;
+    roundRect(ctx, x, y, w, h, r);
+    ctx.fillStyle = isDark ? 'rgba(20, 19, 17, 0.35)' : 'rgba(255, 255, 255, 0.35)';
+    ctx.shadowColor = isDark ? 'rgba(0,0,0,0.35)' : 'rgba(40,30,20,0.14)';
+    ctx.shadowBlur = 28 * k;
+    ctx.shadowOffsetY = 8 * k;
     ctx.fill();
-    ctx.shadowColor = 'transparent';
+    ctx.restore();
+    ctx.save();
+    roundRect(ctx, x, y, w, h, r);
+    ctx.clip();
+    if (backdrop) {
+      try {
+        ctx.filter = `blur(${Math.round(18 * k)}px) saturate(1.4)`;
+        ctx.drawImage(backdrop, 0, 0);
+      } catch {
+        // Browser tanpa ctx.filter: cukup isian tembus di bawah.
+      }
+      ctx.filter = 'none';
+    }
+    ctx.fillStyle = backdrop ? (isDark ? 'rgba(30, 29, 26, 0.62)' : 'rgba(255, 255, 255, 0.62)') : panelFill;
+    ctx.fillRect(x, y, w, h);
+    const sheen = ctx.createLinearGradient(0, y, 0, y + h);
+    sheen.addColorStop(0, isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.35)');
+    sheen.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = sheen;
+    ctx.fillRect(x, y, w, h * 0.5);
+    ctx.restore();
+    ctx.save();
+    roundRect(ctx, x + 0.5 * k, y + 0.5 * k, w - k, h - k, r);
     ctx.lineWidth = Math.max(1, 1.1 * k);
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.85)';
+    ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    roundRect(ctx, x, y, w, h, r);
+    ctx.lineWidth = Math.max(1, 0.8 * k);
     ctx.strokeStyle = panelStroke;
     ctx.stroke();
     ctx.restore();
@@ -358,7 +391,7 @@ function makeDrawer(ctx, k, tokens, isDark) {
     text('U', lx, ly, { w: 800, px: 11, align: 'center' });
   };
 
-  return { text, measure, card, legend, ottv, north, font };
+  return { text, measure, card, legend, ottv, north, font, setBackdrop };
 }
 
 /** Salin label HTML yang menempel di model (arah, lintasan matahari, panel terpilih, kejanggalan). */
@@ -424,7 +457,7 @@ function drawDomLabels(ctx, k, ox, oy) {
   }
 }
 
-function drawCompareOverlays(ctx, d, k, state, tokens, x0, y0, w, splitX, panelMode) {
+function drawCompareOverlays(ctx, d, k, state, tokens, x0, y0, w, splitX, panelMode, viewH = 10000) {
   const alts = state.alternatives || [];
   const alt = alts.find((a) => a.id === state.activeAlternativeId) || alts[0];
   if (!alt) return;
@@ -448,7 +481,7 @@ function drawCompareOverlays(ctx, d, k, state, tokens, x0, y0, w, splitX, panelM
   head(`Alternatif ${alt.code}`, altSub, Number(alt.analysisData?.ottv_total_wm2 ?? 0), splitX + 14 * k, x0 + w - splitX - 28 * k);
   // garis pembagi
   ctx.fillStyle = 'rgba(255,255,255,0.9)';
-  ctx.fillRect(splitX - k, y0, 2 * k, 10000);
+  ctx.fillRect(splitX - k, y0, 2 * k, viewH);
   return alt;
 }
 
@@ -570,10 +603,14 @@ export async function captureViewerPng(state, { scale = 2, layout = 'panel', inc
     }
     if (!diffOwnRow) footerH = rowH + margin * 2;
   }
+  // Kartu panel melayang: sebagian menumpang di atas gambar, sisanya di area latar tambahan.
+  const cardPad = 18 * k;
+  const cardH = layout === 'panel' ? footerH - margin * 2 + cardPad * 2 : 0;
+  const extraH = layout === 'panel' ? Math.round(cardH * 0.55 + margin) : 0;
 
   const out = document.createElement('canvas');
   out.width = width;
-  out.height = height + footerH;
+  out.height = height + extraH;
   const ctx = out.getContext('2d');
   if (!ctx) throw new Error('Konteks gambar 2D tidak tersedia.');
   const d = makeDrawer(ctx, k, tokens, isDark);
@@ -584,16 +621,27 @@ export async function captureViewerPng(state, { scale = 2, layout = 'panel', inc
   grad.addColorStop(1, tokens.sunken);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
+  if (extraH > 0) {
+    ctx.fillStyle = tokens.sunken;
+    ctx.fillRect(0, height, width, extraH);
+  }
   ctx.drawImage(glCanvas, 0, 0, width, height);
 
   if (inc.labels && !isCompare) drawDomLabels(ctx, k, 0, 0);
 
   if (isCompare && compareAlt) {
     const splitX = Math.round(width * Math.max(0.1, Math.min(0.9, Number(state.compareSplitRatio ?? 0.5))));
-    drawCompareOverlays(ctx, d, k, state, tokens, 0, 0, width, splitX, layout === 'panel');
+    drawCompareOverlays(ctx, d, k, state, tokens, 0, 0, width, splitX, layout === 'panel', height);
   }
 
   const northAngle = screenNorthAngle(state);
+
+  // Salinan gambar untuk efek kaca (latar buram di belakang kartu).
+  const backdrop = document.createElement('canvas');
+  backdrop.width = out.width;
+  backdrop.height = out.height;
+  backdrop.getContext('2d')?.drawImage(out, 0, 0);
+  d.setBackdrop(backdrop);
 
   if (layout === 'overlay') {
     // Kiri atas: OTTV · kanan atas: panah utara · kiri bawah: legenda · kanan bawah: info + logo
@@ -619,36 +667,44 @@ export async function captureViewerPng(state, { scale = 2, layout = 'panel', inc
     }
     drawStamp(d, ctx, k, tokens, logoImg, inc.info ? info.lines : [info.lines[0]], width - margin, (isCompare && compareAlt ? bottomLeftTop : height - margin));
   } else {
-    // Strip info di bawah gambar
-    const fy = height;
-    ctx.fillStyle = isDark ? tokens.paper : '#ffffff';
-    ctx.fillRect(0, fy, width, footerH);
-    ctx.fillStyle = tokens.line;
-    ctx.fillRect(0, fy, width, Math.max(1, k));
-    let x = margin;
-    const top = fy + margin;
+    // Kartu kaca melayang di bawah: OTTV | legenda | (tabel selisih) | info + logo + utara
+    const cx = margin;
+    const cw = width - margin * 2;
+    const cy = out.height - margin - cardH;
+    d.card(cx, cy, cw, cardH, 22 * k);
+    const top = cy + cardPad;
+    const divider = (xLine, h) => {
+      ctx.fillStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(27,26,23,0.10)';
+      ctx.fillRect(Math.round(xLine), top, Math.max(1, k), h);
+    };
+    const rowContentH = (diffOwnRow ? footerH - margin * 3 - drawDiffTable(d, k, tokens, diffRows, 0, 0, true).h : footerH - margin * 2);
+    let x = cx + cardPad;
     if (ottvSp) {
       const sz = d.ottv(ottvSp, x, top);
-      x += sz.w + 24 * k;
+      x += sz.w + 18 * k;
+      divider(x, rowContentH);
+      x += 18 * k;
     }
     if (legendSpec) {
       const sz = d.legend(legendSpec, x, top);
-      x += sz.w + 24 * k;
+      x += sz.w + 18 * k;
     }
     if (isCompare && compareAlt) {
       if (diffOwnRow) {
         const tsz = drawDiffTable(d, k, tokens, diffRows, 0, 0, true);
-        const ty = fy + footerH - margin - tsz.h;
-        ctx.fillStyle = tokens.line;
-        ctx.fillRect(margin, ty - margin / 2, width - margin * 2, Math.max(1, k));
-        drawDiffTable(d, k, tokens, diffRows, (width - tsz.w) / 2, ty);
+        const ty = cy + cardH - cardPad - tsz.h;
+        ctx.fillStyle = isDark ? 'rgba(255,255,255,0.12)' : 'rgba(27,26,23,0.10)';
+        ctx.fillRect(cx + cardPad, ty - margin / 2, cw - cardPad * 2, Math.max(1, k));
+        drawDiffTable(d, k, tokens, diffRows, cx + (cw - tsz.w) / 2, ty);
       } else {
+        divider(x, rowContentH);
+        x += 18 * k;
         const sz = drawDiffTable(d, k, tokens, diffRows, x, top);
-        x += sz.w + 24 * k;
+        x += sz.w + 18 * k;
       }
     }
     // kanan: logo + info + panah utara
-    const rightX = width - margin;
+    const rightX = cx + cw - cardPad;
     let infoX = rightX;
     if (inc.info) {
       d.north(northAngle, rightX - 22 * k, top + 26 * k, 20 * k);
