@@ -652,14 +652,50 @@ Catatan angka: model teman di UI memberi OTTV 38,80 (lewat API bawaan 38,79). Se
 | S1 | `tests/test_floor_detection.py` menulis `05_denah_l`, foldernya `05_denah_L`. Lolos di Windows, gagal di Linux (server publish, CI). | Betulkan path; tambahkan pengecekan di conftest bahwa semua path fixture yang dirujuk tes benar-benar ada dengan huruf persis. |
 | S2 | Kubah matahari default terlalu kecil untuk gedung tinggi (radius dari diagonal denah saja), dan label lintasan ("21 Mar / 23 Sep", "21 Des") menumpuk di atas badan gedung. | Radius default = maks(1,6 × setengah diagonal denah, 0,6 × tinggi). Label lintasan diletakkan di sisi luar busur dan disembunyikan bila tertutup gedung. |
 | S3 | Pil bawah menulis "Arah B" saat proyeksi Perspektif, padahal kamera melihat dari tenggara. Membingungkan karena di Tampak, "B" berarti fasad Barat. | Di Perspektif/2 titik/Akso tulis posisi kamera ("dari Tenggara"); "Tampak Barat" hanya untuk proyeksi Tampak. Samakan di palet Ctrl K dan nama view tersimpan. |
+| S4 | Permintaan Alfian 22 Nov: heatmap harus bergradasi mulus. Sekarang memakai 4 tingkat warna, sehingga fasad yang nilainya beda tapi satu tingkat (contoh kotak: 14,76 sampai 24,80) tampak sama. | Ikuti FASE4\_UI\_SPEC.md D7 dan bagian 4.2 (sudah diperbarui): skala warna kontinu 0 sampai 60 W/m² (interpolasi OKLab, titik 0/25/35/50), legenda bilah gradasi dengan garis batas 35, sakelar Halus (default mati, rata-rata vertex tertimbang luas, catatan 'tampilan dihaluskan'), angka klik tetap nilai asli, Halus ikut view tersimpan. Lihat mockup 4-hasil.html. |
 
 ```text
 PROMPT FASE 4c (bandingkan, workspace, poles):
-Commit dulu docs/RENCANA.md bila ada perubahan. Merge fase-4b2-analisis ke main, lalu branch fase-4c-poles dari main. Baca docs/RENCANA.md bagian 'Review Fase 4b-2' dan kerjakan S1 sampai S3 lebih dulu (commit 'fase-4c: perbaikan review 4b-2'). Setelah itu baca docs/FASE4_UI_SPEC.md bagian 3.6, 5, 8, 9 dan mockup 8.
+Commit dulu docs/RENCANA.md bila ada perubahan. Merge fase-4b2-analisis ke main, lalu branch fase-4c-poles dari main. Baca docs/RENCANA.md bagian 'Review Fase 4b-2' dan kerjakan S1 sampai S4 lebih dulu (commit 'fase-4c: perbaikan review 4b-2'; S4 heatmap gradasi boleh commit terpisah). Setelah itu baca docs/FASE4_UI_SPEC.md bagian 3.6, 5, 8, 9 dan mockup 8.
 Kerjakan baris '4c' tabel bagian 10: mode Bandingkan (viewer terbelah, pembatas bisa digeser mouse dan keyboard, selisih per arah, daftar alternatif, Pakai alternatif dengan riwayat), workspace v1 (Belajar, Lanjut, Presentasi; urutkan ulang dan sembunyikan item dock), panel Material, Lokasi, Laporan, Bantuan, tooltip istilah dengan rujukan pasal, pemeriksaan aksesibilitas bagian 9, responsif 1440/1280/768 px.
 Uji: alternatif kaca elektrokromik (glz_kaca_elektrokromik) untuk model teman dengan konfigurasi bawaan (tanpa mengubah muka tanah) harus 27,71 W/m2; sekarang-nya 38,79.
 Siapkan docs/UJI_PENGGUNA_FASE4.md berisi skenario uji 3 mahasiswa dengan contoh bawaan Fasad_Curtain_Wall_Baru.3dm (atau model studio pilihan Alfian) dan kolom catatan.
 Catat di docs/CHANGELOG-fase4.md. Commit per fitur.
+```
+
+### Review Fase 4c (22 Nov 2026)
+
+Branch `fase-4c-poles` (6 commit, terakhir `66c1f8d`). Uji klik dengan browser tanpa layar memakai contoh kotak dan model teman; tangkapan layar di `corpus/_review_4c/`. Hasilnya **lolos dengan catatan**. Empat perbaikan tampilan di bawah dikerjakan sebagai penutup Fase 4 (PROMPT FASE 4c-akhir), lalu seluruh Fase 4 di-merge ke `main`.
+
+**Yang sudah beres**
+
+- pytest 155/155 hijau (S1 path huruf besar-kecil sudah dibetulkan), `vite build` berhasil.
+- Mode Bandingkan untuk model teman (muka tanah = alas model): Sekarang 38,79 vs Alternatif A kaca elektrokromik **27,71**, selisih −11,08 W/m² (turun 28,6%, lolos batas 35); selisih per arah U −10,13, T −12,05, S −7,22, B −14,89; catatan katalog elektrokromik tampil; viewer terbelah dengan pembatas; "Pakai Alternatif A" menyimpan desain lama sebagai riwayat. Persis sama dengan angka mockup.
+- S2: kubah matahari sekarang memeluk gedung. S3: pil bawah menulis "dari Tenggara" di proyeksi perspektif. S4: legenda gradasi 0, 25, 35 batas, 60, sakelar Per arah / Per panel, sakelar Halus.
+- Workspace Presentasi menyembunyikan rel dan kolom samping, viewer penuh, tombol "Keluar Presentasi (Esc)".
+- Layar 768 px tanpa scroll horizontal; rel menjadi baris ikon di atas.
+- Panel Material, Lokasi, Laporan, Bantuan, dan tooltip istilah ada; `docs/UJI_PENGGUNA_FASE4.md` berisi 5 tugas (T1 sampai T5) dengan target waktu dan lembar catatan 3 peserta.
+
+**Perbaikan penutup**
+
+| # | Temuan | Perbaikan |
+| --- | --- | --- |
+| T1 | Warna fasad di viewer tidak sama dengan warna legenda. Contoh kotak: S 14,76 dan T 21,08 seharusnya krem muda dan amber, tetapi keduanya tampil cokelat gelap yang mirip karena `MeshStandardMaterial` menggelapkan warna lewat pencahayaan. Mahasiswa membaca warna dengan mencocokkannya ke legenda, jadi ini menyesatkan. | Di mode Heatmap dan Orientasi pakai material yang menjaga warna (misalnya `MeshLambertMaterial` dengan cahaya ambien tinggi, atau warna dasar + sedikit bayangan arah ≤ 15%). Kriteria: selisih warna permukaan menghadap kamera terhadap warna legenda pada nilai yang sama ≤ ΔE 10. |
+| T2 | Di 1440 × 900 workspace Belajar, legenda heatmap tertutup pil bawah kiri (hanya terlihat sebagian di belakang pil). Di Presentasi tidak terjadi. | Legenda diletakkan di atas pil bawah dengan jarak tetap (bottom = tinggi pil + 12 px) di semua workspace, atau digabung ke pil kiri sebagai baris kedua. |
+| T3 | Di 768 px, legenda, baris mode, dan dua pil bawah menumpuk di dalam viewer dan menutupi hampir seluruh model. | Sesuai spek bagian 9: di bawah 860 px, baris mode, legenda, dan pil pindah ke bawah viewer (di luar kanvas), viewer tetap minimal 420 px tinggi tanpa tertutup. |
+| T4 | Di kolom Bandingkan (300 px), nama alternatif dan tombol "Tambah alternatif" terpotong. | Nama alternatif boleh dua baris (`line-clamp: 2`) dengan judul lengkap di `title`; tombol lebar penuh. |
+
+Setelah 4c-akhir lolos, Fase 4 selesai. Langkah berikutnya: uji pengguna dengan 3 teman mahasiswa memakai `docs/UJI_PENGGUNA_FASE4.md`, lalu Fase 5 (versi browser).
+
+```text
+PROMPT FASE 4c-akhir (poles hasil review 4c):
+Commit dulu docs/RENCANA.md bila ada perubahan. Tetap di branch fase-4c-poles.
+Baca docs/RENCANA.md bagian 'Review Fase 4c' dan kerjakan T1 sampai T4 sesuai tabelnya.
+- T1: warna fasad Heatmap/Orientasi harus cocok dengan legenda (ΔE ≤ 10 untuk permukaan menghadap kamera). Tambahkan tes kecil yang membandingkan fungsi warna skala dengan warna material yang dipakai.
+- T2: legenda tidak boleh tertutup pil bawah di workspace mana pun pada 1280 dan 1440 px.
+- T3: di bawah 860 px baris mode, legenda, dan pil pindah ke bawah viewer; model tidak tertutup.
+- T4: nama alternatif dan tombol di kolom Bandingkan tidak terpotong.
+Verifikasi di browser pada 1440x900, 1280x800, dan 768x1024, tema terang dan gelap. Catat di docs/CHANGELOG-fase4.md bagian 'Fase 4c-akhir'. Commit per butir. Setelah itu merge fase-4c-poles ke main.
 ```
 
 ## Fase 4 — Rombak UX menjadi 4 langkah, mahasiswa dulu
