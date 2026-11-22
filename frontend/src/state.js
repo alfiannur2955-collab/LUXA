@@ -172,6 +172,8 @@ const initialState = {
   compareModelDraft: null, // Bandingkan: model kedua yang sedang disiapkan
   proceedBusy: false, // Konfirmasi -> Inspeksi sedang memproses
   inspectBusy: false, // inspeksi sedang dibaca ulang
+  captureLayout: 'panel', // 'panel' (dengan panel info) | 'overlay' (seperti layar)
+  captureInclude: { legend: true, ottv: true, labels: true, info: true },
   activeAlternativeId: null,
   compareSplitRatio: 0.5, // 0.10 .. 0.90
   compareBusy: false,

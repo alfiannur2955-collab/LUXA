@@ -497,51 +497,106 @@ export function renderViewerBottomBar(state, handlers) {
 
   // Capture popover (1x / 2x / 4x resolution + PNG download with LUXA stamp)
   if (state.openPopover === 'capture') {
-    const pop = document.createElement('div');
-    pop.className = 'glass vbar-popover vbar-popover-right';
-    pop.setAttribute('role', 'dialog');
-    pop.setAttribute('aria-label', 'Pengaturan capture PNG');
-
-    const ttl = document.createElement('div');
-    ttl.className = 'lbl';
-    ttl.style.color = 'var(--ink)';
-    ttl.style.marginBottom = '8px';
-    ttl.textContent = 'Resolusi gambar PNG (dengan cap LUXA)';
-
-    const segScale = document.createElement('div');
-    segScale.className = 'seg';
-    segScale.setAttribute('role', 'radiogroup');
-    segScale.setAttribute('aria-label', 'Resolusi capture');
-
-    for (const sc of [1, 2, 4]) {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.setAttribute('role', 'radio');
-      const isOn = state.captureScale === sc;
-      b.setAttribute('aria-checked', isOn ? 'true' : 'false');
-      if (isOn) b.classList.add('on');
-      b.textContent = `${sc}x`;
-      b.addEventListener('click', () => handlers.onSetCaptureScale(sc));
-      segScale.appendChild(b);
-    }
-
-    const goBtn = document.createElement('button');
-    goBtn.type = 'button';
-    goBtn.className = 'cta';
-    goBtn.style.width = '100%';
-    goBtn.style.height = '40px';
-    goBtn.style.marginTop = '10px';
-    goBtn.style.fontSize = '13px';
-    goBtn.innerHTML = `${icon('camera', 16)}<span>Unduh PNG ${state.captureScale}x</span>`;
-    goBtn.addEventListener('click', () => {
-      handlers.onTogglePopover(null);
-      handlers.onCapturePng(state.captureScale);
-    });
-
-    pop.append(ttl, segScale, goBtn);
-    rightWrap.appendChild(pop);
+    rightWrap.appendChild(renderCapturePopover(state, handlers));
   }
 
   bar.append(leftWrap, rightWrap);
   return bar;
+}
+
+
+/** Menu Capture: tata letak, isi gambar, resolusi. Dipakai juga di layar Bandingkan. */
+export function renderCapturePopover(state, handlers, { onDone = null } = {}) {
+  const pop = document.createElement('div');
+  pop.className = 'glass vbar-popover vbar-popover-right capture-pop';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', 'Pengaturan capture PNG');
+
+  const sec = (label) => {
+    const t = document.createElement('div');
+    t.className = 'lbl capture-pop-lbl';
+    t.textContent = label;
+    return t;
+  };
+  const seg = (items, cur, onPick, aria) => {
+    const g = document.createElement('div');
+    g.className = 'seg';
+    g.setAttribute('role', 'radiogroup');
+    g.setAttribute('aria-label', aria);
+    for (const [val, txt] of items) {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('role', 'radio');
+      const on = cur === val;
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      if (on) b.classList.add('on');
+      b.textContent = txt;
+      b.addEventListener('click', () => onPick(val));
+      g.appendChild(b);
+    }
+    return g;
+  };
+
+  const layout = state.captureLayout || 'panel';
+  const inc = { legend: true, ottv: true, labels: true, info: true, ...(state.captureInclude || {}) };
+  const isCompare = state.step === 'compare';
+
+  pop.append(
+    sec('Tata letak'),
+    seg(
+      [
+        ['panel', 'Dengan panel info'],
+        ['overlay', 'Seperti layar'],
+      ],
+      layout,
+      (v) => handlers.onSetCaptureLayout?.(v),
+      'Tata letak capture',
+    ),
+  );
+
+  pop.appendChild(sec('Isi gambar'));
+  const checks = document.createElement('div');
+  checks.className = 'capture-pop-checks';
+  const items = [
+    ['legend', isCompare ? 'Legenda heatmap' : 'Legenda mode aktif'],
+    ['ottv', isCompare ? 'Nilai kedua desain' : 'OTTV total dan status'],
+    ['labels', 'Label di model'],
+    ['info', 'Info proyek dan panah utara'],
+  ];
+  for (const [key, txt] of items) {
+    if (isCompare && key === 'labels') continue;
+    const row = document.createElement('label');
+    row.className = 'capture-pop-check';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = inc[key] !== false;
+    cb.addEventListener('change', () => handlers.onToggleCaptureInclude?.(key, cb.checked));
+    const sp = document.createElement('span');
+    sp.textContent = txt;
+    row.append(cb, sp);
+    checks.appendChild(row);
+  }
+  pop.appendChild(checks);
+
+  pop.append(
+    sec('Resolusi'),
+    seg(
+      [1, 2, 4].map((v) => [v, `${v}x`]),
+      state.captureScale || 2,
+      (v) => handlers.onSetCaptureScale(v),
+      'Resolusi capture',
+    ),
+  );
+
+  const goBtn = document.createElement('button');
+  goBtn.type = 'button';
+  goBtn.className = 'cta capture-pop-go';
+  goBtn.innerHTML = `${icon('camera', 16)}<span>Unduh PNG ${state.captureScale || 2}x</span>`;
+  goBtn.addEventListener('click', () => {
+    handlers.onTogglePopover?.(null);
+    onDone?.();
+    handlers.onCapturePng(state.captureScale || 2);
+  });
+  pop.appendChild(goBtn);
+  return pop;
 }

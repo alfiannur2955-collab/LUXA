@@ -498,7 +498,25 @@ class LuxaViewer {
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(targetW, targetH, false);
     this.rig.resize(targetW, targetH);
-    this.renderer.render(this.scene, cam);
+    if (this.compareSplitRatio !== null && this.compareAltRoot) {
+      // Bandingkan: kiri = desain sekarang, kanan = alternatif (sama seperti layar).
+      const splitX = Math.max(1, Math.min(targetW - 1, Math.round(targetW * this.compareSplitRatio)));
+      this.renderer.setScissorTest(true);
+      this.renderer.setViewport(0, 0, targetW, targetH);
+      this.renderer.setScissor(0, 0, splitX, targetH);
+      this.modelRoot.visible = true;
+      this.compareAltRoot.visible = false;
+      this.renderer.render(this.scene, cam);
+      this.renderer.setScissor(splitX, 0, targetW - splitX, targetH);
+      this.modelRoot.visible = false;
+      this.compareAltRoot.visible = true;
+      this.renderer.render(this.scene, cam);
+      this.renderer.setScissorTest(false);
+      this.modelRoot.visible = true;
+      this.compareAltRoot.visible = false;
+    } else {
+      this.renderer.render(this.scene, cam);
+    }
 
     const snapshotCanvas = document.createElement('canvas');
     snapshotCanvas.width = targetW;
@@ -513,7 +531,7 @@ class LuxaViewer {
     this.renderer.setSize(baseW, baseH, false);
     this.renderer.render(this.scene, cam);
 
-    return { canvas: snapshotCanvas, width: targetW, height: targetH };
+    return { canvas: snapshotCanvas, width: targetW, height: targetH, baseWidth: baseW, baseHeight: baseH };
   }
 
   _clearGroup(group) {
