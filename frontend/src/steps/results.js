@@ -98,9 +98,8 @@ export function renderResultsScreen(state, handlers) {
   } else if (activeMode === 'heatmap') {
     const gran = state.heatmapGranularity || 'orientation';
     const isSmooth = Boolean(state.heatmapSmooth);
-    const lblSpan = document.createElement('span');
-    lblSpan.style.color = 'var(--ink)';
-    lblSpan.textContent = 'OTTV';
+    legend.title = 'Heatmap OTTV (W/m²): per arah atau per panel';
+    legend.setAttribute('aria-label', 'Legenda heatmap OTTV');
 
     const toggleWrap = document.createElement('div');
     toggleWrap.className = 'legend-toggle';
@@ -108,8 +107,8 @@ export function renderResultsScreen(state, handlers) {
     toggleWrap.setAttribute('aria-label', 'Skala heatmap');
 
     for (const [id, lbl] of [
-      ['orientation', 'Per arah'],
-      ['panel', 'Per panel'],
+      ['orientation', 'Arah'],
+      ['panel', 'Panel'],
     ]) {
       const b = document.createElement('button');
       b.type = 'button';
@@ -118,6 +117,7 @@ export function renderResultsScreen(state, handlers) {
       b.setAttribute('aria-checked', gran === id ? 'true' : 'false');
       b.setAttribute('aria-pressed', gran === id ? 'true' : 'false');
       b.textContent = lbl;
+      b.title = id === 'orientation' ? 'Warna rata-rata per arah' : 'Warna per panel';
       b.addEventListener('click', () => handlers.onChangeHeatmapGranularity(id));
       toggleWrap.appendChild(b);
     }
@@ -152,19 +152,13 @@ export function renderResultsScreen(state, handlers) {
     smoothCb.addEventListener('change', () => handlers.onToggleHeatmapSmooth?.(smoothCb.checked));
     smoothLbl.append(smoothCb, document.createTextNode(' Halus'));
 
-    legend.append(lblSpan, toggleWrap, gradWrap, smoothLbl);
+    legend.append(toggleWrap, gradWrap, smoothLbl);
 
     if (isSmooth) {
       const smNote = document.createElement('span');
       smNote.className = 'legend-smooth-note';
       smNote.textContent = 'tampilan dihaluskan';
       legend.appendChild(smNote);
-    }
-    if (state.sunDomeVisible) {
-      const sunHint = document.createElement('span');
-      sunHint.className = 'legend-item';
-      sunHint.innerHTML = '<i class="legend-sun-line" aria-hidden="true"></i>Lintasan matahari';
-      legend.appendChild(sunHint);
     }
   } else if (activeMode === 'orientation') {
     const tokens = readThemeTokens();

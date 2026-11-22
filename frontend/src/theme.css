@@ -3502,3 +3502,72 @@ body.is-d5-rotating * {
 .mat-catalog-overlay input[type="range"] {
   accent-color: var(--sun);
 }
+
+
+/* ============================================================================
+ * Bar bawah viewer satu baris: legenda + pintasan tampilan + view/capture
+ * ============================================================================ */
+.viewer-bottom-stack {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.viewer-bottom-stack > .modes.modes-bottom {
+  flex-basis: 100%;
+}
+
+.viewer-bottom-stack > .legend {
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  height: 48px;
+  padding: 0 12px;
+  gap: 10px;
+  border-radius: 16px;
+  white-space: nowrap;
+}
+
+.viewer-bottom-stack > .vbar {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.viewer-bottom-stack .heat-grad-bar,
+.viewer-bottom-stack .heat-grad-ticks {
+  width: 124px;
+}
+
+.pill .b.b-icon {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
+.viewer-bottom-stack > .legend {
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.viewer-bottom-stack .pill {
+  gap: 2px;
+  padding: 0 5px;
+}
+
+.viewer-bottom-stack .vbar input[type='range'] {
+  width: 56px !important;
+}
+
+@media (max-width: 1400px) {
+  .viewer-bottom-stack .heat-grad-bar,
+  .viewer-bottom-stack .heat-grad-ticks {
+    width: 104px;
+  }
+}
+
+@media (max-width: 1400px) {
+  .viewer-bottom-stack .pill .b.b-icon {
+    width: 32px;
+  }
+}
