@@ -22,7 +22,7 @@ import {
 import { renderViewerModeBar } from '../viewer/modeBar.js';
 import { summarizeSelectedPanels } from '../viewer/selection.js';
 import { renderViewerBottomBar } from '../viewer/vbar.js';
-import { viewer } from '../viewer/viewer.js';
+import { smoothLegendTicksHtml, viewer } from '../viewer/viewer.js';
 
 const CANONICAL_ORIENTATIONS = ['U', 'TL', 'T', 'TG', 'S', 'BD', 'B', 'BL'];
 
@@ -138,7 +138,22 @@ export function renderResultsScreen(state, handlers) {
 
     const gradTicks = document.createElement('span');
     gradTicks.className = 'heat-grad-ticks num';
-    gradTicks.innerHTML = '<span>0</span><span>25</span><span class="is-limit">35 batas</span><span>60</span>';
+    if (isSmooth) {
+      // Halus: skala relatif model (Rendah -> Tinggi); garis = batas 35 bila masuk rentang.
+      const rng = viewer.lastSmoothRange;
+      gradTicks.setAttribute('data-luxa-smooth-legend', '');
+      gradTicks.innerHTML = smoothLegendTicksHtml(rng);
+      limitMark.setAttribute('data-luxa-smooth-limit', '');
+      limitMark.title = 'Batas SNI 35 W/m²';
+      if (rng) {
+        const t = (35 - rng.min) / (rng.max - rng.min);
+        limitMark.style.display = t >= 0 && t <= 1 ? 'block' : 'none';
+        limitMark.style.left = `${Math.max(0, Math.min(1, t)) * 100}%`;
+      }
+      gradWrap.title = 'Halus: warna direntangkan dari nilai terendah ke tertinggi model ini';
+    } else {
+      gradTicks.innerHTML = '<span>0</span><span>25</span><span class="is-limit">35 batas</span><span>60</span>';
+    }
     gradWrap.append(gradBar, gradTicks);
 
     // S4: Halus vertex-smoothing toggle switch (default off)
@@ -157,7 +172,8 @@ export function renderResultsScreen(state, handlers) {
     if (isSmooth) {
       const smNote = document.createElement('span');
       smNote.className = 'legend-smooth-note';
-      smNote.textContent = 'tampilan dihaluskan';
+      smNote.textContent = 'skala relatif';
+      smNote.title = 'Warna dihitung per titik: SF diinterpolasi di antara 8 arah sesuai arah hadap fasad';
       legend.appendChild(smNote);
     }
   } else if (activeMode === 'orientation') {
