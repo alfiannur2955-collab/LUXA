@@ -17,6 +17,7 @@ import { ViewerLabelsOverlay } from './labels.js';
 import {
   makeAnomalyMaterial,
   makeClassificationMaterial,
+  makeColorAccurateMaterial,
   makeVertexColorMaterial,
   makeXrayMaterial,
   normalToOrientationCode,
@@ -675,7 +676,7 @@ class LuxaViewer {
         geom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
         geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
         geom.computeVertexNormals();
-        const mesh = new THREE.Mesh(geom, makeVertexColorMaterial());
+        const mesh = new THREE.Mesh(geom, makeColorAccurateMaterial());
         mesh.userData = { groupName: gName, category: cat };
         this.modelRoot.add(mesh);
         this._addEdgeLines(geom, tokens, { opacity: 0.42 });
@@ -886,12 +887,16 @@ class LuxaViewer {
       }
     }
 
+    const useColorAccurate =
+      mode === 'heatmap' || mode === 'orientation' || facadeFilter === 'sunlit_now';
+    const makePanelMat = useColorAccurate ? makeColorAccurateMaterial : makeVertexColorMaterial;
+
     if (mainCoords.length > 0) {
       const geom = new THREE.BufferGeometry();
       geom.setAttribute('position', new THREE.Float32BufferAttribute(mainCoords, 3));
       geom.setAttribute('color', new THREE.Float32BufferAttribute(mainColors, 3));
       geom.computeVertexNormals();
-      const mesh = new THREE.Mesh(geom, makeVertexColorMaterial({ transparent: false, opacity: 1.0 }));
+      const mesh = new THREE.Mesh(geom, makePanelMat({ transparent: false, opacity: 1.0 }));
       mesh.userData = { triToPanel: mainTriToPanel };
       this.modelRoot.add(mesh);
       this._addEdgeLines(geom, tokens, { opacity: 0.48 });
@@ -904,7 +909,7 @@ class LuxaViewer {
       geom.computeVertexNormals();
       const mesh = new THREE.Mesh(
         geom,
-        makeVertexColorMaterial({
+        makePanelMat({
           transparent: true,
           opacity: mode === 'xray' ? 0.22 : 0.20,
           depthWrite: mode !== 'xray',

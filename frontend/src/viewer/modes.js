@@ -193,7 +193,10 @@ export function orientationToThreeColor(code, tokens) {
 
 export function orientationToCssColor(code, tokens) {
   const c = orientationToThreeColor(code, tokens);
-  return `rgb(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)})`;
+  const r = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.r))) * 255);
+  const g = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.g))) * 255);
+  const b = Math.round(Math.max(0, Math.min(1, _linearToSrgbChannel(c.b))) * 255);
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
 /**
@@ -313,6 +316,66 @@ export function makeVertexColorMaterial({ transparent = false, opacity = 1.0, de
     transparent,
     opacity,
     depthWrite,
+  });
+}
+
+/**
+ * Computes the exact view-space shading multiplier used by `makeColorAccurateMaterial`:
+ * - Camera-facing surfaces (0, 0, 1) receive ~0.9924 linear (~0.997 sRGB, ΔE < 0.5 vs legend)
+ * - Side/grazing surfaces receive >= 0.88 linear (<= 12% directional depth cue)
+ * Keeps Heatmap & Orientasi facade colors faithfully matched to legend swatches in both themes.
+ */
+export function computeColorAccurateShade(nx, ny, nz) {
+  const len = Math.hypot(nx, ny, nz) || 1;
+  const x = nx / len;
+  const y = ny / len;
+  const z = nz / len;
+  const lx = 0.28;
+  const ly = 0.42;
+  const lz = 0.86;
+  const llen = Math.hypot(lx, ly, lz);
+  const ndv = Math.abs(z);
+  const ndl = Math.abs((x * lx + y * ly + z * lz) / llen);
+  return 0.88 + 0.12 * (0.55 * ndv + 0.45 * ndl);
+}
+
+/**
+ * Color-accurate vertex-color material for Heatmap, Orientasi, and solar exposure modes (T1).
+ * Preserves exact sRGB legend color on camera-facing surfaces while adding <= 12% view-space
+ * directional shading so perpendicular facades still read with crisp 3D volume.
+ */
+export function makeColorAccurateMaterial({ transparent = false, opacity = 1.0, depthWrite = true } = {}) {
+  return new THREE.ShaderMaterial({
+    vertexColors: true,
+    side: THREE.DoubleSide,
+    transparent,
+    depthWrite,
+    uniforms: {
+      uOpacity: { value: opacity },
+    },
+    vertexShader: `
+      varying vec3 vColor;
+      varying vec3 vViewNormal;
+      void main() {
+        vColor = color;
+        vViewNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float uOpacity;
+      varying vec3 vColor;
+      varying vec3 vViewNormal;
+      void main() {
+        vec3 n = normalize(vViewNormal);
+        float ndv = abs(n.z);
+        float ndl = abs(dot(n, normalize(vec3(0.28, 0.42, 0.86))));
+        float shade = 0.88 + 0.12 * (0.55 * ndv + 0.45 * ndl);
+        gl_FragColor = vec4(vColor * shade, uOpacity);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }
+    `,
   });
 }
 
