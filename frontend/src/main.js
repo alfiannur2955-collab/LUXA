@@ -10,10 +10,14 @@ import './theme.css';
 import { engine } from './engine.js';
 import { createRailPanelBuilders } from './panels/railPanels.js';
 import {
+  deleteSavedProject,
   downloadProjectFile,
+  duplicateSavedProject,
   loadProjectAutosave,
   loadSavedTheme,
   readProjectFile,
+  renameSavedProject,
+  saveNamedProject,
   saveProjectAutosave,
   saveTheme,
 } from './project.js';
@@ -44,7 +48,8 @@ import { renderCommandPalette } from './ui/commandPalette.js';
 import { fmtFileSize } from './ui/escapeHtml.js';
 import { installShortcuts } from './ui/shortcuts.js';
 import { renderShortcutsModal } from './ui/shortcutsModal.js';
-import { showToast } from './ui/toast.js';
+import { showConfirmDeleteProjectDialog } from './ui/dialogs.js';
+import { showToast, showUndoToast } from './ui/toast.js';
 import {
   createDefaultWorkspace,
   loadWorkspace,
@@ -68,6 +73,7 @@ import { exposureController } from './viewer/exposure.js';
 import {
   createSavedViewRecord,
   deleteSavedViewInList,
+  duplicateSavedViewInList,
   renameSavedViewInList,
   suggestViewName,
 } from './viewer/views.js';
@@ -205,16 +211,39 @@ function handleRenameView(viewId, newName) {
   showToast(`Nama view diubah menjadi "${newName}".`, 'ok', 2400);
 }
 
+function handleDuplicateView(viewId) {
+  let created = null;
+  updateConfig((cfg) => {
+    const res = duplicateSavedViewInList(cfg.saved_views, viewId);
+    cfg.saved_views = res.views;
+    created = res.copy;
+  });
+  if (created) {
+    setState({ activeViewId: created.id });
+    saveProjectAutosave(getState());
+    showToast(`View diduplikat: ${created.name}`, 'ok', 2400);
+  }
+}
+
 function handleDeleteView(viewId) {
   const s = getState();
+  const prevViews = [...(s.config?.saved_views || [])];
+  const prevActive = s.activeViewId;
+  const target = prevViews.find((v) => v.id === viewId);
   updateConfig((cfg) => {
     cfg.saved_views = deleteSavedViewInList(cfg.saved_views, viewId);
   });
-  if (s.activeViewId === viewId) {
+  if (prevActive === viewId) {
     setState({ activeViewId: null });
   }
   saveProjectAutosave(getState());
-  showToast('View tersimpan dihapus.', 'ok', 2200);
+  showUndoToast(`View "${target?.name || 'tersimpan'}" dihapus.`, () => {
+    updateConfig((cfg) => {
+      cfg.saved_views = prevViews;
+    });
+    setState({ activeViewId: prevActive });
+    saveProjectAutosave(getState());
+  });
 }
 
 async function handleCapturePng(scale = null) {
@@ -391,6 +420,7 @@ const vbarHandlers = {
   onSaveView: handleSaveView,
   onApplyView: handleApplyView,
   onRenameView: handleRenameView,
+  onDuplicateView: handleDuplicateView,
   onDeleteView: handleDeleteView,
   onSetCaptureScale: (sc) => setState({ captureScale: sc }),
   onCapturePng: handleCapturePng,
@@ -796,14 +826,60 @@ function handleSetWorkspacePreset(preset) {
 const panelBuilders = createRailPanelBuilders({
   onGoToUpload: () => setState({ step: 'upload', activeRailCard: null, openPopover: null }),
   onNavigateStep: (step) => setState({ step, activeRailCard: null, openPopover: null }),
+  onRerender: () => setState({}),
+  onSaveBrowserProject: () => {
+    const rec = saveNamedProject(getState());
+    if (rec) {
+      setState({});
+      showToast(`Proyek "${rec.name}" disimpan di browser.`, 'ok', 2600);
+    }
+  },
+  onOpenBrowserProject: (proj) => {
+    setState({ activeRailCard: null });
+    runInspectAndOpenConfirm(proj.modelId, proj.filename || proj.name, {
+      config: proj.config,
+      confirm: proj.confirm,
+      targetStep: 'confirm',
+    });
+  },
+  onRenameBrowserProject: (projId, nextName) => {
+    renameSavedProject(projId, nextName);
+    setState({});
+    showToast(`Nama proyek diubah menjadi "${nextName}".`, 'ok', 2200);
+  },
+  onDuplicateBrowserProject: (projId) => {
+    const copy = duplicateSavedProject(projId);
+    if (copy) {
+      setState({});
+      showToast(`Proyek diduplikat: "${copy.name}".`, 'ok', 2400);
+    }
+  },
+  onDeleteBrowserProject: (proj) => {
+    showConfirmDeleteProjectDialog(proj.name, () => {
+      deleteSavedProject(proj.id);
+      setState({});
+      showToast(`Proyek "${proj.name}" dihapus.`, 'ok', 2400);
+    });
+  },
   onChangeRoleMaterial: (fieldKey, materialId) => {
+    const prevId = getState().config?.settings?.[fieldKey];
     updateConfig((cfg) => {
       cfg.settings[fieldKey] = materialId;
     });
     setState({ needsRecompute: Boolean(getState().analysisData) });
     saveProjectAutosave(getState());
+    if (prevId && prevId !== materialId) {
+      showUndoToast('Material diperbarui.', () => {
+        updateConfig((cfg) => {
+          cfg.settings[fieldKey] = prevId;
+        });
+        setState({ needsRecompute: Boolean(getState().analysisData) });
+        saveProjectAutosave(getState());
+      });
+    }
   },
   onChangeOrientationMaterial: (code, materialId) => {
+    const prevMap = { ...(getState().config?.settings?.orientation_material_overrides || {}) };
     updateConfig((cfg) => {
       if (!materialId) {
         delete cfg.settings.orientation_material_overrides[code];
@@ -813,6 +889,15 @@ const panelBuilders = createRailPanelBuilders({
     });
     setState({ needsRecompute: Boolean(getState().analysisData) });
     saveProjectAutosave(getState());
+    if (!materialId && prevMap[code]) {
+      showUndoToast(`Override kaca arah ${code} dihapus.`, () => {
+        updateConfig((cfg) => {
+          cfg.settings.orientation_material_overrides = prevMap;
+        });
+        setState({ needsRecompute: Boolean(getState().analysisData) });
+        saveProjectAutosave(getState());
+      });
+    }
   },
   onUploadEpw: async (file) => {
     try {
@@ -828,12 +913,19 @@ const panelBuilders = createRailPanelBuilders({
     }
   },
   onClearCustomEpw: () => {
+    const prevEpw = getState().config?.settings?.custom_epw;
     updateConfig((cfg) => {
       cfg.settings.custom_epw = null;
     });
     setState({ needsRecompute: Boolean(getState().analysisData) });
     saveProjectAutosave(getState());
-    showToast('File cuaca EPW kustom dihapus; kembali ke tabel kota SNI.', 'ok', 2400);
+    showUndoToast('File cuaca EPW kustom dihapus.', () => {
+      updateConfig((cfg) => {
+        cfg.settings.custom_epw = prevEpw;
+      });
+      setState({ needsRecompute: Boolean(getState().analysisData) });
+      saveProjectAutosave(getState());
+    });
   },
   onOpenShortcuts: () => setState({ shortcutsModalOpen: true, activeRailCard: null }),
   onChangeSfSource: (sfSource) => {
@@ -1032,10 +1124,17 @@ function renderApp(state) {
         onChangeNorth: handleChangeNorthAngle,
         onSelectGroup: (groupName) => setState({ selectedGroup: groupName }),
         onChangeGroupCategory: async (groupName, newCat) => {
+          const prevOverrides = { ...(getState().config?.roles?.group_category_overrides || {}) };
           updateConfig((cfg) => {
             cfg.roles.group_category_overrides[groupName] = newCat;
           });
           await refreshInspectReadOnly();
+          showUndoToast(`Klasifikasi "${groupName}" diubah.`, async () => {
+            updateConfig((cfg) => {
+              cfg.roles.group_category_overrides = prevOverrides;
+            });
+            await refreshInspectReadOnly();
+          });
         },
         onFocusFlagInModel: (flag) => {
           const target = flag.group_name || flag.group_names?.[0] || null;
@@ -1070,11 +1169,46 @@ function renderApp(state) {
         },
         onChangeSplitRatio: (ratio) => setState({ compareSplitRatio: ratio }),
         onSelectAlternative: (altId) => setState({ activeAlternativeId: altId }),
+        onRenameAlternative: (altId, newName) => {
+          const next = (getState().alternatives || []).map((a) =>
+            a.id === altId ? { ...a, name: newName } : a,
+          );
+          setState({ alternatives: next });
+          showToast(`Nama alternatif diubah menjadi "${newName}".`, 'ok', 2200);
+        },
+        onDuplicateAlternative: (altId) => {
+          const list = getState().alternatives || [];
+          const src = list.find((a) => a.id === altId);
+          if (!src) return;
+          const codeChar = String.fromCharCode(65 + (list.length % 26));
+          const copy = {
+            ...src,
+            id: `alt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+            code: codeChar,
+            name: `${src.name} (Salinan)`,
+            config: mergeConfig(src.config),
+            createdAt: new Date().toISOString(),
+          };
+          setState({
+            alternatives: [...list, copy],
+            activeAlternativeId: copy.id,
+          });
+          showToast(`Alternatif ${codeChar} diduplikat.`, 'ok', 2400);
+        },
         onDeleteAlternative: (altId) => {
-          const remaining = (getState().alternatives || []).filter((a) => a.id !== altId);
+          const prevAlts = [...(getState().alternatives || [])];
+          const prevActive = getState().activeAlternativeId;
+          const target = prevAlts.find((a) => a.id === altId);
+          const remaining = prevAlts.filter((a) => a.id !== altId);
           setState({
             alternatives: remaining,
             activeAlternativeId: remaining[0]?.id || null,
+          });
+          showUndoToast(`Alternatif ${target?.code || ''} dihapus.`, () => {
+            setState({
+              alternatives: prevAlts,
+              activeAlternativeId: prevActive,
+            });
           });
         },
         onCreateAlternative: handleCreateAlternative,

@@ -1559,9 +1559,14 @@ body.is-d5-rotating * {
 .compare-alt-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 3px;
   min-width: 0;
   width: 100%;
+}
+
+.compare-alt-row .icon-mini-btn {
+  width: 24px;
+  height: 24px;
 }
 
 .compare-alt-btn {
@@ -2670,6 +2675,27 @@ body.is-d5-rotating * {
 
 .toast.is-fail {
   border-left: 4px solid var(--fail);
+}
+
+.toast-with-undo {
+  justify-content: space-between;
+}
+
+.toast-undo-btn {
+  border: 1px solid var(--sun);
+  background: var(--surface);
+  color: var(--sun);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.toast-undo-btn:hover {
+  background: var(--sun);
+  color: var(--on-sun);
 }
 
 /* ============================================================================

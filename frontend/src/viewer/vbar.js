@@ -447,6 +447,14 @@ export function renderViewerBottomBar(state, handlers) {
             handlers.onRerender();
           });
 
+          const dupBtn = document.createElement('button');
+          dupBtn.type = 'button';
+          dupBtn.className = 'icon-mini-btn';
+          dupBtn.setAttribute('aria-label', `Duplikat ${v.name}`);
+          dupBtn.title = 'Duplikat view';
+          dupBtn.innerHTML = icon('copy', 14);
+          dupBtn.addEventListener('click', () => handlers.onDuplicateView?.(v.id));
+
           const delBtn = document.createElement('button');
           delBtn.type = 'button';
           delBtn.className = 'icon-mini-btn st-fail';
@@ -455,7 +463,7 @@ export function renderViewerBottomBar(state, handlers) {
           delBtn.innerHTML = icon('trash', 14);
           delBtn.addEventListener('click', () => handlers.onDeleteView(v.id));
 
-          li.append(applyBtn, renBtn, delBtn);
+          li.append(applyBtn, renBtn, dupBtn, delBtn);
         }
 
         ul.appendChild(li);

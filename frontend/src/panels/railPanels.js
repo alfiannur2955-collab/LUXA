@@ -3,12 +3,15 @@
  * Scoped cleanly for Fase 4a: Model, Material, Lokasi, Tampilan, Bandingkan, Laporan, Bantuan.
  */
 
+import { listSavedProjects } from '../project.js';
 import { computeInitialSunDomeRadiusM, parseDecimalInput } from '../state.js';
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
 import { SNI_GLOSSARY } from '../ui/tooltips.js';
 import { ORIENTATION_CODES, ORIENTATION_NAMES_ID } from '../viewer/modes.js';
 import { computeSolarPosition } from '../viewer/sundome.js';
+
+let renamingProjectId = null;
 
 function makeField(labelText, controlEl, hintText = '') {
   const wrap = document.createElement('div');
@@ -86,6 +89,124 @@ export function createRailPanelBuilders(handlers) {
           row.append(b1, b2);
           container.appendChild(row);
         }
+
+        // Fase 4d D4: Browser-saved projects library (Create, Open, Inline Rename, Duplicate, Delete w/ named confirm)
+        const projSec = document.createElement('div');
+        projSec.className = 'psec';
+        const pHead = document.createElement('div');
+        pHead.style.display = 'flex';
+        pHead.style.justifyContent = 'space-between';
+        pHead.style.alignItems = 'center';
+        const pTitle = document.createElement('h3');
+        pTitle.textContent = 'Proyek tersimpan di browser';
+        pHead.appendChild(pTitle);
+
+        if (state.modelId) {
+          const saveProjBtn = document.createElement('button');
+          saveProjBtn.type = 'button';
+          saveProjBtn.className = 'ghost ghost-sm';
+          saveProjBtn.style.height = '28px';
+          saveProjBtn.textContent = '+ Simpan';
+          saveProjBtn.addEventListener('click', () => handlers.onSaveBrowserProject?.());
+          pHead.appendChild(saveProjBtn);
+        }
+        projSec.appendChild(pHead);
+
+        const savedProjects = listSavedProjects();
+        if (savedProjects.length === 0) {
+          const emptyP = document.createElement('p');
+          emptyP.className = 'lbl';
+          emptyP.style.margin = '0';
+          emptyP.style.fontWeight = '500';
+          emptyP.textContent = 'Belum ada proyek tersimpan di browser. Klik "+ Simpan" untuk menyimpan snapshot proyek aktif.';
+          projSec.appendChild(emptyP);
+        } else {
+          const ul = document.createElement('ul');
+          ul.className = 'views-list';
+          for (const proj of savedProjects) {
+            const li = document.createElement('li');
+            li.className = 'views-item';
+            if (renamingProjectId === proj.id) {
+              const form = document.createElement('form');
+              form.style.display = 'flex';
+              form.style.gap = '4px';
+              form.style.width = '100%';
+              const inp = document.createElement('input');
+              inp.type = 'text';
+              inp.className = 'field-input';
+              inp.style.height = '30px';
+              inp.style.fontSize = '12.5px';
+              inp.value = proj.name;
+              inp.setAttribute('aria-label', 'Nama baru proyek');
+              const ok = document.createElement('button');
+              ok.type = 'submit';
+              ok.className = 'ghost ghost-sm';
+              ok.style.height = '30px';
+              ok.textContent = 'Simpan';
+              form.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const nn = inp.value.trim();
+                renamingProjectId = null;
+                if (nn) handlers.onRenameBrowserProject?.(proj.id, nn);
+                else handlers.onRerender?.();
+              });
+              inp.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  renamingProjectId = null;
+                  handlers.onRerender?.();
+                }
+              });
+              form.append(inp, ok);
+              li.appendChild(form);
+              window.requestAnimationFrame(() => {
+                inp.focus();
+                inp.select();
+              });
+            } else {
+              const openBtn = document.createElement('button');
+              openBtn.type = 'button';
+              openBtn.className = 'views-apply-btn';
+              openBtn.textContent = proj.name;
+              openBtn.title = proj.ottv_total_wm2 != null
+                ? `${proj.name} · OTTV ${fmtId(proj.ottv_total_wm2, 2)} W/m²`
+                : proj.name;
+              openBtn.addEventListener('click', () => handlers.onOpenBrowserProject?.(proj));
+
+              const ren = document.createElement('button');
+              ren.type = 'button';
+              ren.className = 'icon-mini-btn';
+              ren.setAttribute('aria-label', `Ganti nama proyek ${proj.name}`);
+              ren.title = 'Ganti nama';
+              ren.innerHTML = icon('edit', 14);
+              ren.addEventListener('click', () => {
+                renamingProjectId = proj.id;
+                handlers.onRerender?.();
+              });
+
+              const dup = document.createElement('button');
+              dup.type = 'button';
+              dup.className = 'icon-mini-btn';
+              dup.setAttribute('aria-label', `Duplikat proyek ${proj.name}`);
+              dup.title = 'Duplikat proyek';
+              dup.innerHTML = icon('copy', 14);
+              dup.addEventListener('click', () => handlers.onDuplicateBrowserProject?.(proj.id));
+
+              const del = document.createElement('button');
+              del.type = 'button';
+              del.className = 'icon-mini-btn st-fail';
+              del.setAttribute('aria-label', `Hapus proyek ${proj.name}`);
+              del.title = 'Hapus proyek';
+              del.innerHTML = icon('trash', 14);
+              del.addEventListener('click', () => handlers.onDeleteBrowserProject?.(proj));
+
+              li.append(openBtn, ren, dup, del);
+            }
+            ul.appendChild(li);
+          }
+          projSec.appendChild(ul);
+        }
+        container.appendChild(projSec);
       },
     },
 

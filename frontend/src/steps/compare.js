@@ -13,6 +13,7 @@ import { icon } from '../ui/icons.js';
 import { viewer } from '../viewer/viewer.js';
 
 let addFormOpen = false;
+let renamingAltId = null;
 
 function findMaterial(materialsObj, matId) {
   const list = materialsObj?.materials || [];
@@ -449,6 +450,47 @@ export function renderCompareScreen(state, handlers) {
     const rowWrap = document.createElement('div');
     rowWrap.className = 'compare-alt-row';
 
+    if (renamingAltId === alt.id) {
+      const form = document.createElement('form');
+      form.style.display = 'flex';
+      form.style.gap = '4px';
+      form.style.width = '100%';
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.className = 'field-input';
+      inp.style.height = '34px';
+      inp.style.fontSize = '12.5px';
+      inp.value = alt.name;
+      inp.setAttribute('aria-label', `Nama baru untuk Alternatif ${alt.code}`);
+      const okBtn = document.createElement('button');
+      okBtn.type = 'submit';
+      okBtn.className = 'ghost ghost-sm';
+      okBtn.style.height = '34px';
+      okBtn.textContent = 'Simpan';
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const nextName = inp.value.trim();
+        renamingAltId = null;
+        if (nextName) handlers.onRenameAlternative?.(alt.id, nextName);
+        else handlers.onRerender();
+      });
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          renamingAltId = null;
+          handlers.onRerender();
+        }
+      });
+      form.append(inp, okBtn);
+      rowWrap.appendChild(form);
+      altList.appendChild(rowWrap);
+      window.requestAnimationFrame(() => {
+        inp.focus();
+        inp.select();
+      });
+      continue;
+    }
+
     const btn = document.createElement('button');
     btn.type = 'button';
     const isSel = activeAlt && alt.id === activeAlt.id;
@@ -469,15 +511,34 @@ export function renderCompareScreen(state, handlers) {
     btn.append(nameSp, valSp);
     btn.addEventListener('click', () => handlers.onSelectAlternative(alt.id));
 
+    const renBtn = document.createElement('button');
+    renBtn.type = 'button';
+    renBtn.className = 'icon-mini-btn';
+    renBtn.setAttribute('aria-label', `Ganti nama Alternatif ${alt.code}`);
+    renBtn.title = 'Ganti nama';
+    renBtn.innerHTML = icon('edit', 13);
+    renBtn.addEventListener('click', () => {
+      renamingAltId = alt.id;
+      handlers.onRerender();
+    });
+
+    const dupBtn = document.createElement('button');
+    dupBtn.type = 'button';
+    dupBtn.className = 'icon-mini-btn';
+    dupBtn.setAttribute('aria-label', `Duplikat Alternatif ${alt.code}`);
+    dupBtn.title = 'Duplikat alternatif';
+    dupBtn.innerHTML = icon('copy', 13);
+    dupBtn.addEventListener('click', () => handlers.onDuplicateAlternative?.(alt.id));
+
     const delBtn = document.createElement('button');
     delBtn.type = 'button';
     delBtn.className = 'icon-mini-btn st-fail';
     delBtn.setAttribute('aria-label', `Hapus Alternatif ${alt.code}`);
     delBtn.title = 'Hapus alternatif';
-    delBtn.innerHTML = icon('trash', 14);
+    delBtn.innerHTML = icon('trash', 13);
     delBtn.addEventListener('click', () => handlers.onDeleteAlternative(alt.id));
 
-    rowWrap.append(btn, delBtn);
+    rowWrap.append(btn, renBtn, dupBtn, delBtn);
     altList.appendChild(rowWrap);
   }
 
