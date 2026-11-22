@@ -919,12 +919,52 @@ PROMPT FASE 4e:
 Branch fase-4e-katalog dari main. Kerjakan bagian 'Fase 4e' di RENCANA.md: pindahkan docs/fase4/material_library.json ke backend/data/ dan gabungkan dengan material generik SNI, pindahkan material kustom ke klien (localStorage + config.settings.custom_materials, hapus CUSTOM_MATERIALS global, ganti endpoint custom jadi validate), buat katalog kartu persegi dengan mode pilih dan mode jelajah, panel detail, form material, harga opsional milik user, endpoint rematerial tanpa raytracing, dan backend/recommender.py (per grup + kombinasi optimal) yang menggantikan generate_material_recommendations. Jangan menambah data brand tanpa URL resmi. Tulis semua tes di bagian 'Tes 4e', jalankan pytest + build, catat di CHANGELOG, merge ke main.
 ```
 
+### Review Fase 4d dan 4e, dan hasil Fase 5a (22 Nov 2026)
+
+Antigravity kena limit mingguan setelah menyelesaikan 4e. Mulai dari sini Claude yang mengeksekusi langsung di repo, dengan pemeriksaan yang sama: pytest, build, dan uji klik di Chromium tanpa layar.
+
+#### Review 4d dan 4e (main d13aec2)
+
+Hasil Antigravity sesuai rencana: 168 tes lolos, dan kubah manual, rotasi cincin gaya D5, mode Orientasi, katalog kartu persegi dengan mode pilih dan jelajah, form material, rekomendasi per grup, serta kombinasi optimal berfungsi. Tes paritas `rematerial` dan tes brute-force kombinasi optimal juga ada dan lolos.
+
+Yang diperbaiki Claude (branch `fase-4-review-fix`, merge `04f2584`):
+
+- **Heatmap Halus memunculkan pita hijau-biru palsu** di setiap batas antara baris kaca dan spandrel, karena nilai keduanya dirata-rata di titik yang sama. Sekarang rata-rata hanya mencampur panel sejenis (kaca dengan kaca, masif dengan masif) pada bidang yang hampir sejajar (< 30°).
+- **Pegangan radius kubah tidak pernah terlihat,** karena diletakkan di titik cincin terdekat kamera yang jatuh di luar layar. Sekarang dipilih titik cincin yang terlihat di sisi kanan viewer.
+- **Rekomendasi:**
+  - Kalimat "Desain sekarang (20.43 W/m²)" sekarang memakai koma desimal.
+  - Opsi tanpa perubahan tidak lagi menampilkan tombol Terapkan.
+  - ΔOTTV nol ditulis "tidak berubah".
+  - Tabel peringkat tidak lagi dikunci setinggi 280 px.
+- Slider rentang di katalog memakai aksen LUXA.
+
+Catatan kecil yang tidak diubah: pil rumus menampilkan "OTTV\_B" (arah terburuk), seperti sejak 4b2.
+
+#### Hasil Fase 5a (branch `fase-5a-spike`, merge `6cf2da7`)
+
+Laporan lengkap ada di `docs/SPIKE_PYODIDE.md`. Ringkasnya:
+
+- **Ketepatan:** engine LUXA berjalan utuh di browser (Pyodide 0.29.5 di Web Worker). Keenam fixture (3 .3dm, 1 .ifc, 1 .obj, plus Facade .3dm) **identik dengan backend, selisih 0,00 W/m²**.
+- **Muat engine:** sekitar 4,5 detik setelah aset ada di cache.
+- **Unduhan pertama:** 33 MB (24 MB gzip). Turun ke sekitar 10 MB gzip kalau IfcOpenShell, rhino3dm.js, dan openpyxl dimuat saat dibutuhkan.
+- **Waktu analisis:** model kecil di bawah 0,2 detik, Facade 4.500 panel sekitar 3,5 detik, model 24 lantai sekitar 8,6 detik. Untuk .3dm besar, versi browser lebih cepat daripada backend, karena rhino3dm.js membaca mesh lebih cepat.
+- **Memori:** heap WASM 104 MB untuk model kecil, 310–370 MB untuk satu model besar, dan 535 MB setelah tiga model besar dalam satu sesi.
+- **Keputusan teknis:**
+  - Pyodide 314 (Python 3.14) belum bisa dipakai, karena wheel IfcOpenShell WASM baru tersedia untuk Python 3.13.
+  - Wheel IfcOpenShell 0.9.0.post1 crash di `ifcopenshell.open()`, jadi dipakai build modular 0.9.1 yang dipasang berurutan.
+  - rhino3dm Python diganti rhino3dm.js. Backend mendapat satu cabang loader `.3dm.json`, diuji paritasnya di `tests/test_pre_extracted_3dm.py`.
+- **Belum dicakup:** ekspor template prodi dan PDF, Safari dan Firefox, serta waktu unduh di jaringan dan laptop nyata.
+
+Rekomendasi: lanjut ke 5b dengan delapan catatan di `docs/SPIKE_PYODIDE.md`.
+
+Untuk mencoba sendiri: jalankan `python -m http.server 8000` dari akar repo, buka `http://localhost:8000/spike-pyodide/`, klik "Muat engine", lalu "Jalankan fixture". Aset `vendor/` sudah ada di folder repo.
+
 ```text
 PROMPT FASE 5a (SPIKE, jangan ubah UI):
 Setelah Fase 4d dan 4e di-merge ke main, buat branch fase-5a-spike dari main. Ukur juga endpoint rematerial dan recommender di Pyodide. Spike harus memakai antarmuka engine.js yang sama (upload, inspect, analyze, exposure, export) supaya Fase 5b cukup mengganti implementasinya. Buat folder spike-pyodide/ berisi halaman HTML sederhana + Web Worker yang memuat Pyodide, memasang numpy, ladybug-geometry, trimesh, dan wheel IfcOpenShell WASM, lalu menjalankan load_universal_model_stages_1_and_2 + analyze_building_ottv dari backend/ untuk 5 fixture. Untuk .3dm: baca dengan rhino3dm.js di JS, kirim vertices/faces + nama layer/material per objek ke Python sebagai pengganti loader rhino3dm Python. Catat di docs/SPIKE_PYODIDE.md: ukuran unduhan, waktu muat awal, waktu analisis per fixture, memori puncak, dan selisih OTTV vs backend. Jangan optimasi dulu; tujuan hanya mengukur.
 
 PROMPT FASE 5b (setelah spike disetujui):
-Branch fase-5b-browser. Implementasikan engine.js versi browser memakai hasil spike: Pyodide di Web Worker, rhino3dm.js untuk .3dm, IfcOpenShell WASM untuk IFC, progres per tahap, penyimpanan proyek di IndexedDB + unduh/buka .ottv.json, ekspor Excel via openpyxl di Pyodide, katalog material dibundel sebagai JSON statis, rematerial dan rekomendasi berjalan di Worker. Tambah service worker untuk cache aset. Pastikan tidak ada request jaringan yang membawa file model. Build statis siap deploy ke GitHub Pages/Netlify. Tes: hasil OTTV browser vs backend untuk 5 fixture, selisih <= 0.01 W/m2.
+Branch fase-5b-browser. Implementasikan engine.js versi browser memakai hasil spike dan ikuti 8 rekomendasi di docs/SPIKE_PYODIDE.md (Pyodide 0.29.5, IfcOpenShell 0.9.1 modular dipasang berurutan, muat bertahap, rematerial mengirim ringkasan saja, LRU 2 hasil): Pyodide di Web Worker, rhino3dm.js untuk .3dm, IfcOpenShell WASM untuk IFC, progres per tahap, penyimpanan proyek di IndexedDB + unduh/buka .ottv.json, ekspor Excel via openpyxl di Pyodide, katalog material dibundel sebagai JSON statis, rematerial dan rekomendasi berjalan di Worker. Tambah service worker untuk cache aset. Pastikan tidak ada request jaringan yang membawa file model. Build statis siap deploy ke GitHub Pages/Netlify. Tes: hasil OTTV browser vs backend untuk 5 fixture, selisih <= 0.01 W/m2.
 ```
 
 ## Fase 6 — Bersih-bersih dan tes
