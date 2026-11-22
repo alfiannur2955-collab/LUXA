@@ -164,6 +164,32 @@ Dokumen ini mencatat perubahan arsitektur antarmuka dan pendukung backend pada F
 ### 5. Audit Tambah-Ubah-Hapus (D4)
 - **`docs/AUDIT_CRUD.md`, `ui/toast.js`, `ui/dialogs.js`, `project.js`, `viewer/views.js`, `steps/compare.js`, `panels/railPanels.js`, `main.js`**: Menambahkan `showUndoToast` (8 detik) untuk penghapusan view tersimpan, alternatif, override klasifikasi/material, dan EPW kustom; dialog konfirmasi bernama untuk hapus proyek tersimpan di browser (`luxa.projects.v1`); dialog pengganti material aktif (`showReplaceMaterialDialog`); serta aksi *inline rename* dan *duplikat* untuk view, alternatif, dan proyek tersimpan.
 
+---
+
+## Fase 4e — Katalog Material Merek Terverifikasi, Rematerial Cepat, & Rekomendasi (`fase-4e-katalog`)
+
+### 1. Data Material Merek Terverifikasi & Backend Stateless
+- **`backend/data/material_library.json` & `backend/materials_and_epw.py`**: Memindahkan 62 entri kaca merek terverifikasi pasar Indonesia (Asahimas / AGC: Panasap, Stopsol, Stopray, Planibel; Saint-Gobain / Mulia: Parsol, Antelio, COOL-LITE; Guardian: SunGuard, ClimaGuard) ke `backend/data/material_library.json` (masing-masing membawa URL resmi, `sumber_judul`, `tanggal_akses`, `standar_data`, dan tanpa harga/klaim tanpa sumber) serta menggabungkannya dengan material generik bawaan (`origin="sni_generic"`, `"Bawaan SNI"`).
+- **Penghapusan global mutable & validasi stateless (`backend/materials_and_epw.py`, `backend/main.py`)**: Menghapus `CUSTOM_MATERIALS`, `add_custom_material`, dan fungsi rekomendasi keras `generate_material_recommendations`. Mengganti `POST /api/materials/custom` dengan `POST /api/materials/validate` yang stateless (memvalidasi rentang fisik SNI, mengisi otomatis `SHGC = SC × 0,87` dan `TD_ek` dari Tabel 3/4 SNI 6389:2020, tanpa menyimpan apa pun di memori server). `GET /api/materials` kini juga menyertakan daftar `brands`, `alpha_table_1`, dan `alpha_table_2`.
+
+### 2. Endpoint `rematerial` Cepat (< 5 ms) & Mesin Rekomendasi (`backend/recommender.py`)
+- **`POST /api/analyses/{analysis_id}/rematerial`**: Menghitung ulang OTTV total, `orientation_breakdown`, `panels`, dan `rttv` secara eksak dari hasil analisis tersimpan tanpa mengulang *raytracing* maupun mengekstrak ulang geometri (< 5 ms). Seluruh perubahan material dari Mode Pilih atau Katalog langsung memperbarui OTTV & heatmap tanpa memunculkan chip *Hitung ulang*, lengkap dengan toast *Batalkan* (8 detik).
+- **`POST /api/analyses/{analysis_id}/recommend`**:
+  - Mode **per target** (`mode="target"`): mengurutkan seluruh kandidat katalog (merek, generik, dan buatan pengguna) berdasarkan `ΔOTTV` dan kepatuhan SNI untuk target kaca keseluruhan, kaca per orientasi, dinding/spandrel, atau atap, dengan filter VLT minimum, brand, dan tunggal/IGU.
+  - Mode **kombinasi optimal** (`mode="optimize"`): memanfaatkan sifat aditif-independen per orientasi pada rumus OTTV untuk mencari solusi eksak **Perubahan paling sedikit** (minimal jumlah orientasi diubah untuk memenuhi target), **OTTV terendah**, serta **Biaya terendah** (dihitung lokal di sisi browser bila pengguna mengisi harga `Rp/m²`; harga lokal tidak pernah dikirim ke server).
+
+### 3. Antarmuka Katalog Kartu Persegi, Detail, Form Kustom, & Tab Rekomendasi
+- **`frontend/src/materials/store.js`, `frontend/src/materials/catalog.js`, `frontend/src/engine.js`, `frontend/src/main.js`, `frontend/src/theme.css`**:
+  - Item rail **Material** membuka overlay kartu kaca cair besar menutupi area viewer (`Esc` menutup), menyatukan **Mode Jelajah** dan **Mode Pilih** (*Ganti kaca*, *Ganti kaca fasad*, *Ganti* per peran) dengan satu komponen kartu persegi (~168 px): pratinjau warna swatch, badge asal (`Bawaan SNI`, `Referensi brand`, `Buatan saya`), tombol `"i"` sudut, nama + brand, dan 3 angka kunci (`SC · U · VLT` untuk kaca; `U · α · TDek` untuk buram).
+  - Toolbar pencarian instan, filter kategori, brand, slider rentang ganda (`SC`, `U`, `VLT`), dan urutan.
+  - Panel **Detail**: seluruh sifat termal & optik, tautan sumber resmi (`target="_blank"`), input harga estimasi lokal (`luxa.prices.v1`, hanya di browser), pemilih `Pakai untuk...`, `Duplikat & ubah` (untuk semua material), serta `Ubah` & `Hapus` khusus material buatan pengguna (menampilkan dialog pengganti bila sedang dipakai di proyek aktif).
+  - Form **+ Material baru** & **Ubah**: validasi rentang real-time + `POST /api/materials/validate`, sinkronisasi dua arah `SC ↔ SHGC` (`0,87`), pemilih α dari Tabel 1 & 2 SNI, pratinjau `TD_ek` otomatis, serta ekspor/impor JSON untuk material lokal (`luxa.materials.v1`). Material buatan pengguna yang dipakai otomatis ikut disisipkan ke `config.settings.custom_materials` pada `.ottv.json`.
+  - Tab **Rekomendasi**: peringkat kandidat per target + pencari kombinasi optimal lengkap dengan aksi **Terapkan** (rematerial langsung) dan **Jadikan alternatif** (langsung membuka Mode Bandingkan dengan alternatif baru), serta catatan sumber datasheet produsen.
+
+### 4. Verifikasi
+- `tests/test_fase4e_catalog_recommender.py`: memverifikasi skema & URL 62 material merek, validasi stateless + penghapusan `CUSTOM_MATERIALS` & fungsi rekomendasi lama, paritas `rematerial` ≤ 0,01 W/m² & < 300 ms di 5 kasus sintetis (`01_kotak_m`, `02_kotak_mm`, `05_denah_L`, `06_courtyard`, `07_silinder`), peringkat per-target, serta kesamaan eksak `optimize_material_combinations` terhadap pencocokan *brute-force*.
+
+
 
 
 

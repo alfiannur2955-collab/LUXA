@@ -23,7 +23,9 @@ export function renderRail(state, { onToggleCard }) {
     const btn = document.createElement('button');
     btn.type = 'button';
     const isActive =
-      state.activeRailCard === item.id || (item.id === 'compare' && state.step === 'compare');
+      state.activeRailCard === item.id ||
+      (item.id === 'compare' && state.step === 'compare') ||
+      (item.id === 'material' && Boolean(state.materialCatalog?.open));
     btn.className = `rail-btn${isActive ? ' on' : ''}`;
     btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     btn.innerHTML = `${icon(item.icon, 21)}<span>${item.label}</span>`;

@@ -52,6 +52,11 @@ export function installShortcuts({ getState, pieMenu, handlers }) {
         handlers.onCloseShortcuts();
         return;
       }
+      if (s.materialCatalog?.open) {
+        e.preventDefault();
+        handlers.onCloseMaterialCatalog?.();
+        return;
+      }
       if (s.northRotateMode) {
         e.preventDefault();
         handlers.onToggleNorthRotateMode?.(false);
@@ -75,7 +80,7 @@ export function installShortcuts({ getState, pieMenu, handlers }) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
 
     const s = getState();
-    if (s.commandPaletteOpen) return;
+    if (s.commandPaletteOpen || s.materialCatalog?.open) return;
 
     // While pie menu is open, arrow keys cycle sectors
     if (pieMenu.isOpen) {

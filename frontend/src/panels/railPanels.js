@@ -213,17 +213,31 @@ export function createRailPanelBuilders(handlers) {
     material: {
       title: 'Material',
       renderBody(container, state) {
+        const openCatBtn = document.createElement('button');
+        openCatBtn.type = 'button';
+        openCatBtn.className = 'cta';
+        openCatBtn.style.height = '40px';
+        openCatBtn.style.fontSize = '13px';
+        openCatBtn.innerHTML = `${icon('material', 16)}<span>Buka Katalog & Rekomendasi</span>`;
+        openCatBtn.addEventListener('click', () => handlers.onOpenMaterialCatalog?.('browse', 'catalog'));
+        container.appendChild(openCatBtn);
+
         const mats = state.materials || {};
         const defs = [
-          ['Kaca (fenestrasi)', 'glazing_material_id', mats.glazing_materials || []],
-          ['Dinding & spandrel', 'wall_material_id', mats.wall_materials || []],
-          ['Rangka', 'frame_material_id', mats.frame_materials || []],
-          ['Atap', 'roof_material_id', mats.roof_materials || []],
+          ['Kaca (fenestrasi)', 'glazing', 'glazing_material_id', mats.glazing_materials || []],
+          ['Dinding & spandrel', 'wall', 'wall_material_id', mats.wall_materials || []],
+          ['Rangka', 'frame', 'frame_material_id', mats.frame_materials || []],
+          ['Atap', 'roof', 'roof_material_id', mats.roof_materials || []],
         ];
 
-        for (const [label, fieldKey, list] of defs) {
+        for (const [label, cat, fieldKey, list] of defs) {
+          const rowCtrl = document.createElement('div');
+          rowCtrl.style.display = 'flex';
+          rowCtrl.style.gap = '6px';
+
           const sel = document.createElement('select');
           sel.className = 'field-select';
+          sel.style.flex = '1';
           const currentId = state.config.settings[fieldKey];
           for (const m of list) {
             const opt = document.createElement('option');
@@ -238,15 +252,31 @@ export function createRailPanelBuilders(handlers) {
           }
           sel.addEventListener('change', () => handlers.onChangeRoleMaterial(fieldKey, sel.value));
 
+          const pickBtn = document.createElement('button');
+          pickBtn.type = 'button';
+          pickBtn.className = 'ghost ghost-sm';
+          pickBtn.style.height = '38px';
+          pickBtn.style.padding = '0 10px';
+          pickBtn.textContent = 'Ganti';
+          pickBtn.addEventListener('click', () =>
+            handlers.onOpenMaterialPickMode?.({
+              lockedCategory: cat,
+              targetField: fieldKey,
+              targetOrientCode: null,
+              targetLabel: `Pilih ${label.toLowerCase()}`,
+            }),
+          );
+          rowCtrl.append(sel, pickBtn);
+
           const activeMat = list.find((m) => m.id === currentId);
           let hint = activeMat
-            ? `${activeMat.sumber || 'Nilai tipikal katalog'}${activeMat.status === 'datasheet' ? ' · datasheet' : ''}`
+            ? `${activeMat.brand || activeMat.sumber || 'Nilai tipikal katalog'}`
             : '';
           if (activeMat?.id === 'glz_kaca_elektrokromik') {
             hint += ' · Catatan: nilai katalog adalah kondisi paling gelap; saat terang SC lebih tinggi.';
           }
 
-          container.appendChild(makeField(label, sel, hint));
+          container.appendChild(makeField(label, rowCtrl, hint));
         }
 
         // Lanjut workspace: Per-orientation glazing override (`docs/FASE4_UI_SPEC.md` §5)

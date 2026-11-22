@@ -118,6 +118,39 @@ export async function listMaterials({ signal } = {}) {
   return _jsonOrThrow(res, 'Gagal memuat katalog material.');
 }
 
+export async function validateMaterial(payload, { signal } = {}) {
+  const res = await fetch('/api/materials/validate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  return _jsonOrThrow(res, 'Validasi material gagal.');
+}
+
+export async function rematerial(analysisId, patch, { signal } = {}) {
+  const res = await fetch(`/api/analyses/${encodeURIComponent(analysisId)}/rematerial`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+    signal,
+  });
+  return _jsonOrThrow(res, 'Gagal menghitung ulang material.');
+}
+
+export async function recommend(analysisId, req, { signal } = {}) {
+  // Privacy rule (Fase 4e): never transmit user-entered prices to the server
+  const safeReq = { ...req };
+  delete safeReq.prices_map;
+  const res = await fetch(`/api/analyses/${encodeURIComponent(analysisId)}/recommend`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(safeReq),
+    signal,
+  });
+  return _jsonOrThrow(res, 'Gagal menghitung rekomendasi material.');
+}
+
 export async function listLocations({ signal } = {}) {
   const res = await fetch('/api/locations', { signal });
   return _jsonOrThrow(res, 'Gagal memuat daftar lokasi.');
@@ -149,6 +182,9 @@ export const engine = {
   exposure,
   export: exportReport,
   listMaterials,
+  validateMaterial,
+  rematerial,
+  recommend,
   listLocations,
   getExportTips,
   parseEpw,

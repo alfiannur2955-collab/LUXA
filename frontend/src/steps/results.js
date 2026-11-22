@@ -282,6 +282,37 @@ export function renderResultsScreen(state, handlers) {
 
   heroCard.append(heroHead, heroVal, chipRow);
 
+  // Fase 4e: Fast material pick & recommender shortcut right from Results hero card
+  const matQuickRow = document.createElement('div');
+  matQuickRow.style.display = 'grid';
+  matQuickRow.style.gridTemplateColumns = '1fr 1fr';
+  matQuickRow.style.gap = '6px';
+  matQuickRow.style.marginTop = '10px';
+
+  const pickGlzBtn = document.createElement('button');
+  pickGlzBtn.type = 'button';
+  pickGlzBtn.className = 'ghost ghost-sm';
+  pickGlzBtn.style.height = '34px';
+  pickGlzBtn.textContent = 'Ganti kaca';
+  pickGlzBtn.addEventListener('click', () =>
+    handlers.onOpenMaterialPickMode?.({
+      lockedCategory: 'glazing',
+      targetField: 'glazing_material_id',
+      targetOrientCode: null,
+      targetLabel: 'Pilih kaca utama',
+    }),
+  );
+
+  const recBtn = document.createElement('button');
+  recBtn.type = 'button';
+  recBtn.className = 'ghost ghost-sm';
+  recBtn.style.height = '34px';
+  recBtn.textContent = 'Rekomendasi';
+  recBtn.addEventListener('click', () => handlers.onOpenMaterialRecommend?.());
+
+  matQuickRow.append(pickGlzBtn, recBtn);
+  heroCard.appendChild(matQuickRow);
+
   if (warnings.length > 0) {
     const details = document.createElement('details');
     details.style.marginTop = '10px';
@@ -599,7 +630,23 @@ export function renderResultsScreen(state, handlers) {
     noteLine.style.fontWeight = '500';
     noteLine.textContent = 'Status memenuhi atau tidak hanya dinilai dari OTTV total.';
 
-    detailDiv.append(titleLine, metricLine, noteLine);
+    const pickOrientBtn = document.createElement('button');
+    pickOrientBtn.type = 'button';
+    pickOrientBtn.className = 'ghost ghost-sm';
+    pickOrientBtn.style.height = '30px';
+    pickOrientBtn.style.marginTop = '4px';
+    pickOrientBtn.style.justifySelf = 'start';
+    pickOrientBtn.textContent = `Ganti kaca fasad ${sel.code}`;
+    pickOrientBtn.addEventListener('click', () =>
+      handlers.onOpenMaterialPickMode?.({
+        lockedCategory: 'glazing',
+        targetField: null,
+        targetOrientCode: sel.code,
+        targetLabel: `Pilih kaca fasad ${sel.name_id || sel.code}`,
+      }),
+    );
+
+    detailDiv.append(titleLine, metricLine, noteLine, pickOrientBtn);
     orientCard.appendChild(detailDiv);
   }
 

@@ -8,6 +8,16 @@
 import './theme.css';
 
 import { engine } from './engine.js';
+import { renderMaterialCatalogOverlay } from './materials/catalog.js';
+import {
+  countMaterialUsage,
+  deleteUserMaterialById,
+  getMergedCatalog,
+  replaceMaterialInConfig,
+  setUserPrice,
+  syncUsedCustomMaterialsToConfig,
+  upsertUserMaterial,
+} from './materials/store.js';
 import { createRailPanelBuilders } from './panels/railPanels.js';
 import {
   deleteSavedProject,
@@ -48,7 +58,7 @@ import { renderCommandPalette } from './ui/commandPalette.js';
 import { fmtFileSize } from './ui/escapeHtml.js';
 import { installShortcuts } from './ui/shortcuts.js';
 import { renderShortcutsModal } from './ui/shortcutsModal.js';
-import { showConfirmDeleteProjectDialog } from './ui/dialogs.js';
+import { showConfirmDeleteProjectDialog, showReplaceMaterialDialog } from './ui/dialogs.js';
 import { showToast, showUndoToast } from './ui/toast.js';
 import {
   createDefaultWorkspace,
@@ -698,6 +708,7 @@ async function handleCalculateOttv() {
 
   const configToRun = mergeConfig(s.config);
   configToRun.model.accepted_flags = allAccepted;
+  syncUsedCustomMaterialsToConfig(configToRun, s.materials);
 
   setState({
     previousStep: prevStep,
@@ -823,6 +834,240 @@ function handleSetWorkspacePreset(preset) {
   showToast(`Workspace: ${labels[preset] || preset}`, 'ok', 2000);
 }
 
+// ============================================================================
+// Material Catalog, Fast Rematerial & Recommender Handlers (Fase 4e)
+// ============================================================================
+
+function normalizeOrientCode(code) {
+  const c = String(code || '').toUpperCase().trim();
+  if (c === 'TG') return 'TGR';
+  return c;
+}
+
+function refreshMergedMaterials() {
+  const s = getState();
+  const base = s.serverMaterialsCatalog || s.materials;
+  const merged = getMergedCatalog(base);
+  setState({ materials: merged });
+  return merged;
+}
+
+function buildRematerialPayloadFromConfig(cfg) {
+  return {
+    glazing_material_id: cfg.settings.glazing_material_id,
+    wall_material_id: cfg.settings.wall_material_id,
+    frame_material_id: cfg.settings.frame_material_id,
+    roof_material_id: cfg.settings.roof_material_id,
+    orientation_material_overrides: cfg.settings.orientation_material_overrides || {},
+    group_material_map: cfg.roles?.group_material_map || {},
+    custom_materials: cfg.settings.custom_materials || [],
+  };
+}
+
+function applyPatchToConfigClone(baseCfg, patch) {
+  const nextCfg = mergeConfig(baseCfg);
+  if (!patch || typeof patch !== 'object') return nextCfg;
+  for (const field of ['glazing_material_id', 'wall_material_id', 'frame_material_id', 'roof_material_id']) {
+    if (patch[field]) {
+      nextCfg.settings[field] = patch[field];
+    }
+  }
+  if (patch.orientation_material_overrides && typeof patch.orientation_material_overrides === 'object') {
+    const nextMap = {};
+    for (const [k, v] of Object.entries(patch.orientation_material_overrides)) {
+      if (v) nextMap[normalizeOrientCode(k)] = v;
+    }
+    nextCfg.settings.orientation_material_overrides = nextMap;
+  }
+  if (patch.group_material_map && typeof patch.group_material_map === 'object') {
+    nextCfg.roles.group_material_map = { ...patch.group_material_map };
+  }
+  return nextCfg;
+}
+
+async function applyMaterialPatchFast(patch, toastLabel = 'Material diperbarui.', { withUndo = true } = {}) {
+  const s = getState();
+  const prevCfg = mergeConfig(s.config);
+  const prevAnalysis = s.analysisData;
+  const nextCfg = applyPatchToConfigClone(prevCfg, patch);
+  syncUsedCustomMaterialsToConfig(nextCfg, s.materials);
+
+  if (prevAnalysis?.analysis_id) {
+    try {
+      const updated = await engine.rematerial(
+        prevAnalysis.analysis_id,
+        buildRematerialPayloadFromConfig(nextCfg),
+      );
+      setState({
+        config: nextCfg,
+        analysisData: updated,
+        needsRecompute: false,
+      });
+      saveProjectAutosave(getState());
+      if (withUndo) {
+        showUndoToast(toastLabel, async () => {
+          try {
+            const curAid = getState().analysisData?.analysis_id || prevAnalysis.analysis_id;
+            const restored = await engine.rematerial(curAid, buildRematerialPayloadFromConfig(prevCfg));
+            setState({ config: prevCfg, analysisData: restored, needsRecompute: false });
+          } catch {
+            setState({ config: prevCfg, analysisData: prevAnalysis, needsRecompute: false });
+          }
+          saveProjectAutosave(getState());
+        });
+      } else {
+        showToast(toastLabel, 'ok', 2400);
+      }
+      return updated;
+    } catch (err) {
+      // Fallback: update config and mark recompute needed if server cache expired
+      setState({ config: nextCfg, needsRecompute: true });
+      saveProjectAutosave(getState());
+      showToast(err.message || 'Material diubah. Klik Hitung ulang untuk memperbarui.', 'warn');
+      return null;
+    }
+  }
+
+  setState({ config: nextCfg });
+  saveProjectAutosave(getState());
+  if (withUndo) {
+    showUndoToast(toastLabel, () => {
+      setState({ config: prevCfg });
+      saveProjectAutosave(getState());
+    });
+  } else {
+    showToast(toastLabel, 'ok', 2400);
+  }
+  return null;
+}
+
+function handleOpenMaterialCatalog(mode = 'browse', tab = 'catalog', pickOpts = {}) {
+  setState({
+    materialCatalog: {
+      open: true,
+      mode,
+      tab,
+      lockedCategory: pickOpts.lockedCategory || null,
+      targetField: pickOpts.targetField || null,
+      targetOrientCode: pickOpts.targetOrientCode ? normalizeOrientCode(pickOpts.targetOrientCode) : null,
+      targetLabel: pickOpts.targetLabel || null,
+    },
+    activeRailCard: null,
+    openPopover: null,
+  });
+}
+
+async function handleValidateAndSaveUserMaterial(payload, localPriceRp = 0) {
+  const res = await engine.validateMaterial(payload);
+  const saved = upsertUserMaterial(res.material);
+  if (localPriceRp > 0) {
+    setUserPrice(saved.id, localPriceRp);
+  }
+  const merged = refreshMergedMaterials();
+  const cur = getState();
+  const usage = countMaterialUsage(cur.config, saved.id);
+  if (usage.count > 0 && cur.analysisData?.analysis_id) {
+    const synced = mergeConfig(cur.config);
+    syncUsedCustomMaterialsToConfig(synced, merged);
+    try {
+      const updated = await engine.rematerial(
+        cur.analysisData.analysis_id,
+        buildRematerialPayloadFromConfig(synced),
+      );
+      setState({ config: synced, analysisData: updated, needsRecompute: false });
+      saveProjectAutosave(getState());
+    } catch {
+      setState({ config: synced, needsRecompute: true });
+    }
+  }
+  showToast(`Material "${saved.name}" tersimpan di katalog lokal.`, 'ok', 2800);
+  return saved;
+}
+
+function handleRequestDeleteUserMaterial(mat, onDeleted) {
+  const s = getState();
+  const usage = countMaterialUsage(s.config, mat.id);
+  if (usage.count > 0) {
+    const sameCat = (s.materials?.materials || []).filter(
+      (m) => m.category === mat.category && m.id !== mat.id,
+    );
+    showReplaceMaterialDialog({
+      materialName: mat.name,
+      usageCount: usage.count,
+      options: sameCat.map((m) => ({
+        id: m.id,
+        label: `${m.name} (${m.brand || 'Katalog'})`,
+      })),
+      onConfirm: async (replacementId) => {
+        const nextCfg = replaceMaterialInConfig(getState().config, mat.id, replacementId);
+        deleteUserMaterialById(mat.id);
+        const merged = refreshMergedMaterials();
+        syncUsedCustomMaterialsToConfig(nextCfg, merged);
+        onDeleted?.();
+        await applyMaterialPatchFast(
+          {
+            glazing_material_id: nextCfg.settings.glazing_material_id,
+            wall_material_id: nextCfg.settings.wall_material_id,
+            frame_material_id: nextCfg.settings.frame_material_id,
+            roof_material_id: nextCfg.settings.roof_material_id,
+            orientation_material_overrides: nextCfg.settings.orientation_material_overrides,
+            group_material_map: nextCfg.roles.group_material_map,
+          },
+          `Material "${mat.name}" diganti dan dihapus.`,
+          { withUndo: false },
+        );
+      },
+    });
+    return;
+  }
+
+  deleteUserMaterialById(mat.id);
+  refreshMergedMaterials();
+  onDeleted?.();
+  showUndoToast(`Material "${mat.name}" dihapus.`, () => {
+    upsertUserMaterial(mat);
+    refreshMergedMaterials();
+  });
+}
+
+async function handlePromoteRecommendToCompare(title, patch) {
+  const s = getState();
+  if (!s.analysisData?.analysis_id) {
+    showToast('Hitung OTTV terlebih dahulu sebelum menambahkan alternatif.', 'warn');
+    return;
+  }
+  const altCfg = applyPatchToConfigClone(s.config, patch);
+  syncUsedCustomMaterialsToConfig(altCfg, s.materials);
+  try {
+    const altAnalysis = await engine.rematerial(
+      s.analysisData.analysis_id,
+      buildRematerialPayloadFromConfig(altCfg),
+    );
+    const list = s.alternatives || [];
+    const codeChar = String.fromCharCode(65 + (list.length % 26));
+    const alt = {
+      id: `alt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+      code: codeChar,
+      name: title || `Rekomendasi ${codeChar}`,
+      config: altCfg,
+      analysisData: altAnalysis,
+      createdAt: new Date().toISOString(),
+    };
+    exposureController.stopPlayback();
+    setState({
+      alternatives: [...list, alt],
+      activeAlternativeId: alt.id,
+      materialCatalog: null,
+      step: 'compare',
+      activeRailCard: null,
+      openPopover: null,
+    });
+    showToast(`Alternatif ${codeChar} (${alt.name}) dibuka di Bandingkan.`, 'ok', 2800);
+  } catch (err) {
+    showToast(err.message || 'Gagal membuat alternatif dari rekomendasi.', 'fail');
+  }
+}
+
 const panelBuilders = createRailPanelBuilders({
   onGoToUpload: () => setState({ step: 'upload', activeRailCard: null, openPopover: null }),
   onNavigateStep: (step) => setState({ step, activeRailCard: null, openPopover: null }),
@@ -861,43 +1106,26 @@ const panelBuilders = createRailPanelBuilders({
       showToast(`Proyek "${proj.name}" dihapus.`, 'ok', 2400);
     });
   },
+  onOpenMaterialCatalog: (mode = 'browse', tab = 'catalog') => handleOpenMaterialCatalog(mode, tab),
+  onOpenMaterialPickMode: (pickOpts) => handleOpenMaterialCatalog('pick', 'catalog', pickOpts),
   onChangeRoleMaterial: (fieldKey, materialId) => {
     const prevId = getState().config?.settings?.[fieldKey];
-    updateConfig((cfg) => {
-      cfg.settings[fieldKey] = materialId;
-    });
-    setState({ needsRecompute: Boolean(getState().analysisData) });
-    saveProjectAutosave(getState());
-    if (prevId && prevId !== materialId) {
-      showUndoToast('Material diperbarui.', () => {
-        updateConfig((cfg) => {
-          cfg.settings[fieldKey] = prevId;
-        });
-        setState({ needsRecompute: Boolean(getState().analysisData) });
-        saveProjectAutosave(getState());
-      });
-    }
+    if (prevId === materialId) return;
+    applyMaterialPatchFast({ [fieldKey]: materialId }, 'Material diperbarui.');
   },
   onChangeOrientationMaterial: (code, materialId) => {
-    const prevMap = { ...(getState().config?.settings?.orientation_material_overrides || {}) };
-    updateConfig((cfg) => {
-      if (!materialId) {
-        delete cfg.settings.orientation_material_overrides[code];
-      } else {
-        cfg.settings.orientation_material_overrides[code] = materialId;
-      }
-    });
-    setState({ needsRecompute: Boolean(getState().analysisData) });
-    saveProjectAutosave(getState());
-    if (!materialId && prevMap[code]) {
-      showUndoToast(`Override kaca arah ${code} dihapus.`, () => {
-        updateConfig((cfg) => {
-          cfg.settings.orientation_material_overrides = prevMap;
-        });
-        setState({ needsRecompute: Boolean(getState().analysisData) });
-        saveProjectAutosave(getState());
-      });
+    const normCode = normalizeOrientCode(code);
+    const nextMap = { ...(getState().config?.settings?.orientation_material_overrides || {}) };
+    if (!materialId) {
+      delete nextMap[normCode];
+      delete nextMap[code];
+    } else {
+      nextMap[normCode] = materialId;
     }
+    applyMaterialPatchFast(
+      { orientation_material_overrides: nextMap },
+      materialId ? `Kaca fasad ${normCode} diperbarui.` : `Override kaca arah ${normCode} dihapus.`,
+    );
   },
   onUploadEpw: async (file) => {
     try {
@@ -975,7 +1203,10 @@ const panelBuilders = createRailPanelBuilders({
   onDownloadExcel: () => handleExportFormat('template_prodi'),
   onDownloadFormat: (fmt) => handleExportFormat(fmt),
   onDownloadProject: () => {
-    downloadProjectFile(getState());
+    const s = getState();
+    const cfgCopy = mergeConfig(s.config);
+    syncUsedCustomMaterialsToConfig(cfgCopy, s.materials);
+    downloadProjectFile({ ...s, config: cfgCopy });
     showToast('File proyek (.ottv.json) diunduh.', 'ok');
   },
 });
@@ -1005,18 +1236,27 @@ function renderApp(state) {
   frag.appendChild(
     renderRail(state, {
       onToggleCard: (cardId) => {
+        if (cardId === 'material') {
+          if (state.materialCatalog?.open) {
+            setState({ materialCatalog: null });
+          } else {
+            handleOpenMaterialCatalog('browse', 'catalog');
+          }
+          return;
+        }
         if (cardId === 'compare' && state.analysisData) {
           if (state.step === 'compare') {
             viewer.clearCompareMode();
-            setState({ step: 'results', activeRailCard: null, openPopover: null });
+            setState({ step: 'results', activeRailCard: null, materialCatalog: null, openPopover: null });
           } else {
             exposureController.stopPlayback();
-            setState({ step: 'compare', activeRailCard: null, openPopover: null });
+            setState({ step: 'compare', activeRailCard: null, materialCatalog: null, openPopover: null });
           }
           return;
         }
         setState({
           activeRailCard: state.activeRailCard === cardId ? null : cardId,
+          materialCatalog: null,
           openPopover: null,
         });
       },
@@ -1155,7 +1395,7 @@ function renderApp(state) {
           });
         },
         onBackToConfirm: () => setState({ step: 'confirm', openPopover: null }),
-        onOpenMaterialPanel: () => setState({ activeRailCard: 'material', openPopover: null }),
+        onOpenMaterialPanel: () => handleOpenMaterialCatalog('browse', 'catalog'),
         onGoToResults: () => setState({ step: 'results', viewerMode: 'heatmap', openPopover: null }),
         onCalculateOttv: () => handleCalculateOttv(),
       }),
@@ -1245,10 +1485,15 @@ function renderApp(state) {
             handleSelectDirection(code);
           }
         },
+        onOpenMaterialPickMode: (pickOpts) => handleOpenMaterialCatalog('pick', 'catalog', pickOpts),
+        onOpenMaterialRecommend: () => handleOpenMaterialCatalog('browse', 'recommend'),
         onRecompute: () => handleCalculateOttv(),
         onDownloadExcel: () => handleExportFormat('template_prodi'),
         onDownloadProject: () => {
-          downloadProjectFile(getState());
+          const s = getState();
+          const cfgCopy = mergeConfig(s.config);
+          syncUsedCustomMaterialsToConfig(cfgCopy, s.materials);
+          downloadProjectFile({ ...s, config: cfgCopy });
           showToast('File proyek (.ottv.json) diunduh.', 'ok');
         },
       }),
@@ -1278,6 +1523,78 @@ function renderApp(state) {
     }),
   );
 
+  const matCatalogEl = renderMaterialCatalogOverlay(state, {
+    onClose: () => setState({ materialCatalog: null }),
+    onRerender: () => setState({}),
+    onSwitchTab: (tab) =>
+      setState((s) => ({
+        ...s,
+        materialCatalog: s.materialCatalog ? { ...s.materialCatalog, tab } : null,
+      })),
+    onOpenPickMode: (pickOpts) => handleOpenMaterialCatalog('pick', 'catalog', pickOpts),
+    onApplyMaterialToRole: (fieldKey, mat) => {
+      applyMaterialPatchFast({ [fieldKey]: mat.id }, `Material diubah ke "${mat.name}".`);
+    },
+    onApplyMaterialToOrientation: (code, mat) => {
+      const normCode = normalizeOrientCode(code);
+      const nextMap = {
+        ...(getState().config?.settings?.orientation_material_overrides || {}),
+        [normCode]: mat.id,
+      };
+      applyMaterialPatchFast(
+        { orientation_material_overrides: nextMap },
+        `Kaca fasad ${normCode} diubah ke "${mat.name}".`,
+      );
+    },
+    onApplyRecommendPatch: (label, patch) => {
+      applyMaterialPatchFast(patch, `Rekomendasi "${label}" diterapkan.`);
+      setState({ materialCatalog: null });
+    },
+    onPromoteRecommendToCompare: (title, patch) => handlePromoteRecommendToCompare(title, patch),
+    onValidateAndSaveUserMaterial: (payload, priceRp) =>
+      handleValidateAndSaveUserMaterial(payload, priceRp),
+    onRequestDeleteUserMaterial: (mat, onDeleted) => handleRequestDeleteUserMaterial(mat, onDeleted),
+    onUserMaterialsChanged: (msg) => {
+      refreshMergedMaterials();
+      if (msg) showToast(msg, 'ok', 2600);
+    },
+    onPriceUpdated: (matName, priceRp) => {
+      showToast(
+        priceRp > 0
+          ? `Harga lokal "${matName}" disimpan di browser.`
+          : `Harga lokal "${matName}" dihapus.`,
+        'ok',
+        2200,
+      );
+      setState({});
+    },
+    onToast: (msg, tone) => showToast(msg, tone || 'ok'),
+    onFetchRecommendTarget: async ({ target_type, target_key, filters }) => {
+      const s = getState();
+      const aid = s.analysisData?.analysis_id;
+      if (!aid) return null;
+      return engine.recommend(aid, {
+        mode: 'target',
+        target_type,
+        target_key: target_key ? normalizeOrientCode(target_key) : null,
+        filters,
+        custom_materials: (s.materials?.materials || []).filter((m) => m.origin === 'user'),
+      });
+    },
+    onFetchRecommendOptimize: async ({ target_ottv_wm2, constraints }) => {
+      const s = getState();
+      const aid = s.analysisData?.analysis_id;
+      if (!aid) return null;
+      return engine.recommend(aid, {
+        mode: 'optimize',
+        target_ottv_wm2,
+        constraints,
+        custom_materials: (s.materials?.materials || []).filter((m) => m.origin === 'user'),
+      });
+    },
+  });
+  if (matCatalogEl) frag.appendChild(matCatalogEl);
+
   const cmdEl = renderCommandPalette(state, {
     onClose: () => setState({ commandPaletteOpen: false }),
     onSetProjection: (p) => {
@@ -1299,7 +1616,13 @@ function renderApp(state) {
       setState({ selectedGroup: g });
       showToast(`Menyorot grup "${g}"`, 'ok', 2000);
     },
-    onOpenPanel: (panelId) => setState({ activeRailCard: panelId }),
+    onOpenPanel: (panelId) => {
+      if (panelId === 'material') {
+        handleOpenMaterialCatalog('browse', 'catalog');
+      } else {
+        setState({ activeRailCard: panelId, materialCatalog: null });
+      }
+    },
     onToggleTheme: toggleTheme,
     onOpenShortcuts: () => setState({ shortcutsModalOpen: true }),
     onDownloadExcel: () => handleExportFormat('template_prodi'),
@@ -1347,6 +1670,7 @@ installShortcuts({
         commandPaletteOpen: false,
       })),
     onCloseShortcuts: () => setState({ shortcutsModalOpen: false }),
+    onCloseMaterialCatalog: () => setState({ materialCatalog: null }),
     onClosePopover: () => setState({ openPopover: null }),
     onCloseRailCard: () => {
       const s = getState();
@@ -1410,7 +1734,11 @@ async function bootstrap() {
 
   try {
     const [mats, locs] = await Promise.all([engine.listMaterials(), engine.listLocations()]);
-    setState({ materials: mats, locations: locs });
+    setState({
+      serverMaterialsCatalog: mats,
+      materials: getMergedCatalog(mats),
+      locations: locs,
+    });
   } catch {
     // Catalogs will retry naturally when backend is reachable
   }
