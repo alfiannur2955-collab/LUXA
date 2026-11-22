@@ -40,7 +40,7 @@ function savePos(pos) {
   }
 }
 
-function pickActiveOrientationRow(state) {
+export function pickActiveOrientationRow(state) {
   const analysis = state.analysisData;
   if (!analysis) return null;
   const breakdown = (analysis.orientation_breakdown || []).filter((r) => Number(r.total_area_m2 || 0) > 0.01);
@@ -57,6 +57,89 @@ function pickActiveOrientationRow(state) {
   return breakdown.reduce((best, cur) =>
     Number(cur.ottv_orientation_wm2 || 0) > Number(best.ottv_orientation_wm2 || 0) ? cur : best,
   );
+}
+
+
+/**
+ * Substitusi rumus OTTV SNI 6389:2020 untuk satu arah (dipakai di kartu "Per arah").
+ */
+export function renderFormulaSheet(row, { valWm2 = null } = {}) {
+  const box = document.createElement('div');
+  box.className = 'orient-formula';
+  const code = row?.code || '';
+  if (valWm2 === null) valWm2 = Number(row?.ottv_orientation_wm2 || 0);
+  const mc = row?.manual_calc || null;
+  const eq = document.createElement('div');
+  eq.className = 'formula formula-eq-line';
+  eq.innerHTML = 'OTTV = α·U<sub>w</sub>·(1 − WWR)·TD<sub>ek</sub> + U<sub>f</sub>·WWR·ΔT + SC·WWR·SF';
+  box.appendChild(eq);
+
+  if (mc) {
+    const alpha = Number(mc.alpha ?? 0);
+    const uw = Number(mc.u_wall ?? 0);
+    const wwr = Number(mc.wwr ?? 0);
+    const tdek = Number(mc.td_ek ?? 0);
+    const uf = Number(mc.u_f ?? 0);
+    const dt = Number(mc.delta_t ?? 5);
+    const sc = Number(mc.sc ?? 0);
+    const sf = Number(mc.sf ?? 0);
+    const qw = Number(mc.q_wall_wm2 ?? 0);
+    const qg = Number(mc.q_glass_wm2 ?? 0);
+    const qs = Number(mc.q_solar_wm2 ?? 0);
+    const tot = Number(mc.ottv_wm2 ?? valWm2);
+
+    const rowsEl = document.createElement('div');
+    rowsEl.className = 'formula-rows num';
+
+    const terms = [
+      [
+        'Konduksi dinding',
+        `${fmtId(alpha, 2)} × ${fmtId(uw, 2)} × ${fmtId(1 - wwr, 3)} × ${fmtId(tdek, 1)}`,
+        `${fmtId(qw, 2)} W/m²`,
+      ],
+      [
+        'Konduksi kaca',
+        `${fmtId(uf, 2)} × ${fmtId(wwr, 3)} × ${fmtId(dt, 1)}`,
+        `${fmtId(qg, 2)} W/m²`,
+      ],
+      [
+        'Radiasi surya',
+        `${fmtId(sc, 3)} × ${fmtId(wwr, 3)} × ${fmtId(sf, 1)}`,
+        `${fmtId(qs, 2)} W/m²`,
+      ],
+    ];
+
+    for (const [labelTxt, exprTxt, resTxt] of terms) {
+      const rDiv = document.createElement('div');
+      rDiv.className = 'formula-term-row';
+      const lDiv = document.createElement('div');
+      lDiv.className = 'lbl';
+      lDiv.textContent = labelTxt;
+      const eDiv = document.createElement('div');
+      eDiv.className = 'muted';
+      eDiv.style.fontSize = '11.5px';
+      eDiv.textContent = exprTxt;
+      const vDiv = document.createElement('b');
+      vDiv.style.textAlign = 'right';
+      vDiv.textContent = resTxt;
+      const leftCol = document.createElement('div');
+      leftCol.append(lDiv, eDiv);
+      rDiv.append(leftCol, vDiv);
+      rowsEl.appendChild(rDiv);
+    }
+
+    const sumRow = document.createElement('div');
+    sumRow.className = 'formula-sum-row num';
+    const sumLbl = document.createElement('span');
+    sumLbl.innerHTML = `<span>OTTV arah ${ORIENTATION_NAMES_ID[code === 'TGR' ? 'TG' : code] || code}</span> (luas ${fmtId(mc.ao_m2 ?? 0, 1)} m²)`;
+    const sumVal = document.createElement('b');
+    sumVal.textContent = `${fmtId(tot, 2)} W/m²`;
+    sumRow.append(sumLbl, sumVal);
+
+    box.append(rowsEl, sumRow);
+  }
+
+  return box;
 }
 
 export function renderFormulaPill(state, { onToggleExpand } = {}) {

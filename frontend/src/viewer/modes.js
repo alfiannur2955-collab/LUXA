@@ -258,7 +258,8 @@ function _getCyclicPastelOrientationStops(tokens) {
   const cH2 = new THREE.Color(tokens.heat2);
   const cFail = new THREE.Color(tokens.fail || tokens.heat3);
 
-  const pastel = (c) => _oklabLerpThree(c, cLift, 0.34);
+  // Sedikit diangkat agar tetap terbaca di atas bayangan, tapi tidak pastel pucat.
+  const pastel = (c) => _oklabLerpThree(c, cLift, 0.12);
 
   return [
     pastel(_oklabLerpThree(cGlz, cShade, 0.35)),  // 0°  U  (pastel cool cyan-blue)
@@ -623,9 +624,16 @@ function _themeIsDark(tokens) {
   return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b < 0.18;
 }
 
+/** Skala tetap mode Matahari sepanjang tahun (W/m²). SF fasad SNI Tabel 8: 102–224 (di bawah 80 = sangat terlindung); atap di atasnya. */
+export const EXPOSURE_SCALE = { min: 80, max: 250 };
+
+/**
+ * Warna paparan matahari memakai keluarga warna hangat yang sama dengan Heatmap
+ * (krem → oranye → merah bata), supaya semua tampilan energi selaras.
+ */
 export function exposureToThreeColor(t, tokens) {
-  const [L, C, h] = _exposureLch(t, _themeIsDark(tokens));
-  return _lchToThree(L, C, h);
+  const tt = Math.max(0, Math.min(1, Number(t) || 0));
+  return ottvToThreeColor(4 + tt * 52, tokens);
 }
 
 export function buildExposureGradientCss(tokensOverride = null) {

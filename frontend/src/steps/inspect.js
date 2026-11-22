@@ -108,7 +108,7 @@ export function renderInspectScreen(state, handlers) {
 
   // Legend (lifted cleanly above bottom pills)
   const legend = document.createElement('div');
-  legend.className = `legend legend-lifted num${state.activeRailCard ? ' legend-shifted' : ''}`;
+  legend.className = 'legend dock-top num';
   if (activeInspectMode === 'orientation') {
     const tokens = readThemeTokens();
     const cHoriz = horizontalNeutralColor(tokens);
@@ -137,10 +137,21 @@ export function renderInspectScreen(state, handlers) {
     }
     legend.innerHTML = legendParts.join('');
   }
-  bottomStack.appendChild(legend);
+  {
+    const t = document.createElement('span');
+    t.className = 'dock-title';
+    t.innerHTML = activeInspectMode === 'orientation' ? '<b>Orientasi</b><small>arah hadap</small>' : '<b>Klasifikasi</b><small>jenis bidang</small>';
+    legend.prepend(t);
+  }
+
+  // Dok bawah dua tingkat: atas = legenda mode (berubah-ubah), bawah = kontrol (tetap).
+  const dock = document.createElement('div');
+  dock.className = 'glass viewer-dock';
+  dock.appendChild(legend);
+  bottomStack.appendChild(dock);
 
   if (handlers.vbarHandlers) {
-    bottomStack.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
+    dock.appendChild(renderViewerBottomBar(state, handlers.vbarHandlers));
   }
   viewerSec.appendChild(bottomStack);
 

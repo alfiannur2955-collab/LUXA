@@ -129,7 +129,7 @@ function buildLegendSpec(state, tokens, mode) {
       title: `Matahari sepanjang tahun (W/m²)${state.exposureShading !== false ? ' · dengan peneduh' : ''}`,
       kind: 'gradient',
       stops: [0, 0.25, 0.5, 0.75, 1].map((t) => css(exposureToThreeColor(t, tokens))),
-      ticks: r ? [`${Math.round(r.min)} rendah`, `${Math.round(r.max)} tinggi`] : ['rendah', 'tinggi'],
+      ticks: [`${Math.round(r?.min ?? 80)}`, `${Math.round(r?.max ?? 250)}+`],
       note: 'Hanya tampilan; angka OTTV tidak berubah',
     };
   }
