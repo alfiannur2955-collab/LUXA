@@ -1,4 +1,4 @@
-<!-- Disalin otomatis dari doc "Rencana Eksekusi (Antigravity)" (https://claude.ai/artifact/Hwbukz46HzV5je9k9J5ghN). Jangan diedit manual. -->
+<!-- Disalin otomatis dari Claude Docs (tab Rencana) pada 22 Nov 2026. Sumber kebenaran ada di doc; jangan edit file ini langsung. -->
 
 # Rencana Eksekusi untuk Antigravity
 
@@ -698,6 +698,23 @@ Baca docs/RENCANA.md bagian 'Review Fase 4c' dan kerjakan T1 sampai T4 sesuai ta
 Verifikasi di browser pada 1440x900, 1280x800, dan 768x1024, tema terang dan gelap. Catat di docs/CHANGELOG-fase4.md bagian 'Fase 4c-akhir'. Commit per butir. Setelah itu merge fase-4c-poles ke main.
 ```
 
+### Review Fase 4c-akhir dan penutupan Fase 4 (22 Nov 2026)
+
+`main` di `8288de7` (merge `fase-4c-poles`). **Lolos. Fase 4 selesai.** Tangkapan layar di `corpus/_review_4c_akhir/`.
+
+- T1: fasad heatmap kotak tampil krem dan amber sesuai legenda, S dan T terlihat berbeda, di tema terang dan gelap. Tes `test_heatmap_color_fidelity.py` memeriksa ΔE ≤ 10.
+- T2: di 1440 px legenda berada di atas pil bawah, tidak tertutup.
+- T3: di 768 px baris mode, legenda, dan pil pindah ke bawah viewer; model bersih.
+- T4: nama alternatif dua baris dan tombol lebar penuh.
+- pytest 157/157 hijau pada dua dari tiga putaran; `vite build` berhasil.
+
+Dua sisa kecil (dikerjakan di awal Fase 5):
+
+- **Z1**: di 1280 px ujung baris mode ("X-ray") tertabrak pil rumus. Pil rumus harus turun ke baris kedua atau baris mode diringkas jadi ikon saja bila lebar tidak cukup.
+- **Z2**: `test_heatmap_color_fidelity.py` sekali gagal dari tiga putaran rangkaian penuh (lolos bila dijalankan sendiri). Tambahkan `timeout=60` dan tampilkan `stderr` Node bila gagal; catat juga bahwa Node di laptop Alfian berasal dari folder ArchiCAD (`E:\APPS\ARCHICAD\ARCHICAD 30\node.exe`), jadi jangan menulis path itu di kode: pakai `NODE_EXE` atau `shutil.which`.
+
+**Berikutnya**: uji pengguna 3 teman mahasiswa memakai `docs/UJI_PENGGUNA_FASE4.md` (tugas Alfian) dan Fase 5a (spike versi browser) bisa berjalan bersamaan.
+
 ## Fase 4 — Rombak UX menjadi 4 langkah, mahasiswa dulu
 
 **Catatan 22 Nov:** bagian Fase 4 di bawah ini adalah rencana awal. Untuk tampilan, alur, dan viewer, yang berlaku adalah "Fase 4 (revisi 22 Nov)" di atas dan `docs/FASE4_UI_SPEC.md`. Jangan kirim PROMPT FASE 4 lama di bawah ke Antigravity.
@@ -782,12 +799,132 @@ Keputusan: perhitungan berjalan di komputer pengguna, tanpa server. Model tidak 
 
 **Selesai kalau:** situs statis bisa dibuka dari laptop lain tanpa server Python, model fasad\_unitized bisa dianalisis sepenuhnya di browser dengan hasil sama dengan versi backend (selisih ≤ 0,01 W/m²), dan tab Network di DevTools menunjukkan file model tidak pernah dikirim ke mana pun.
 
+### Koreksi dan fitur baru sebelum Fase 5 (22 Nov 2026)
+
+Alfian meminta koreksi kubah, rotasi utara, dan heatmap halus, ditambah fitur katalog material dan rekomendasi material. Antigravity belum mulai Fase 5a, jadi urutannya menjadi: **Z1 dan Z2, lalu Fase 4d, lalu Fase 4e, baru Fase 5a.**
+
+#### Temuan audit kode (read-only, main 8288de7)
+
+- `generate_material_recommendations` di `backend/materials_and_epw.py` tidak memakai engine. Isinya tiga paket tetap dengan rumus kira-kira (SF rata-rata 148, ΔT 5, SC × 0,76). Fungsi ini diganti di 4e.
+- Material kustom disimpan di `CUSTOM_MATERIALS`, yaitu daftar global di memori server. Akibatnya material hilang saat server restart, tercampur antar-pengguna, dan tidak bisa diubah atau dihapus. Hanya ada `POST /api/materials/custom`.
+- Skala kubah memakai `sunDomeScale` 50–200% dari radius bawaan, dan ada tombol "Pas ke model" khusus kubah di panel Tampilan (`railPanels.js` sekitar baris 621). Tombol "Pas ke model (F)" untuk kamera tetap dipertahankan.
+- Kompas (`viewer/compass.js`) bisa ditarik untuk memutar utara.
+- `SC_TO_SHGC_RATIO = 0.86`, sedangkan AGC dan Guardian memakai SC = SHGC / 0,87. Selisihnya kecil. Samakan ke 0,87 dan catat di CHANGELOG.
+
+#### Fase 4d: kubah, rotasi utara, heatmap halus, audit tambah-ubah-hapus
+
+**D1. Skala kubah, diatur user sendiri**
+
+- Hapus tombol "Pas ke model" untuk kubah, dan hapus batas 50–200%.
+- State baru `sunDomeRadiusM` (meter). Nilai awal dihitung sekali saat model pertama dimuat (1,6 × setengah diagonal denah, dibulatkan ke 1 m). Setelah itu tidak pernah dihitung ulang otomatis. Nilainya ikut tersimpan di `.ottv.json`.
+- Kontrol di pil Tampilan bawah: slider dengan skala logaritmik (0,2× sampai 10× radius awal), ditambah kolom angka "Radius \_\_ m" yang bisa diketik (koma atau titik).
+- Pegangan gaya D5: satu pegangan bulat di cincin horizon kubah, di sisi yang menghadap kamera. Tarik menjauhi pusat untuk memperbesar, mendekati pusat untuk memperkecil. Label radius tampil selama ditarik. Tahan Shift untuk langkah 5 m. Selama menarik, orbit kamera dan seleksi bidang tidak aktif, dan kursor berubah menjadi kursor ubah ukuran.
+
+**D2. Rotasi utara gaya D5**
+
+- Kompas hanya penunjuk arah. Tidak bisa diklik atau ditarik, dengan aria-label "Utara di …°". Hapus logika drag di `compass.js`.
+- Mode rotasi diaktifkan dari ikon di pil Tampilan atau tombol R. Saat aktif, cincin rotasi muncul di lantai sekeliling model (radius 1,15 × setengah diagonal denah), dengan satu pegangan.
+- Tarik pegangan untuk mengubah `north_angle_deg` per 1°. Tahan Shift untuk langkah 15°. Label sudut mengikuti pegangan. Klik label untuk mengetik angka 0–359,9: Enter menerapkan, Esc membatalkan.
+- Keluar dari mode: Esc, klik di luar cincin, atau tekan R lagi.
+- Yang berputar adalah arah utara di viewer (kompas, kubah, label arah). Model tidak ikut diputar, sesuai keputusan sebelumnya.
+- Chip "Hitung ulang" muncul setelah pegangan dilepas. Tidak ada hitung ulang otomatis.
+- Tambahkan R ke daftar pintasan ("?") dan Ctrl K.
+
+**D3. Heatmap halus dan mode Orientasi**
+
+Referensi tampilan: `docs/fase4/ref-heatmap-halus.png` (gambar dari Alfian). Yang membuatnya terlihat mulus: warna mengalir per-vertex sehingga permukaan lengkung bergradasi tanpa sambungan, palet lembut, dan garis grid panel tipis tetap terlihat.
+
+- **Mode baru "Orientasi"** di baris mode dan pie menu: warna menurut azimut normal bidang. Palet siklik 8 arah dengan nada pastel dari token, diinterpolasi per-vertex. Legendanya cincin kompas kecil berlabel "Warna menurut arah hadap". Atap dan bidang horizontal diberi satu warna netral tersendiri.
+- **"Halus" pada heatmap OTTV** diperbaiki supaya mirip referensi:
+  1. Nilai per vertex = rata-rata berbobot luas dari panel-panel yang memakai titik itu. Titik dikelompokkan berdasarkan posisi yang dibulatkan ke 1 mm, bukan indeks, supaya mesh yang tidak di-weld tetap menyambung.
+  2. Normal halus untuk permukaan lengkung (sudut antar-face < 30°), tetapi tepi tajam tetap tajam.
+  3. Palet pastel diturunkan dari skala 0–60 yang sama. Legenda ikut memakai palet itu, dan tes ΔE disesuaikan.
+  4. Garis grid panel tetap tampil tipis (opasitas 0,25–0,35) di atas warna.
+- Default "Halus" tetap mati, karena nilai per panel adalah angka yang benar-benar dihitung. Tooltip dan label kontribusi selalu memakai nilai per panel.
+
+**D4. Audit tambah, ubah, hapus**
+
+- Buat `docs/AUDIT_CRUD.md`: tabel setiap entitas buatan user × (buat, ubah/ganti nama, duplikat, hapus, urungkan, tersimpan di mana). Perbaiki semua yang kurang.
+- Entitas: material kustom, tampilan tersimpan, alternatif Bandingkan, override Klasifikasi bidang, penugasan material per grup atau orientasi, proyek tersimpan di browser, lokasi atau EPW kustom.
+- Aturan:
+  - Hapus memunculkan toast "Urungkan" selama 8 detik, bukan dialog. Pengecualian: hapus proyek memakai dialog konfirmasi yang menyebut nama proyeknya.
+  - Data bawaan tidak bisa diubah atau dihapus, tapi bisa "Duplikat lalu ubah".
+  - Ganti nama dilakukan langsung di tempat.
+  - Kalau material kustom yang sedang dipakai dihapus, tampilkan dialog "Dipakai di N grup. Ganti dengan …" plus tombol batal.
+
+#### Fase 4e: katalog material dan rekomendasi
+
+**Data**
+
+- `docs/fase4/material_library.json` berisi 62 entri kaca dari brand yang tersedia di Indonesia: Asahimas/AGC (Stopsol, Sunergy, T-Sunlux, Stopray, Planibel), Saint-Gobain lewat Mulia Glass (COOL-LITE, PLANISTAR, PLANITHERM), dan Guardian (SunGuard). Setiap entri punya URL dokumen resmi produsen dan tanggal akses 22 Nov 2026. Angkanya sudah dicek: SC ≈ SHGC/0,87 dengan toleransi ±0,03.
+- Pindahkan file ke `backend/data/material_library.json`. Backend memuatnya saat start dan menggabungkannya dengan `BUILTIN_MATERIALS` generik, yang tetap ada dengan label "Bawaan SNI".
+- Field baru (opsional untuk entri lama): `product_line`, `configuration`, `vlr_ext`, `u_value_nfrc_summer`, `color_hex`, `sumber_judul`, `tanggal_akses`, `standar_data`, `origin` (`sni_generic` | `brand_reference` | `user`), dan `catatan`.
+- Konvensi angka: SC memakai kolom ISO 9050. U memakai EN 673 untuk AGC dan Saint-Gobain, dan summer day untuk Guardian. U NFRC ditampilkan di detail bila tersedia.
+- Tes validasi data: setiap `brand_reference` wajib punya sumber http(s), SC 0,05–1, VLT 0–1, dan SHGC ≈ SC × 0,87 (±0,03). Brand baru tidak boleh ditambahkan tanpa URL resmi.
+
+**Penyimpanan material kustom (siap untuk versi browser di Fase 5b)**
+
+- Material kustom pindah ke klien: localStorage `luxa.materials.v1` (dibungkus try/catch). Material yang dipakai sebuah proyek disalin ke `config.settings.custom_materials`, field yang sudah ada.
+- Hapus `CUSTOM_MATERIALS` global. `POST /api/materials/custom` diganti dengan `POST /api/materials/validate`, yang hanya memvalidasi dan mengembalikan TD\_EK dan SHGC.
+- Material bisa diekspor dan diimpor sebagai file JSON.
+- Harga Rp/m² bersifat opsional dan hanya diisi user. Untuk material bawaan, harga disimpan lokal per id di `luxa.prices.v1`. Harga tidak pernah dikirim ke server dan tidak pernah ada di data bawaan.
+
+**Katalog (UI)**
+
+- Item rail "Material" membuka katalog berupa kartu glass besar yang menutupi area viewer, dengan grid kartu persegi sekitar 168 px.
+- Isi tiap kartu:
+  - swatch dari `color_hex` (gradien kaca, atau tekstur polos untuk dinding dan atap)
+  - nama dan brand
+  - tiga angka utama: SC, U, dan VLT untuk kaca; α, U, dan massa untuk dinding dan atap
+  - lencana asal: Bawaan SNI, Referensi brand, atau Buatan saya
+- Toolbar: kotak cari, chip kategori (Kaca, Dinding, Atap, Rangka), filter brand, slider ganda untuk SC, U, dan VLT, menu urutan, dan tombol "+ Material baru".
+- **Mode pilih** dibuka dari "Ganti material" di sebuah grup atau orientasi:
+  - Judul menyebut targetnya, misalnya "Pilih kaca untuk Fasad Barat". Kategori terkunci sesuai target, dan material yang sedang dipakai ditandai.
+  - Klik kartu memasang material itu dan memunculkan toast "Urungkan".
+  - Tombol "i" di pojok kartu membuka detail. Esc menutup katalog.
+- **Mode jelajah** dibuka dari rail: klik kartu membuka detail. Di detail ada tombol "Pakai untuk…" yang menampilkan daftar grup sesuai kategori. Kedua mode memakai komponen kartu yang sama, jadi perilakunya tidak saling bertabrakan.
+- Panel detail berisi: swatch besar, semua spesifikasi, konfigurasi, standar data, sumber (link dan tanggal akses), catatan, dan harga kalau user mengisi. Aksinya: Pakai untuk…, Duplikat & ubah, lalu Ubah dan Hapus khusus material buatan sendiri.
+- Form material:
+  - **Kaca:** SC atau SHGC (yang satu dihitung otomatis dari yang lain dengan faktor 0,87), U, VLT, tebal, konfigurasi.
+  - **Dinding/atap:** U; α dengan pemilih warna/finishing dari tabel α SNI; massa, dengan TD\_EK otomatis dari tabel SNI; tebal.
+  - **Semua kategori:** nama, brand, sumber (opsional), catatan, harga opsional.
+  - Validasi langsung di tiap kolom.
+- Mengganti material langsung menghitung ulang tanpa chip. Endpoint baru `POST /api/analyses/{id}/rematerial` memakai ulang geometri dan SF per panel dari analisis terakhir, jadi tidak ada raytracing. Targetnya di bawah 300 ms. Chip "Hitung ulang" tetap dipakai untuk perubahan geometri, rotasi, dan lokasi.
+
+**Rekomendasi**
+
+- Buat `backend/recommender.py` yang memakai data per panel dari analisis terakhir: luas, WWR, SF, dan TD\_EK per orientasi. Hapus `generate_material_recommendations`.
+- **Per grup:** pilih target (kaca per orientasi, atau dinding). Semua kandidat sekategori dari katalog (bawaan, brand, dan kustom) dihitung, lalu ditampilkan dalam tabel peringkat: OTTV baru, ΔOTTV, dan VLT, plus ΔOTTV per Rp juta kalau harga diisi. Filter: VLT minimum, brand, tunggal atau IGU.
+- **Cari kombinasi optimal:** tujuannya OTTV ≤ 35 (atau target user) dengan perubahan paling sedikit. Syarat opsional: VLT minimum, satu jenis kaca untuk semua orientasi, hanya brand tertentu.
+  - OTTV adalah jumlah berbobot luas per orientasi, dan pilihan antar-orientasi saling bebas. Karena itu cukup mengurutkan kandidat per orientasi, lalu mencari kombinasinya.
+  - Hasilnya tiga opsi: "Paling sedikit perubahan", "OTTV terendah", dan "Biaya terendah" (yang terakhir hanya kalau harga diisi).
+- Tombol hasil: "Jadikan alternatif" (masuk ke Bandingkan) dan "Terapkan" (dengan Urungkan).
+- Catatan di UI: "Angka brand dari datasheet produsen dan bisa berubah. Konfirmasi ke distributor sebelum spesifikasi."
+
+**Tes 4e**
+
+- Hasil `rematerial` sama dengan analisis penuh, selisih ≤ 0,01 W/m², untuk 5 fixture.
+- Peringkat rekomendasi per grup benar.
+- Hasil kombinasi optimal sama dengan brute force pada kasus kecil.
+- Validasi data JSON lolos.
+- Uji klik di 1440 dan 768 px: membuka katalog dalam dua mode, memasang material, menambah, mengubah, dan menghapus material kustom, lalu menjadikan hasil rekomendasi alternatif.
+
+#### Prompt untuk Antigravity
+
+```text
+PROMPT FASE 4d:
+Commit dulu docs/RENCANA.md bila ada perubahan. Di branch fase-4-sisa dari main, kerjakan Z1 dan Z2 dari 'Review Fase 4c-akhir', lalu merge ke main. Lalu branch fase-4d-kontrol dari main dan kerjakan D1–D4 dari bagian 'Fase 4d' di RENCANA.md: skala kubah manual dengan slider + kolom angka + pegangan tarik gaya D5 (hapus tombol Pas ke model kubah, simpan sunDomeRadiusM di proyek), kompas hanya indikator dan rotasi utara lewat cincin + pegangan gaya D5 (tombol R, Shift 15°, klik label untuk ketik angka, chip Hitung ulang setelah dilepas), mode Orientasi + perbaikan heatmap Halus mengikuti docs/fase4/ref-heatmap-halus.png, dan audit tambah-ubah-hapus dengan docs/AUDIT_CRUD.md. Samakan faktor SC/SHGC ke 0,87. Tambah tes, jalankan pytest + build, catat di docs/CHANGELOG-fase4.md, lalu merge ke main.
+
+PROMPT FASE 4e:
+Branch fase-4e-katalog dari main. Kerjakan bagian 'Fase 4e' di RENCANA.md: pindahkan docs/fase4/material_library.json ke backend/data/ dan gabungkan dengan material generik SNI, pindahkan material kustom ke klien (localStorage + config.settings.custom_materials, hapus CUSTOM_MATERIALS global, ganti endpoint custom jadi validate), buat katalog kartu persegi dengan mode pilih dan mode jelajah, panel detail, form material, harga opsional milik user, endpoint rematerial tanpa raytracing, dan backend/recommender.py (per grup + kombinasi optimal) yang menggantikan generate_material_recommendations. Jangan menambah data brand tanpa URL resmi. Tulis semua tes di bagian 'Tes 4e', jalankan pytest + build, catat di CHANGELOG, merge ke main.
+```
+
 ```text
 PROMPT FASE 5a (SPIKE, jangan ubah UI):
-Branch fase-5a-spike. Buat folder spike-pyodide/ berisi halaman HTML sederhana + Web Worker yang memuat Pyodide, memasang numpy, ladybug-geometry, trimesh, dan wheel IfcOpenShell WASM, lalu menjalankan load_universal_model_stages_1_and_2 + analyze_building_ottv dari backend/ untuk 5 fixture. Untuk .3dm: baca dengan rhino3dm.js di JS, kirim vertices/faces + nama layer/material per objek ke Python sebagai pengganti loader rhino3dm Python. Catat di docs/SPIKE_PYODIDE.md: ukuran unduhan, waktu muat awal, waktu analisis per fixture, memori puncak, dan selisih OTTV vs backend. Jangan optimasi dulu; tujuan hanya mengukur.
+Setelah Fase 4d dan 4e di-merge ke main, buat branch fase-5a-spike dari main. Ukur juga endpoint rematerial dan recommender di Pyodide. Spike harus memakai antarmuka engine.js yang sama (upload, inspect, analyze, exposure, export) supaya Fase 5b cukup mengganti implementasinya. Buat folder spike-pyodide/ berisi halaman HTML sederhana + Web Worker yang memuat Pyodide, memasang numpy, ladybug-geometry, trimesh, dan wheel IfcOpenShell WASM, lalu menjalankan load_universal_model_stages_1_and_2 + analyze_building_ottv dari backend/ untuk 5 fixture. Untuk .3dm: baca dengan rhino3dm.js di JS, kirim vertices/faces + nama layer/material per objek ke Python sebagai pengganti loader rhino3dm Python. Catat di docs/SPIKE_PYODIDE.md: ukuran unduhan, waktu muat awal, waktu analisis per fixture, memori puncak, dan selisih OTTV vs backend. Jangan optimasi dulu; tujuan hanya mengukur.
 
 PROMPT FASE 5b (setelah spike disetujui):
-Branch fase-5b-browser. Implementasikan engine.js versi browser memakai hasil spike: Pyodide di Web Worker, rhino3dm.js untuk .3dm, IfcOpenShell WASM untuk IFC, progres per tahap, penyimpanan proyek di IndexedDB + unduh/buka .ottv.json, ekspor Excel via openpyxl di Pyodide. Tambah service worker untuk cache aset. Pastikan tidak ada request jaringan yang membawa file model. Build statis siap deploy ke GitHub Pages/Netlify. Tes: hasil OTTV browser vs backend untuk 5 fixture, selisih <= 0.01 W/m2.
+Branch fase-5b-browser. Implementasikan engine.js versi browser memakai hasil spike: Pyodide di Web Worker, rhino3dm.js untuk .3dm, IfcOpenShell WASM untuk IFC, progres per tahap, penyimpanan proyek di IndexedDB + unduh/buka .ottv.json, ekspor Excel via openpyxl di Pyodide, katalog material dibundel sebagai JSON statis, rematerial dan rekomendasi berjalan di Worker. Tambah service worker untuk cache aset. Pastikan tidak ada request jaringan yang membawa file model. Build statis siap deploy ke GitHub Pages/Netlify. Tes: hasil OTTV browser vs backend untuk 5 fixture, selisih <= 0.01 W/m2.
 ```
 
 ## Fase 6 — Bersih-bersih dan tes
