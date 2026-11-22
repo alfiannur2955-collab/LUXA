@@ -24,16 +24,13 @@ VIEWER_JS = FRONTEND_DIR / "src" / "viewer" / "viewer.js"
 
 
 def _find_node_binary() -> str:
+    env_node = os.environ.get("NODE_EXE", "").strip()
+    if env_node and os.path.exists(env_node):
+        return env_node
     found = shutil.which("node")
     if found:
         return found
-    for candidate in (
-        r"E:\APPS\ARCHICAD\ARCHICAD 30\node.exe",
-        r"C:\Program Files\nodejs\node.exe",
-    ):
-        if os.path.exists(candidate):
-            return candidate
-    pytest.skip("Node.js binary not available in PATH")
+    pytest.skip("Node.js binary not available (set NODE_EXE or install node on PATH)")
 
 
 def _extract_theme_tokens() -> dict[str, dict[str, str]]:
@@ -168,7 +165,12 @@ console.log(JSON.stringify(out));
         env=env,
         capture_output=True,
         text=True,
-        check=True,
+        timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, (
+        f"Node color fidelity check failed (exit={proc.returncode}):\n"
+        f"STDERR:\n{proc.stderr}\nSTDOUT:\n{proc.stdout}"
     )
     payload = json.loads(proc.stdout)
 

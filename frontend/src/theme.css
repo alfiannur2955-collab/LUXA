@@ -2594,10 +2594,10 @@ kbd {
   }
 }
 
-@media (max-width: 1240px) {
-  /* Prevent top-row collision between .modes and .formula-pill-wrap on narrow desktop / DPI-scaled 1280px */
+@media (max-width: 1320px) {
+  /* Z1: At 1280px and narrower desktops, drop formula pill to row 2 so .modes ("X-ray") never touches it */
   .formula-pill-wrap {
-    top: 74px;
+    top: 72px;
     right: 16px;
   }
 }
