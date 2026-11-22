@@ -1497,9 +1497,45 @@ def load_universal_model_stages_1_and_2(
         groups_map[g_name].append((v_arr, f_arr, cat, src_layer, src_mat, is_ext, u_bim))
 
     # ------------------------------------------------------------------------
+    # A0. RHINO .3DM PRE-EXTRACTED IN THE BROWSER (Fase 5a/5b, Pyodide)
+    #     rhino3dm.js reads the .3dm in JavaScript (spike-pyodide/rhino_extract.mjs)
+    #     and writes `<name>.3dm.json` with the same chunks the native branch below
+    #     produces; classification and grouping stay in Python so both paths agree.
+    # ------------------------------------------------------------------------
+    pre_extracted_3dm = filepath.lower().endswith(".3dm.json")
+    if pre_extracted_3dm:
+        ext = ".3dm"
+        with open(filepath, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+        audit.geometry_kernel = "rhino3dm.js (browser)"
+        audit.detected_unit = str(payload.get("unit") or "m")
+        audit.detected_up_axis = "Z"
+        audit.total_raw_objects = int(payload.get("total_raw_objects") or 0)
+        audit.hidden_objects_skipped = int(payload.get("hidden_skipped") or 0)
+        for ch in payload.get("chunks") or []:
+            v_arr = np.asarray(ch.get("v") or [], dtype=np.float64).reshape(-1, 3)
+            f_arr = np.asarray(ch.get("f") or [], dtype=np.int64).reshape(-1, 4)
+            g_name = str(ch.get("g") or "Default")
+            layer_name = str(ch.get("layer") or "Default")
+            mat_name = str(ch.get("mat") or "")
+            base_cat = classify_layer_or_material_role(f"{g_name} {layer_name} {mat_name}")
+            cat = "ignore" if base_cat == "ignore" else ("glazing" if float(ch.get("transp") or 0.0) > 0.15 else base_cat)
+            _add_chunk(g_name, layer_name, str(ch.get("src_mat") or "Default"), cat, v_arr, f_arr)
+        for mm in payload.get("missing_mesh") or []:
+            audit.missing_mesh.append(dict(mm))
+        if audit.missing_mesh:
+            audit.notes.append(
+                f"Peringatan M3: {sum(int(m.get('face_count', 0)) for m in audit.missing_mesh)} permukaan tanpa render mesh "
+                "tidak digambar ulang otomatis. Di Rhino: tampilkan viewport dalam mode Shaded lalu Save "
+                "(jangan gunakan SaveSmall), atau jalankan perintah Mesh pada objek Brep/Surface sebelum menyimpan .3dm."
+            )
+        if audit.hidden_objects_skipped > 0:
+            audit.notes.append(f"{audit.hidden_objects_skipped} objek/layer tersembunyi (Hidden/Off) diabaikan otomatis.")
+
+    # ------------------------------------------------------------------------
     # A. RHINO .3DM (BLOCKS, HIDDEN LAYER FILTER, MATERIAL-BY-LAYER, SUBD)
     # ------------------------------------------------------------------------
-    if ext == ".3dm":
+    if ext == ".3dm" and not pre_extracted_3dm:
         model = rhino3dm.File3dm.Read(filepath)
         if model is None:
             raise ValueError("Gagal membaca file Rhino .3dm.")
@@ -1897,7 +1933,7 @@ def load_universal_model_stages_1_and_2(
                     _add_chunk("HB_Opaque_Walls", "HB_Opaque_Walls", "wall", "wall", res[0], res[1])
             except Exception:
                 _hb_f3d_to_chunk("HB_Opaque_Walls", "wall", geom_d)
-    else:
+    elif not pre_extracted_3dm:
         raise ValueError(f"Format file '{ext}' tidak didukung.")
 
     # M8: Merge chunks per group — if a group contains mixed categories, split into per-category sub-groups!

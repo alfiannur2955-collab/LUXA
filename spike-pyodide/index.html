@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<title>LUXA — Spike engine di browser (Fase 5a)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 24px; color: #1f1d1a; background: #f8f7f4; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.note { color: #6b665e; margin: 0 0 16px; max-width: 760px; }
+  button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid #c9c3b8; background: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  table { border-collapse: collapse; margin-top: 16px; font-variant-numeric: tabular-nums; }
+  th, td { border-bottom: 1px solid #e3ded5; padding: 4px 10px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  pre { background: #fff; border: 1px solid #e3ded5; padding: 8px; max-height: 240px; overflow: auto; }
+</style>
+</head>
+<body>
+<h1>Spike engine LUXA di browser</h1>
+<p class="note">Halaman uji Fase 5a. Engine Python LUXA berjalan di Pyodide dalam Web Worker, tanpa server. Jalankan dari akar repo dengan <code>python -m http.server 8000</code>, lalu buka <code>http://localhost:8000/spike-pyodide/</code>. Isi folder <code>vendor/</code> dulu dengan <code>fetch_assets.sh</code> dan <code>node build_bundle.mjs</code>.</p>
+<button id="boot">1. Muat engine</button>
+<button id="suite" disabled>2. Jalankan fixture</button>
+<label><input type="file" id="file" disabled> atau coba model sendiri</label>
+<table id="tbl"><thead><tr><th>Fixture</th><th>OTTV</th><th>Panel</th><th>Unggah (s)</th><th>Analisis (s)</th><th>JSON (MB)</th><th>Exposure (s)</th><th>Rematerial (s)</th><th>Heap WASM (MB)</th></tr></thead><tbody></tbody></table>
+<pre id="log"></pre>
+<script type="module">
+import * as engine from './engine_browser.mjs';
+const $ = (id) => document.getElementById(id);
+const log = (m) => { $('log').textContent += m + '\n'; };
+window.__spike = { boot: null, runs: {}, done: false, error: null };
+
+async function fileFromRepo(path) {
+  const res = await fetch('../' + path.split('/').map(encodeURIComponent).join('/'));
+  if (!res.ok) return null;
+  return new File([await res.blob()], path.split('/').pop());
+}
+
+async function runOne(id, file, sidecars = [], extra = {}) {
+  const t0 = performance.now();
+  const up = await engine.upload(file, sidecars);
+  const upS = (performance.now() - t0) / 1e3;
+  const t1 = performance.now();
+  const an = await engine.analyze(up.result.model_id);
+  const anS = (performance.now() - t1) / 1e3;
+  const aid = an.result.analysis_id;
+  const ex = await engine.exposure(aid, '2026-09-23', [9, 13, 16]);
+  const rm = await engine.rematerial(aid, { glazing_material_id: 'glz_kaca_lowe_single_8' });
+  const row = {
+    ottv: an.result.ottv_total_wm2, panels: (an.result.panels || []).length,
+    upload_s: upS, extract_s: up.result.extract_s, analyze_s: anS, py_s: an.timing.py_s,
+    json_mb: an.timing.json_mb, json_dump_s: an.timing.json_dump_s, json_parse_s: an.timing.json_parse_s,
+    exposure_s: ex.timing.call_s, rematerial_s: rm.timing.call_s, rematerial_ottv: rm.result.ottv_total_wm2,
+    heap_mb: rm.timing.heap_mb,
+  };
+  if (extra.exportXlsx) {
+    const xr = await engine.exportReport(aid, 'xlsx');
+    row.export_xlsx_s = xr.timing.call_s;
+    row.export_xlsx_kb = Math.round(xr.timing.bytes / 1024);
+  }
+  window.__spike.runs[id] = row;
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td>${id}</td><td>${row.ottv}</td><td>${row.panels}</td><td>${upS.toFixed(2)}</td><td>${anS.toFixed(2)}</td><td>${row.json_mb}</td><td>${row.exposure_s.toFixed(2)}</td><td>${row.rematerial_s.toFixed(2)}</td><td>${row.heap_mb}</td>`;
+  $('tbl').tBodies[0].appendChild(tr);
+  return row;
+}
+
+$('boot').onclick = async () => {
+  $('boot').disabled = true;
+  try {
+    const t0 = performance.now();
+    const r = await engine.boot();
+    window.__spike.boot = { ...r.result, wall_s: (performance.now() - t0) / 1e3 };
+    log('Engine siap dalam ' + window.__spike.boot.wall_s.toFixed(1) + ' s');
+    $('suite').disabled = false; $('file').disabled = false;
+  } catch (e) { window.__spike.error = String(e); log('Gagal: ' + e); window.__spike.done = true; }
+};
+
+$('suite').onclick = async () => {
+  $('suite').disabled = true;
+  try {
+    const fixtures = await (await fetch('fixtures.json')).json();
+    for (const fx of fixtures) {
+      if (window.__spikeOnly && !window.__spikeOnly.includes(fx.id)) continue;
+      const f = await fileFromRepo(fx.path);
+      if (!f) { log(fx.id + ': file tidak ada, dilewati'); continue; }
+      const sidecars = [];
+      if (fx.path.toLowerCase().endsWith('.obj')) {
+        const mtl = await fileFromRepo(fx.path.replace(/\.obj$/i, '.mtl'));
+        if (mtl) sidecars.push(mtl);
+      }
+      log('Menjalankan ' + fx.id + ' …');
+      await runOne(fx.id, f, sidecars, { exportXlsx: fx.id === 'kotak_3dm' || fx.id === 'alfian_obj' });
+    }
+  } catch (e) { window.__spike.error = String(e); log('Gagal: ' + e); }
+  window.__spike.done = true;
+  log('Selesai.');
+};
+
+$('file').onchange = async (e) => {
+  const f = e.target.files[0];
+  if (f) { log('Menjalankan ' + f.name + ' …'); try { await runOne(f.name, f); } catch (err) { log('Gagal: ' + err); } }
+};
+</script>
+</body>
+</html>

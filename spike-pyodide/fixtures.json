@@ -1,0 +1,8 @@
+[
+  {"id": "kotak_3dm", "path": "fixtures/synthetic/01_kotak_m/model.3dm"},
+  {"id": "silinder_3dm", "path": "fixtures/synthetic/07_silinder/model.3dm"},
+  {"id": "unitized24_3dm", "path": "fixtures/fasad_unitized_24lantai.3dm"},
+  {"id": "archicad_ifc", "path": "fixtures/archicad_bim_curtainwall.ifc"},
+  {"id": "alfian_obj", "path": "corpus/real/Facade only to Alfian.obj", "optional": true},
+  {"id": "alfian_3dm", "path": "corpus/real/Facade only to Alfian.3dm", "optional": true}
+]

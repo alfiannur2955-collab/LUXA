@@ -1,0 +1,31 @@
+{
+ "groups": {
+  "pyodide-core": {
+   "files": 4,
+   "raw_mb": 11.7,
+   "gzip_mb": 5.2
+  },
+  "paket-python": {
+   "files": 12,
+   "raw_mb": 5.95,
+   "gzip_mb": 5.87
+  },
+  "backend": {
+   "files": 3,
+   "raw_mb": 0.73,
+   "gzip_mb": 0.17
+  },
+  "ifcopenshell": {
+   "files": 9,
+   "raw_mb": 12.12,
+   "gzip_mb": 12.01
+  },
+  "rhino3dm": {
+   "files": 2,
+   "raw_mb": 2.67,
+   "gzip_mb": 1.01
+  }
+ },
+ "total_raw_mb": 33.18,
+ "total_gzip_mb": 24.26
+}

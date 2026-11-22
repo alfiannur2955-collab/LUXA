@@ -1,0 +1,281 @@
+{
+ "boot": {
+  "core_s": 1.054300000000745,
+  "packages_s": 0.5213000000007451,
+  "wheels_s": 7.420299999997019,
+  "backend_import_s": 1.6562000000029802,
+  "rhino3dm_s": 0.1365,
+  "total_s": 10.788600000001491,
+  "heap_mb": 104,
+  "resources": [
+   {
+    "name": "vendor/pyodide/pyodide-lock.json",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 12
+   },
+   {
+    "name": "vendor/pyodide/python_stdlib.zip",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 36
+   },
+   {
+    "name": "vendor/pyodide/pyodide.asm.wasm",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 96
+   },
+   {
+    "name": "vendor/pyodide/pyodide.asm.js",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 36
+   },
+   {
+    "name": "vendor/pyodide/numpy-2.2.5-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 79
+   },
+   {
+    "name": "vendor/pyodide/pydantic-2.12.5-py3-none-any.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 32
+   },
+   {
+    "name": "vendor/pyodide/typing_extensions-4.15.0-py3-none-any.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 29
+   },
+   {
+    "name": "vendor/pyodide/pydantic_core-2.41.5-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 44
+   },
+   {
+    "name": "vendor/pyodide/annotated_types-0.7.0-py3-none-any.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 33
+   },
+   {
+    "name": "vendor/pyodide/typing_inspection-0.4.2-py3-none-any.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 24
+   },
+   {
+    "name": "vendor/pyodide/micropip-0.11.1-py3-none-any.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 38
+   },
+   {
+    "name": "vendor/pyodide/packaging-26.2-py3-none-any.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 39
+   },
+   {
+    "name": "vendor/manifest.json",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 28
+   },
+   {
+    "name": "vendor/wheels/et_xmlfile-2.0.0-py3-none-any.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 554
+   },
+   {
+    "name": "vendor/wheels/ladybug_geometry-1.35.10-py3-none-any.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 761
+   },
+   {
+    "name": "vendor/wheels/openpyxl-3.1.5-py2.py3-none-any.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 721
+   },
+   {
+    "name": "vendor/wheels/trimesh-5.2.1-py3-none-any.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 756
+   },
+   {
+    "name": "vendor/wheels/ifcopenshell_parse_schema_ifc2x3-0.9.1%2Ba963c38-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 35
+   },
+   {
+    "name": "vendor/wheels/ifcopenshell_parse_schema_ifc4-0.9.1%2Ba963c38-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 38
+   },
+   {
+    "name": "vendor/wheels/ifcopenshell_parse_schema_ifc4x3_add2-0.9.1%2Ba963c38-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 39
+   },
+   {
+    "name": "vendor/wheels/ifcopenshell_geometry_kernel_opencascade-0.9.1%2Ba963c38-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 34
+   },
+   {
+    "name": "vendor/wheels/ifcopenshell_geometry_mapping_ifc2x3-0.9.1%2Ba963c38-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 15
+   },
+   {
+    "name": "vendor/wheels/ifcopenshell_geometry_mapping_ifc4-0.9.1%2Ba963c38-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 16
+   },
+   {
+    "name": "vendor/wheels/ifcopenshell_geometry_mapping_ifc4x3_add2-0.9.1%2Ba963c38-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 18
+   },
+   {
+    "name": "vendor/wheels/ifcopenshell-0.9.1%2Ba963c38-cp313-cp313-pyemscripten_2025_0_wasm32.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 47
+   },
+   {
+    "name": "vendor/wheels/ifcopenshell_pure_python-0.9.1%2Ba963c38-py3-none-any.whl",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 40
+   },
+   {
+    "name": "vendor/backend_bundle.json",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 11
+   },
+   {
+    "name": "luxa_engine.py",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 5
+   },
+   {
+    "name": "vendor/rhino3dm/rhino3dm.module.js",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 14
+   },
+   {
+    "name": "vendor/rhino3dm/rhino3dm.wasm",
+    "transfer": 0,
+    "body": 0,
+    "decoded": 0,
+    "ms": 27
+   }
+  ],
+  "wall_s": 10.831199999999255
+ },
+ "runs": {
+  "kotak_3dm": {
+   "ottv": 20.43,
+   "panels": 48,
+   "upload_s": 0.018400000002235174,
+   "extract_s": 0.016099999997764826,
+   "analyze_s": 0.06509999999776482,
+   "py_s": 0.053,
+   "json_mb": 0.1,
+   "json_dump_s": 0.002,
+   "json_parse_s": 0.001199999999254942,
+   "exposure_s": 0.006099999997764826,
+   "rematerial_s": 0.0075,
+   "rematerial_ottv": 37.43,
+   "heap_mb": 104,
+   "export_xlsx_s": 0.5375,
+   "export_xlsx_kb": 53
+  },
+  "silinder_3dm": {
+   "ottv": 19.89,
+   "panels": 432,
+   "upload_s": 0.008800000000745057,
+   "extract_s": 0.006700000002980233,
+   "analyze_s": 0.12159999999776483,
+   "py_s": 0.082,
+   "json_mb": 0.65,
+   "json_dump_s": 0.008,
+   "json_parse_s": 0.0037999999970197676,
+   "exposure_s": 0.015600000001490116,
+   "rematerial_s": 0.0715,
+   "rematerial_ottv": 36.49,
+   "heap_mb": 104
+  },
+  "archicad_ifc": {
+   "ottv": 3.72,
+   "panels": 180,
+   "upload_s": 0.004200000002980232,
+   "extract_s": 0,
+   "analyze_s": 1.5308999999985098,
+   "py_s": 1.518,
+   "json_mb": 0.3,
+   "json_dump_s": 0.004,
+   "json_parse_s": 0.0015,
+   "exposure_s": 0.0045,
+   "rematerial_s": 0.01819999999925494,
+   "rematerial_ottv": 3.72,
+   "heap_mb": 104
+  }
+ },
+ "done": true,
+ "error": null,
+ "page_js_heap_mb": 3,
+ "wall_s": 13.376,
+ "console": [
+  "log: No SQL support: No module named 'sqlite3'",
+  "warn: No stream support: No module named 'lark'"
+ ]
+}
