@@ -101,6 +101,10 @@ def enable_ifc() -> bool:
     import ifcopenshell.geom  # noqa: F401
     import ifcopenshell.util.unit  # noqa: F401
 
+    import loaders.ifc as ifc_loader
+
+    ifc_loader.ifcopenshell = ifcopenshell
+    ifc_loader.HAS_IFCOPENSHELL = True
     universal_pipeline.ifcopenshell = ifcopenshell
     universal_pipeline.HAS_IFCOPENSHELL = True
     return True
