@@ -1053,6 +1053,16 @@ Branch fase-5b-browser. Implementasikan engine.js versi browser memakai hasil sp
 
 ## Fase 6 — Bersih-bersih dan tes
 
+**Status: Fase 6 selesai (22 Nov, dikerjakan Claude, branch `fase-6-cleanup`).** Ringkasnya:
+
+- Kode mati dihapus: loader lama dan duplikat di `ottv_engine.py`, generator contoh `create_sample_*` (contoh sekarang file statis di `backend/samples`), `lookup_sceff`, `compute_template_radiation_term`, dan impor tak terpakai (sekitar 720 baris). Sisa temuan `vulture` hanya endpoint FastAPI dan `browser_api.dispatch` yang dipanggil dari JS.
+- `universal_pipeline.py` dipecah ke `backend/loaders/` (types, classify, rhino, mesh, ifc, normalize, floors); file utamanya tinggal sekitar 800 baris. Hasil 78 model identik byte demi byte sebelum dan sesudah. Loader HBJSON/GLB masih di alur utama karena menyatu dengan normalisasi tahap 1.
+- `backend/test_ottv_engine.py` lama diganti `tests/test_core_units.py`; `pytest.ini` menunjuk ke `tests/`. K4 sudah selesai di Fase 5c.
+- Versi tunggal `backend/version.py` (1.0.0), dipakai API, footer laporan, dan panel Bantuan.
+- `README.md` berbahasa Indonesia untuk mahasiswa dan workflow `.github/workflows/tests.yml` (pytest di setiap push).
+- Tes: 187 lolos di repo lengkap; clone bersih 182 lolos, 6 dilewati (file corpus pribadi tidak ikut repo).
+- Berikutnya: publish, lalu uji pengguna bersama teman.
+
 Tujuannya: kode yang tersisa hanya kode yang dipakai, dan setiap angka penting dijaga oleh tes.
 
 - [ ] Hapus kode mati di `ottv_engine.py`: `load_raw_groups_from_file`, `_classify_layer_or_name`, `RawGroupMesh` dan `tessellate_nurbs_surface_with_ladybug` duplikat (impor dari `universal_pipeline`).
