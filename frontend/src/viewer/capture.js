@@ -117,8 +117,8 @@ function buildLegendSpec(state, tokens, mode) {
       title: `OTTV (W/m²) · ${gran}`,
       kind: 'gradient',
       stops: [0, 10, 20, 25, 30, 35, 42, 50, 60].map((v) => css(ottvToThreeColor(v, tokens))),
-      ticks: ['0', '25', '35 batas', '60'],
-      tickPos: [0, 25 / 60, 35 / 60, 1],
+      ticks: ['0', '35 batas', '60'],
+      tickPos: [0, 35 / 60, 1],
       limitAt: 35 / 60,
     };
   }
@@ -474,16 +474,26 @@ function compareDiffRows(state, alt) {
 
 function drawDiffTable(d, k, tokens, rows, x, y, dry = false) {
   const pad = 12 * k;
-  const colW = 86 * k;
+  // Lebar kolom dari teks terpanjang, supaya angka antar-arah tidak bertabrakan.
+  const cellW = Math.max(
+    40 * k,
+    ...rows.map((r) => Math.max(
+      d.measure(fmtId(r.va, 2), 800, 12),
+      d.measure(`dari ${fmtId(r.vb, 2)}`, 500, 10.5),
+      d.measure(`+${fmtId(Math.abs(r.d), 2)}`, 800, 11.5),
+    )),
+  );
+  const colW = cellW + 14 * k;
   const w = pad * 2 + Math.max(rows.length, 1) * colW;
-  const h = pad + 16 * k + 18 * k + 16 * k + 16 * k + pad * 0.5;
+  const h = pad + 16 * k + 17 * k * 4 + pad * 0.5;
   if (dry) return { w, h };
   d.text('Selisih per arah (W/m²)', x + w / 2, y + pad + 11 * k, { w: 700, px: 11.5, color: tokens.muted, align: 'center' });
   rows.forEach((r, i) => {
     const cx = x + pad + colW * i + colW / 2;
     d.text(r.code, cx, y + pad + 32 * k, { w: 800, px: 12, align: 'center' });
-    d.text(`${fmtId(r.vb, 2)} → ${fmtId(r.va, 2)}`, cx, y + pad + 50 * k, { w: 600, px: 11, align: 'center' });
-    d.text(`${r.d > 0 ? '+' : r.d < 0 ? '−' : ''}${fmtId(Math.abs(r.d), 2)}`, cx, y + pad + 66 * k, {
+    d.text(fmtId(r.va, 2), cx, y + pad + 49 * k, { w: 800, px: 12, align: 'center' });
+    d.text(`dari ${fmtId(r.vb, 2)}`, cx, y + pad + 65 * k, { w: 500, px: 10.5, color: tokens.muted, align: 'center' });
+    d.text(`${r.d > 0 ? '+' : r.d < 0 ? '−' : ''}${fmtId(Math.abs(r.d), 2)}`, cx, y + pad + 82 * k, {
       w: 800,
       px: 11.5,
       align: 'center',
@@ -497,10 +507,26 @@ function drawDiffTable(d, k, tokens, rows, x, y, dry = false) {
 // Utama
 // ---------------------------------------------------------------------------
 
+const MODE_FILE_PART = {
+  sunlit: 'matahari',
+  heatmap: 'ottv',
+  exposure: 'paparan',
+  orientation: 'orientasi',
+  classification: 'klasifikasi',
+  anomalies: 'kejanggalan',
+  xray: 'xray',
+};
+
 export async function captureViewerPng(state, { scale = 2, layout = 'panel', include = DEFAULT_CAPTURE_INCLUDE } = {}) {
   const safeScale = [1, 2, 4].includes(Number(scale)) ? Number(scale) : 2;
   const inc = { ...DEFAULT_CAPTURE_INCLUDE, ...(include || {}) };
   const isCompare = state.step === 'compare';
+  // Menutup popover memicu render ulang halaman; viewer dipasang lagi di frame berikutnya.
+  // Tunggu sampai kanvas dan lapisan label sudah menempel di DOM baru, baru diambil.
+  const nextFrame = () => new Promise((r) => window.requestAnimationFrame(() => r()));
+  for (let i = 0; i < 4 && !(viewer.container && viewer.container.isConnected); i += 1) await nextFrame();
+  await nextFrame();
+  await nextFrame();
   const snap = viewer.renderOffscreenSnapshot(safeScale);
   if (!snap || !snap.canvas) throw new Error('Viewer 3D belum siap untuk di-capture.');
 
@@ -528,12 +554,25 @@ export async function captureViewerPng(state, { scale = 2, layout = 'panel', inc
     compareAlt = alts.find((a) => a.id === state.activeAlternativeId) || alts[0] || null;
     if (compareAlt) diffRows = compareDiffRows(state, compareAlt);
   }
+  let diffOwnRow = false;
   if (layout === 'panel') {
     const hs = [86 * k];
-    if (legendSpec) hs.push(dm.legend(legendSpec, 0, 0, true).h);
-    if (ottvSp) hs.push(dm.ottv(ottvSp, 0, 0, true).h);
-    if (isCompare && compareAlt) hs.push(drawDiffTable(dm, k, tokens, diffRows, 0, 0, true).h);
-    footerH = Math.max(...hs) + margin * 2;
+    let used = margin;
+    if (legendSpec) { const sz = dm.legend(legendSpec, 0, 0, true); hs.push(sz.h); used += sz.w + 24 * k; }
+    if (ottvSp) { const sz = dm.ottv(ottvSp, 0, 0, true); hs.push(sz.h); used += sz.w + 24 * k; }
+    const infoNeed = (inc.info ? 60 * k : 0) + Math.max(...(inc.info ? info.lines : [info.lines[0]]).map((l, i) => dm.measure(l, i === 0 ? 700 : 500, i === 0 ? 13 : 11.5))) + margin;
+    let rowH = Math.max(...hs);
+    if (isCompare && compareAlt) {
+      const tsz = drawDiffTable(dm, k, tokens, diffRows, 0, 0, true);
+      if (used + tsz.w + 24 * k + infoNeed > width) {
+        // Tidak muat sebaris: tabel selisih turun ke baris kedua, selebar strip.
+        diffOwnRow = true;
+        footerH = rowH + margin * 3 + tsz.h;
+      } else {
+        rowH = Math.max(rowH, tsz.h);
+      }
+    }
+    if (!diffOwnRow) footerH = rowH + margin * 2;
   }
 
   const out = document.createElement('canvas');
@@ -601,8 +640,16 @@ export async function captureViewerPng(state, { scale = 2, layout = 'panel', inc
       x += sz.w + 24 * k;
     }
     if (isCompare && compareAlt) {
-      const sz = drawDiffTable(d, k, tokens, diffRows, x, top);
-      x += sz.w + 24 * k;
+      if (diffOwnRow) {
+        const tsz = drawDiffTable(d, k, tokens, diffRows, 0, 0, true);
+        const ty = fy + footerH - margin - tsz.h;
+        ctx.fillStyle = tokens.line;
+        ctx.fillRect(margin, ty - margin / 2, width - margin * 2, Math.max(1, k));
+        drawDiffTable(d, k, tokens, diffRows, (width - tsz.w) / 2, ty);
+      } else {
+        const sz = drawDiffTable(d, k, tokens, diffRows, x, top);
+        x += sz.w + 24 * k;
+      }
     }
     // kanan: logo + info + panah utara
     const rightX = width - margin;
@@ -611,13 +658,15 @@ export async function captureViewerPng(state, { scale = 2, layout = 'panel', inc
       d.north(northAngle, rightX - 22 * k, top + 26 * k, 20 * k);
       infoX = rightX - 60 * k;
     }
-    drawInfoBlock(ctx, d, k, tokens, logoImg, inc.info ? info.lines : [info.lines[0]], infoX, top, Math.max(160 * k, infoX - x));
+    drawInfoBlock(ctx, d, k, tokens, logoImg, inc.info ? info.lines : [info.lines[0]], infoX, top, Math.max(220 * k, infoX - x));
   }
 
   const today = new Date().toISOString().slice(0, 10);
   const modelPart = sanitizeFilePart(state.filename, 'luxa_model');
   const viewPart = sanitizeFilePart(isCompare ? `bandingkan_${compareAlt?.code || ''}` : info.viewLabel, 'view');
-  const downloadName = `${modelPart}_${viewPart}_${today}.png`;
+  const modePart = isCompare ? '' : `_${MODE_FILE_PART[state.facadeFilter === 'sunlit_now' ? 'sunlit' : mode] || 'model'}`;
+  const hhmm = new Date().toTimeString().slice(0, 5).replace(':', '');
+  const downloadName = `${modelPart}_${viewPart}${modePart}_${today}_${hhmm}.png`;
 
   const blob = await new Promise((resolve) => out.toBlob(resolve, 'image/png'));
   if (!blob) throw new Error('Gagal mengonversi capture ke PNG.');
