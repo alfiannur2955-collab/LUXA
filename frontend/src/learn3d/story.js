@@ -88,7 +88,6 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     const resume = saved ? escapeHtml(saved.filename || 'proyek terakhir') : '';
     slot.innerHTML = `
       <div class="l3d-home">
-      <p class="l3d-kicker">LUXA · SNI 6389:2020</p>
       <h1>${greetingWord()}${name ? `, ${escapeHtml(name)}` : ''}</h1>
       <p class="l3d-home-lead">LUXA menghitung seberapa banyak panas matahari masuk lewat dinding dan kaca bangunanmu, langsung dari model 3D. Kamu bisa lihat sisi mana yang paling panas.</p>
       <div class="l3d-actions l3d-actions-home">
@@ -389,7 +388,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     const { az, el } = sun.sun;
     const diff = ((az - 270 + 540) % 360) - 180;
     const out = $('shade-out');
-    if (Math.abs(diff) >= 90 || el <= 0) { out.textContent = 'tidak kena sinar langsung'; return; }
+    if (Math.abs(diff) >= 90 || el <= 0) { out.innerHTML = '0%<small>matahari di sisi lain</small>'; return; }
     const tanP = Math.tan(el * Math.PI / 180) / Math.cos(diff * Math.PI / 180);
     out.textContent = pct(clamp01((sim.depth * tanP - 0.1) / glassH('B')));
   }
