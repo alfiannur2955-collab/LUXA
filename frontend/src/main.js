@@ -2176,7 +2176,7 @@ async function bootstrap() {
   // Mode rekam video demo (tersembunyi): ?rekam=1 membuka akses untuk skrip perekam.
   try {
     if (new URLSearchParams(window.location.search).has('rekam')) {
-      window.__luxaRec = { viewer, getState, setState, handleLoadExample, handleChangeViewerMode, handleSetSunView, exposureController };
+      window.__luxaRec = { viewer, getState, setState, handleLoadExample, handleChangeViewerMode, handleSetSunView, exposureController, captureViewerPng };
     }
   } catch {
     // abaikan

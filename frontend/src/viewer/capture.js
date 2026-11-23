@@ -254,9 +254,9 @@ function makeDrawer(ctx, k, tokens, isDark) {
       }
       ctx.filter = 'none';
     }
-    ctx.fillStyle = backdrop ? (isDark ? 'rgba(39, 40, 45, 0.62)' : 'rgba(255, 255, 255, 0.62)') : panelFill;
+    ctx.fillStyle = backdrop ? (isDark ? 'rgba(39, 40, 45, 0.72)' : 'rgba(255, 255, 255, 0.72)') : panelFill;
     ctx.fillRect(x, y, w, h);
-    const sheen = ctx.createLinearGradient(0, y, 0, y + h);
+    const sheen = ctx.createLinearGradient(0, y, 0, y + h * 0.5); // kilau habis tepat di tengah kartu: tanpa tepi patah
     sheen.addColorStop(0, isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.35)');
     sheen.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = sheen;
@@ -621,11 +621,17 @@ export async function captureViewerPng(state, { scale = 2, layout = 'panel', inc
   grad.addColorStop(1, tokens.sunken);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, width, height);
-  if (extraH > 0) {
-    ctx.fillStyle = tokens.sunken;
-    ctx.fillRect(0, height, width, extraH);
-  }
   ctx.drawImage(glCanvas, 0, 0, width, height);
+  if (extraH > 0) {
+    // Area tambahan di bawah gambar: cerminan pita bawah gambar (bukan warna rata), supaya kartu kaca yang
+    // menumpang di batas gambar tidak memperlihatkan garis sambungan melintang.
+    const hh = Math.min(extraH, height);
+    ctx.save();
+    ctx.translate(0, height * 2);
+    ctx.scale(1, -1);
+    ctx.drawImage(out, 0, height - hh, width, hh, 0, height - hh, width, hh);
+    ctx.restore();
+  }
 
   if (inc.labels && !isCompare) drawDomLabels(ctx, k, 0, 0);
 
