@@ -2103,8 +2103,8 @@ async function bootstrap() {
   });
 
   setState({ engineMode });
-  const babHash = /^#bab-([1-8])$/.exec(window.location.hash || '');
-  if (babHash) setState({ step: 'learn', learnChapter: Number(babHash[1]) });
+  // Tautan langsung ke bagian Belajar (#bab-N, #rumus, #selesai): adegan 3D yang memilih bagiannya.
+  if (/^#(bab-[1-8]|rumus|selesai)$/.test(window.location.hash || '')) setState({ step: 'learn', learnChapter: 1 });
   onEngineStatus((st) => setState({ engineStatus: { ...st } }));
 
   // Mode rekam video demo (tersembunyi): ?rekam=1 membuka akses untuk skrip perekam.

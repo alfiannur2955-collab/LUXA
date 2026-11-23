@@ -1,5 +1,6 @@
 // Sorotan per bab: lapisan warna per fasad, penanda matahari + lintasannya, panah jalur panas.
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { FACADES, FACADE_DIR, BODY_TOP, PODIUM_H } from './tower.js';
 import { dirFrom } from './stage.js';
 import { sunPosition } from './sun.js';
@@ -426,5 +427,53 @@ export function createWallSection(stage, { facadeX = -14, zCut, gap = 1.1, stub 
     /** band = [y bawah, y atas] pita dinding padat antara overhang lantai bawah dan ambang kaca. */
     update(wallId, outerColor, band) { build(wallId, outerColor, band); },
     setAmount(a) { if (Math.abs(a - amount) > 0.002 || (a === 0 && amount !== 0)) { amount = a; paint(); } },
+  };
+}
+
+// ---------- Bedah rumus: pita dinding atau pita kaca di seluruh fasad Barat menyala ----------
+export function createFacadeBands(stage, { facadeX = -14, z0 = -13.6, z1 = 1.6, podiumH = 13.5, floors = 18, floorH = 4 } = {}) {
+  const group = new THREE.Group();
+  group.visible = false;
+  stage.scene.add(group);
+  const make = (color) => {
+    const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+    m.renderOrder = 4;
+    group.add(m);
+    return m;
+  };
+  const meshes = { wall: make(HEAT_COLORS.wall), glass: make(HEAT_COLORS.glass) };
+  let amount = 0, kind = null, since = 0;
+  function rebuild(gh, sill) {
+    const len = z1 - z0, zc = (z0 + z1) / 2;
+    const strips = { wall: [], glass: [] };
+    const add = (k, y0, y1) => {
+      if (y1 - y0 < 0.05) return;
+      const g = new THREE.PlaneGeometry(len, y1 - y0);
+      g.rotateY(Math.PI / 2);
+      g.translate(facadeX - 0.16, (y0 + y1) / 2, zc);
+      strips[k].push(g);
+    };
+    for (let k = 0; k < floors; k++) {
+      const base = podiumH + k * floorH;
+      add('wall', base + 0.05, base + sill);
+      add('glass', base + sill, base + sill + gh);
+      add('wall', base + sill + gh + 0.3, base + floorH - 0.05);
+    }
+    for (const k of ['wall', 'glass']) {
+      meshes[k].geometry.dispose();
+      meshes[k].geometry = strips[k].length ? mergeGeometries(strips[k]) : new THREE.BufferGeometry();
+    }
+  }
+  return {
+    rebuild,
+    /** kind: 'wall' | 'glass' | null */
+    setKind(k) { if (k !== kind) { kind = k; since = performance.now(); } },
+    setAmount(a) { amount = a; group.visible = a > 0.01; },
+    tick(now) {
+      if (!group.visible) return;
+      const t = (now - since) / 1000;
+      const pulse = 0.28 + 0.12 * Math.sin(t * 3.2) + 0.25 * Math.exp(-t * 3); // nyala saat dipilih, lalu berdenyut pelan
+      for (const k of ['wall', 'glass']) meshes[k].material.opacity = k === kind ? pulse * amount : 0;
+    },
   };
 }

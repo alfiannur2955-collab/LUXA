@@ -9,7 +9,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createStage, dirFrom } from './stage.js';
 import { SHOTS } from './shots.js';
 import { setGlazing, setOverhangDepth, setSkylightArea, sillFor, PODIUM_H, TOWER_TOP, PODIUM_ROOF_AREA, SKY_MAX_AREA } from './tower.js';
-import { createFacadeOverlay, createSunMarker, createHeatArrows, createWallSection, DIR_NAME, HEAT_COLORS, SOLAR_DIR } from './highlights.js';
+import { createFacadeOverlay, createSunMarker, createHeatArrows, createWallSection, createFacadeBands, SOLAR_DIR } from './highlights.js';
+import { PRESETS, SYMS, chapters, LUX } from './content.js';
 import { sim, sf, facade, total, glassH, effWwr, glassById, wallById, roofById, LIMIT, fmt, pct } from './sim.js';
 import { sceffHorizontal, rttv, tdekWall } from '../learn/ottvCalc.js';
 import { SNI } from '../learn/sniData.js';
@@ -31,108 +32,6 @@ function hasWebGL() {
   }
 }
 
-// ---------- Isi bab ----------
-const PRESETS = {
-  penuh: { label: 'Kaca penuh', wwr: 0.85, glass: 'glz_kaca_polos_8', wall: 'wal_spandrel_tanpa_insulasi', R: 0 },
-  seimbang: { label: 'Seimbang', wwr: 0.4, glass: 'glz_kaca_tinted_8', wall: 'wal_bata_ringan_aac_100', R: 0.44 },
-  hemat: { label: 'Hemat', wwr: 0.3, glass: 'glz_kaca_lowe_single_8', wall: 'wal_bata_ringan_aac_cat_putih', R: 0.8 },
-};
-
-function chapters({ embedded }) {
-  return [
-    { id: 'beranda', shot: 'beranda', nav: 'Beranda', html: '<div data-slot="home"></div>' },
-    { id: 'bab-1', shot: 'bab1', nav: 'Bab 1', html: `
-      <p class="l3d-kicker">Bab 1</p>
-      <h2>Apa itu OTTV</h2>
-      <p>OTTV (Overall Thermal Transfer Value) adalah rata-rata panas yang masuk lewat dinding dan kaca bangunan, dalam W/m². SNI 6389:2020 membatasinya paling tinggi ${fmt(LIMIT)} W/m².</p>
-      <p>Bandingkan tiga versi tower ini. Makin pekat oranye di fasad, makin besar panas yang masuk lewat fasad itu.</p>
-      <div class="l3d-seg" role="group" aria-label="Versi tower">${Object.entries(PRESETS).map(([k, p]) => `<button type="button" data-preset="${k}">${p.label}</button>`).join('')}</div>
-      <p class="l3d-muted" data-id="preset-desc"></p>
-      <div class="l3d-gauge"><div class="l3d-gauge-num"><b data-id="ottv-total">–</b><span>W/m²</span></div><div class="l3d-gauge-bar"><i data-id="ottv-bar"></i><em style="left:${(LIMIT / 80) * 100}%"><span>batas ${fmt(LIMIT)}</span></em></div><p data-id="ottv-verdict" class="l3d-verdict"></p></div>` },
-    { id: 'bab-2', shot: 'bab2', nav: 'Bab 2', html: `
-      <p class="l3d-kicker">Bab 2</p>
-      <h2>Tiga jalur panas</h2>
-      <p>Panas dari luar masuk ke ruang lewat tiga jalur. OTTV satu fasad adalah jumlah ketiganya. Arahkan kursor ke tiap suku untuk melihat jalurnya di model.</p>
-      <div class="l3d-terms">
-        <button type="button" data-term="wall"><i style="background:${HEAT_COLORS.wall}"></i><span>Konduksi dinding</span><code>α · Uw · (1 − WWR) · TDek</code><b data-id="t-wall">–</b></button>
-        <button type="button" data-term="glass"><i style="background:${HEAT_COLORS.glass}"></i><span>Konduksi kaca</span><code>Uf · WWR · ΔT</code><b data-id="t-glass">–</b></button>
-        <button type="button" data-term="solar"><i style="background:${HEAT_COLORS.solar}"></i><span>Radiasi lewat kaca</span><code>SC · WWR · SF</code><b data-id="t-solar">–</b></button>
-      </div>
-      <p class="l3d-sum">OTTV fasad Barat = <b data-id="t-total">–</b> W/m²</p>
-      <p class="l3d-note" data-id="t-note"></p>` },
-    { id: 'bab-3', shot: 'bab3', nav: 'Bab 3', html: `
-      <p class="l3d-kicker">Bab 3</p>
-      <h2>Rasio kaca dan dinding (WWR)</h2>
-      <p>WWR adalah perbandingan luas kaca terhadap luas fasad. Makin besar WWR, dua suku kaca membesar dan suku dinding mengecil. Karena radiasi lewat kaca jauh lebih besar, OTTV ikut naik.</p>
-      <label class="l3d-ctl">WWR fasad Barat <input data-id="wwr" type="range" min="0.1" max="0.85" step="0.05" value="0.4"><output data-id="wwr-out">40%</output></label>
-      <div class="l3d-stack" aria-hidden="true"><i data-id="s-wall" style="background:${HEAT_COLORS.wall}"></i><i data-id="s-glass" style="background:${HEAT_COLORS.glass}"></i><i data-id="s-solar" style="background:${HEAT_COLORS.solar}"></i></div>
-      <dl class="l3d-stats"><div><dt>Konduksi dinding</dt><dd data-id="w-wall">–</dd></div><div><dt>Konduksi kaca</dt><dd data-id="w-glass">–</dd></div><div><dt>Radiasi lewat kaca</dt><dd data-id="w-solar">–</dd></div></dl>
-      <p class="l3d-sum">OTTV fasad Barat = <b data-id="w-total">–</b> W/m²</p>` },
-    { id: 'bab-4', shot: 'bab4', nav: 'Bab 4', html: `
-      <p class="l3d-kicker">Bab 4</p>
-      <h2>Arah hadap dan faktor radiasi (SF)</h2>
-      <p>Tiap arah fasad menerima radiasi matahari yang berbeda. SNI merangkumnya dalam faktor radiasi (SF): nilai rata-rata per arah untuk tiap kota. Makin pekat oranyenya, makin besar SF fasad itu.</p>
-      <div class="l3d-sf" aria-label="SF Jakarta per arah, W/m²">${['U', 'T', 'S', 'B'].map((d) => `<div class="l3d-sf-row"><span>${DIR_NAME[d]}</span><i style="--w:${(sf()[d] / 200) * 100}%"></i><b>${fmt(sf()[d])}</b></div>`).join('')}<p class="l3d-muted">SF Jakarta, W/m²</p></div>
-      <p><b>Coba:</b> seret matahari di lintasannya. Sore hari sinar menimpa fasad Barat secara langsung, itu sebabnya SF Barat paling tinggi.</p>
-      <p class="l3d-readout" data-id="sun-readout">Jam 15.00</p>
-      <p class="l3d-note">Bayangan bangunan sekitar hanya ilustrasi. Perhitungan OTTV di LUXA tidak memasukkan bayangan dari bangunan lain.</p>` },
-    { id: 'bab-5', shot: 'bab5', nav: 'Bab 5', html: `
-      <p class="l3d-kicker">Bab 5</p>
-      <h2>Kaca dan peneduh</h2>
-      <p>Overhang menahan sebagian sinar langsung sebelum mengenai kaca. SNI menghitung pengaruhnya lewat SC efektif, yang bergantung pada rasio R, yaitu kedalaman overhang dibagi tinggi kaca.</p>
-      <label class="l3d-ctl">Kedalaman overhang <input data-id="depth" type="range" min="0" max="1.5" step="0.05" value="0.7"><output data-id="depth-out">0,70 m</output></label>
-      <label class="l3d-ctl">Jam <input data-id="hour5" type="range" min="6" max="18" step="0.25" value="15"><output data-id="hour5-out">15.00</output></label>
-      <dl class="l3d-stats"><div><dt>Rasio R</dt><dd data-id="r-out">–</dd></div><div><dt>Faktor SC efektif (Barat)</dt><dd data-id="sc-out">–</dd></div><div><dt>Kaca terlindung jam ini</dt><dd data-id="shade-out">–</dd></div></dl>
-      <p class="l3d-note">Faktor SC efektif diambil dari tabel SNI dan berlaku sepanjang tahun. Persentase kaca terlindung hanya untuk jam yang dipilih.</p>` },
-    { id: 'bab-6', shot: 'bab6', nav: 'Bab 6', html: `
-      <p class="l3d-kicker">Bab 6</p>
-      <h2>Dinding: nilai U, warna, dan berat</h2>
-      <p>Suku dinding ditentukan tiga hal: nilai U (seberapa mudah panas merambat), absorptansi α (seberapa banyak sinar diserap oleh warna permukaan), dan berat dinding yang menentukan TDek.</p>
-      <div class="l3d-seg l3d-seg-wrap" role="group" aria-label="Jenis dinding">${SNI.wall.map((w) => `<button type="button" data-wall="${w.id}">${w.name}</button>`).join('')}</div>
-      <label class="l3d-ctl">Warna permukaan luar (α) <input data-id="alpha" type="range" min="0.2" max="0.9" step="0.01"><output data-id="alpha-out">–</output></label>
-      <dl class="l3d-stats l3d-stats-4"><div><dt>Nilai U</dt><dd data-id="d-u">–</dd></div><div><dt>Berat</dt><dd data-id="d-m">–</dd></div><div><dt>TDek</dt><dd data-id="d-td">–</dd></div><div><dt>Suku dinding</dt><dd data-id="d-q">–</dd></div></dl>
-      <p class="l3d-sum">OTTV fasad Barat = <b data-id="d-total">–</b> W/m²</p>
-      <p class="l3d-note">Potongan dinding di model hanya ilustrasi, tebal lapisannya dibesarkan supaya terbaca. Nilai U, α, dan berat diambil dari katalog material LUXA.</p>` },
-    { id: 'bab-7', shot: 'bab7', nav: 'Bab 7', html: `
-      <p class="l3d-kicker">Bab 7</p>
-      <h2>Dari per arah ke OTTV total</h2>
-      <p>OTTV bangunan adalah rata-rata OTTV semua fasad, ditimbang dengan luasnya. Fasad yang luas dan menghadap arah panas paling besar pengaruhnya.</p>
-      <div class="l3d-sides">${['U', 'T', 'S', 'B'].map((d) => `<div class="l3d-side"><span>${DIR_NAME[d]}</span><input type="range" min="0.1" max="0.85" step="0.05" data-side="${d}" aria-label="WWR ${DIR_NAME[d]}"><output data-side-out="${d}">–</output><b data-side-ottv="${d}">–</b></div>`).join('')}<p class="l3d-muted">Geser WWR tiap arah. Angka kanan = OTTV fasad itu (W/m²).</p></div>
-      <div class="l3d-gauge"><div class="l3d-gauge-num"><b data-id="ottv-total7">–</b><span>W/m² OTTV total</span></div><div class="l3d-gauge-bar"><i data-id="ottv-bar7"></i><em style="left:${(LIMIT / 80) * 100}%"><span>batas ${fmt(LIMIT)}</span></em></div><p data-id="ottv-verdict7" class="l3d-verdict"></p></div>` },
-    { id: 'bab-8', shot: 'bab8', nav: 'Bab 8', html: `
-      <p class="l3d-kicker">Bonus · Bab 8</p>
-      <h2>Atap dan RTTV</h2>
-      <p>Atap punya ukuran sendiri, RTTV. Batasnya ${fmt(SNI.rttvLimitSky)} W/m² bila atap memakai skylight, dan ${fmt(SNI.rttvLimitOpaque)} W/m² bila atap tertutup penuh.</p>
-      <div class="l3d-seg" role="group" aria-label="Jenis atap">${SNI.roof.map((r) => `<button type="button" data-roof="${r.id}">${r.name}</button>`).join('')}</div>
-      <label class="l3d-ctl">Luas skylight <input data-id="sky" type="range" min="0" max="${(SKY_MAX_AREA / PODIUM_ROOF_AREA).toFixed(3)}" step="0.005"><output data-id="sky-out">–</output></label>
-      <dl class="l3d-stats"><div><dt>Atap</dt><dd data-id="r-roof">–</dd></div><div><dt>Konduksi skylight</dt><dd data-id="r-cond">–</dd></div><div><dt>Radiasi skylight</dt><dd data-id="r-solar">–</dd></div></dl>
-      <div class="l3d-gauge"><div class="l3d-gauge-num"><b data-id="rttv-total">–</b><span>W/m² RTTV</span></div><div class="l3d-gauge-bar"><i data-id="rttv-bar"></i><em data-id="rttv-limit"><span></span></em></div><p data-id="rttv-verdict" class="l3d-verdict"></p></div>
-      <p class="l3d-note">Contoh: atap podium ${fmt(PODIUM_ROOF_AREA)} m² di luar tapak tower, skylight dari ${glassById('glz_kaca_tinted_8').name.toLowerCase()}, SF atap Jakarta ${fmt(sf().ROOF)} W/m².</p>` },
-    { id: 'selesai', shot: 'akhir', nav: 'Selesai', html: `
-      <p class="l3d-kicker">Selesai</p>
-      <h2>Sekarang coba dengan modelmu</h2>
-      <p>Kamu sudah melihat semua yang membentuk OTTV dan RTTV: WWR, arah hadap, kaca, peneduh, dinding, dan atap. LUXA menghitung semuanya langsung dari model 3D-mu, per fasad dan per arah.</p>
-      <div class="l3d-actions">
-        <button type="button" class="l3d-cta" data-act="start">${icon('upload', 16)}<span>Hitung modelmu</span></button>
-        <button type="button" class="l3d-ghost" data-act="example">${icon('play', 16)}<span>Coba model contoh</span></button>
-      </div>
-      <button type="button" class="l3d-link" data-act="top">Kembali ke Beranda</button>` },
-  ];
-}
-
-// Lux, pemandu kecil di tiap kartu.
-const LUX = {
-  beranda: ['wave', 'Aku Lux. Ayo cek seberapa panas fasad desainmu hari ini.'],
-  'bab-1': ['guide', 'Coba pilih Hemat, lalu lihat oranye di fasad memudar.'],
-  'bab-2': ['think', 'Radiasi lewat kaca hampir selalu jadi suku terbesar.'],
-  'bab-3': ['guide', 'Turunkan WWR ke 20%. OTTV-nya turun berapa?'],
-  'bab-4': ['guide', 'Seret matahari ke sore hari, lalu lihat fasad Barat.'],
-  'bab-5': ['think', 'Bandingkan overhang 0 m dan 1,5 m pada jam yang sama.'],
-  'bab-6': ['guide', 'Lihat potongannya: makin berat dindingnya, makin kecil TDek-nya.'],
-  'bab-7': ['think', 'Fasad yang luas dan menghadap barat paling menentukan.'],
-  'bab-8': ['report', 'Tanpa skylight, batas RTTV turun jadi 10 W/m².'],
-  selesai: ['happy', 'Mantap, delapan bab beres. Yuk cek fasad desainmu sendiri.'],
-};
 const luxRow = (id) => (LUX[id] ? `<div class="l3d-lux" data-lux="${id}">${luxSvg(LUX[id][0], { size: 46 })}<p>${LUX[id][1]}</p></div>` : '');
 
 /**
@@ -157,7 +56,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   const $$ = (s) => root.querySelectorAll(s);
 
   // Tanpa WebGL hanya Beranda yang tampil (Belajar 3D butuh WebGL).
-  const CH = chapters({ embedded }).filter((c, i) => gl || i === 0);
+  const CH = chapters({ gl });
   const story = document.createElement('main');
   story.className = 'l3d-story';
   story.innerHTML = CH.map((c) => `<section class="l3d-sec" id="${c.id}"><article class="l3d-card">${c.html}${luxRow(c.id)}</article></section>`).join('');
@@ -167,7 +66,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   const dots = document.createElement('nav');
   dots.className = 'l3d-dots';
   dots.setAttribute('aria-label', 'Bab');
-  dots.innerHTML = CH.map((c, i) => `<button type="button" data-i="${i}" aria-label="${c.nav}"><span>${c.nav}</span></button>`).join('');
+  dots.innerHTML = CH.map((c, i) => `<button type="button" data-i="${i}" aria-label="${c.title}"><span>${c.nav}</span></button>`).join('');
   if (gl) root.appendChild(dots);
 
   const back = Object.assign(document.createElement('button'), { type: 'button', className: 'l3d-back', textContent: 'Kembali ke sudut bab' });
@@ -197,7 +96,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
       <div class="l3d-learn">
         <h2>Belajar OTTV</h2>
         ${gl
-          ? `<p>Delapan bab singkat di kota ini. Scroll ke bawah, kamera ikut pindah ke bagian yang dibahas dan kamu bisa mencobanya langsung.</p>
+          ? `<p>Sembilan bagian singkat di kota ini. Scroll ke bawah, kamera ikut pindah ke bagian yang dibahas dan kamu bisa mencobanya langsung.</p>
         <button type="button" class="l3d-ghost l3d-ghost-on" data-act="learn">Mulai belajar</button>`
           : '<p class="l3d-muted">Belajar OTTV memakai tampilan 3D yang butuh WebGL, dan browser atau perangkat ini tidak mendukungnya. Coba buka LUXA di browser lain yang lebih baru.</p>'}
       </div>`;
@@ -302,6 +201,11 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   L.sky = stage.addLabel([17, PODIUM_H + 0.8, 0], 'Skylight', { tag: true, lift: 40, maxDist: 700 });
   const allLabels = [...L.sf, L.total, ...Object.values(L.heat), L.wwr, L.overhang, L.glassH, ...Object.values(L.side), L.sky];
   allLabels.forEach((l) => { l.on = false; });
+  // Bedah rumus: pita fasad yang menyala + label nilai simbol terpilih.
+  const bands = createFacadeBands(stage);
+  L.sym = stage.addLabel([-14.2, PODIUM_H + 10 * 4 + 2.2, -6], '', { tag: true, lift: 46, maxDist: 600 });
+  L.sym.on = false;
+  let sym = 'a';
 
   // Titik jangkar di lantai contoh (lantai 10) fasad Barat, mengikuti tinggi kaca.
   const FLOOR = 10;
@@ -338,6 +242,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   }
   function syncModel() {
     setGlazing(stage.tower, { heights: { U: glassH('U'), T: glassH('T'), S: glassH('S'), B: glassH('B') }, depth: sim.depth });
+    bands.rebuild(glassH('B'), sillFor(glassH('B')));
   }
   const verdict = (v) => (v <= LIMIT ? `Memenuhi batas SNI (paling tinggi ${fmt(LIMIT)} W/m²)` : `Melebihi batas SNI sebesar ${fmt(v - LIMIT, 1)} W/m²`);
   function refresh() {
@@ -373,6 +278,8 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     $('depth-out').textContent = `${fmt(sim.depth, 2)} m`;
     $('r-out').textContent = fmt(R, 2);
     $('sc-out').textContent = fmt(sceffHorizontal('B', R), 2);
+    $('sct-out').textContent = fmt(w.scEff, 2);
+    $$('[data-glass]').forEach((x) => x.classList.toggle('is-on', x.dataset.glass === sim.glass));
     L.glassH.setText(`Kaca ${fmt(glassH('B'), 1)} m`);
     updateShade();
     // Bab 6
@@ -398,7 +305,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     $('ottv-verdict7').textContent = verdict(t.ottv);
     L.side.B.setText(`Barat · ${fmt(t.per.B.total, 1)}`);
     L.side.S.setText(`Selatan · ${fmt(t.per.S.total, 1)}`);
-    setLux('bab-7', t.ottv <= LIMIT ? 'happy' : 'think', t.ottv <= LIMIT ? 'Memenuhi! Coba juga dengan modelmu sendiri di LUXA.' : LUX['bab-7'][1]);
+    setLux('bab-7', t.ottv <= LIMIT ? 'happy' : 'think', t.ottv <= LIMIT ? 'Memenuhi! Tetap ingat: yang dinilai angka total, bukan satu fasad.' : LUX['bab-7'][1]);
     // Bab 8
     const rf = roofById(sim.roof), sg = glassById('glz_kaca_tinted_8');
     const r = rttv({ alpha: rf.alpha, ur: rf.u_value, massa: rf.massa_kg_m2, areaRoof: PODIUM_ROOF_AREA, skyRatio: sim.sky, us: sg.u_value, sc: sg.sc, sfRoof: sf().ROOF });
@@ -424,6 +331,30 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     L.overhang.setPos(a.overhang);
     L.glassH.setPos(a.glassMid);
     arrows.update({ q: w, anchors: a });
+    renderSym();
+  }
+
+  // ---------- Bedah rumus ----------
+  const titleOf = (id) => (CH.find((c) => c.id === id) || {}).title || '';
+  function symValues() {
+    const w = facade('B'), wall = wallById(sim.wall), g = glassById(sim.glass);
+    return {
+      w,
+      v: { a: fmt(sim.alpha ?? wall.alpha, 2), uw: fmt(wall.u_value, 2), wwr: fmt(effWwr('B'), 2), td: fmt(w.tdek), uf: fmt(g.u_value, 2), dt: fmt(SNI.deltaT), sc: fmt(w.scEff, 2), sf: fmt(sf().B) },
+    };
+  }
+  function renderSym() {
+    const d = SYMS[sym];
+    const { w, v } = symValues();
+    $$('[data-sym]').forEach((b) => b.classList.toggle('is-on', b.dataset.sym === sym));
+    const unit = /^(W|K)/.test(d.unit) ? ` ${d.unit}` : '';
+    $('sym-info').innerHTML = `<p class="l3d-sym-head"><b>${d.sym}</b><span>${d.name}</span></p><p>${d.text}</p>
+      <dl><div><dt>Satuan</dt><dd>${d.unit}</dd></div><div><dt>Nilainya dari</dt><dd>${d.from}</dd></div><div><dt>Tower ini</dt><dd>${v[sym]}${unit}</dd></div></dl>
+      <button type="button" class="l3d-link" data-goto="${d.goto}">Dibahas di: ${titleOf(d.goto)}</button>`;
+    const n = (k) => `<i data-n="${k}"${k === sym ? ' class="on"' : ''}>${v[k]}</i>`;
+    $('sym-num').innerHTML = `${n('a')} · [${n('uw')} · (1 − ${n('wwr')}) · ${n('td')}] + ${n('uf')} · ${n('wwr')} · ${n('dt')} + ${n('sc')} · ${n('wwr')} · ${n('sf')}<br>= ${fmt(w.qWall, 1)} + ${fmt(w.qGlass, 1)} + ${fmt(w.qSolar, 1)} = <b>${fmt(w.total, 1)} W/m²</b>`;
+    bands.setKind(d.target);
+    L.sym.setText(`${d.sym} = ${v[sym]}${unit}`);
   }
 
   function compass(az) {
@@ -479,6 +410,13 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     b.addEventListener('mouseenter', on); b.addEventListener('focus', on);
     b.addEventListener('mouseleave', off); b.addEventListener('blur', off);
   });
+  root.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sym]');
+    if (b) { sym = b.dataset.sym; renderSym(); return; }
+    const g = e.target.closest('[data-goto]');
+    if (g) goTo(CH.findIndex((c) => c.id === g.dataset.goto));
+  });
+  $$('[data-glass]').forEach((b) => b.addEventListener('click', () => { sim.glass = b.dataset.glass; clearPreset(); refresh(); }));
   $('wwr').addEventListener('input', (e) => { sim.wwr.B = Number(e.target.value); clearPreset(); syncModel(); refresh(); });
   $('depth').addEventListener('input', (e) => { sim.depth = Number(e.target.value); setOverhangDepth(stage.tower, sim.depth); refresh(); });
   $('hour5').addEventListener('input', (e) => setHour(Number(e.target.value)));
@@ -512,7 +450,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     for (let i = 1; i < sections.length; i++) {
       const s = sections[i];
       const start = s.offsetTop - window.innerHeight * 0.5; // mulai berpindah saat bagian baru masuk separuh layar
-      const span = s.offsetHeight * 0.5;
+      const span = s.offsetHeight * 0.35; // bab penuh lebih awal, jadi kartu panjang masih menempel di posisinya
       if (y >= start) c = i - 1 + Math.min(1, (y - start) / span);
     }
     return c;
@@ -577,10 +515,27 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     lenis = null;
   }
   // Posisi scroll tempat bab i sudah penuh (lihat chapterCoord) dan kartunya masih menempel di atas.
-  const scrollYFor = (i) => (i === 0 ? 0 : Math.round(sections[i].offsetTop + sections[i].offsetHeight * 0.5 - window.innerHeight * 0.5 + 40));
+  const scrollYFor = (i) => (i === 0 ? 0 : Math.round(sections[i].offsetTop + sections[i].offsetHeight * 0.35 - window.innerHeight * 0.5 + 40));
+  // Lompat ke bagian i. Bagian sebelah: scroll halus seperti biasa. Lompatan jauh (mis. Kembali ke Beranda):
+  // kartu memudar, halaman pindah tanpa terlihat menggulir, kamera terbang langsung dalam satu gerakan pelan.
+  let flyUntil = 0, jumpTimer = 0;
   function goTo(i, { instant = false } = {}) {
-    const y = scrollYFor(Math.max(0, Math.min(CH.length - 1, i)));
-    if (lenis && !instant) { lenis.scrollTo(y, { duration: 2.4 }); return; }
+    const ti = Math.max(0, Math.min(CH.length - 1, i));
+    const y = scrollYFor(ti);
+    if (!instant && Math.abs(ti - active) > 1) {
+      clearTimeout(jumpTimer);
+      story.classList.add('is-jumping');
+      dots.classList.add('is-jumping');
+      jumpTimer = setTimeout(() => {
+        window.scrollTo(0, y);
+        lenis?.resize();
+        lenis?.scrollTo(y, { immediate: true, force: true });
+        flyUntil = performance.now() + 2600;
+        requestAnimationFrame(() => { story.classList.remove('is-jumping'); dots.classList.remove('is-jumping'); });
+      }, reduceMotion ? 0 : 260);
+      return;
+    }
+    if (lenis && !instant) { lenis.scrollTo(y, { duration: 1.8 }); return; }
     // Lompat langsung pakai scroll bawaan: batas Lenis bisa belum terukur tepat setelah adegan ditampilkan.
     window.scrollTo(0, y);
     lenis?.resize();
@@ -654,7 +609,8 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
       controls.update();
       stage.applyCamera(stage.camera.position.clone(), controls.target);
     } else {
-      mix(cur, desiredParams(c), reduceMotion ? 1 : 1 - Math.exp(-dt * 5.5), cur);
+      const rate = now < flyUntil ? 1.7 : 5.5; // terbang langsung lebih pelan setelah lompatan jauh
+      mix(cur, desiredParams(c), reduceMotion ? 1 : 1 - Math.exp(-dt * rate), cur);
       applyParams(cur);
       controls.target.copy(cur.target);
     }
@@ -663,6 +619,9 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     const w1 = Math.max(near(c, idx['bab-1']), near(c, idx['bab-7'])), w4 = near(c, idx['bab-4']);
     if (w1 >= w4) { overlay.setWeights(ottvWeights); overlay.setAmount(w1); } else { overlay.setWeights(sfWeights); overlay.setAmount(w4); }
     wallSample.setAmount(near(c, idx['bab-6'], 2));
+    bands.setAmount(near(c, idx.rumus, 2));
+    bands.tick(now);
+    L.sym.on = at(c, 'rumus');
     arrows.setAmount(near(c, idx['bab-2'], 2.2));
     arrows.tick(stage.camera, window.__l3dT ?? now / 1000, reduceMotion); // __l3dT: jam beku untuk uji otomatis
     if (!reduceMotion) syncTerm(arrows.active);
@@ -701,13 +660,19 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   setSkylightArea(stage.tower, sim.sky * PODIUM_ROOF_AREA);
   setHour(sim.hour ?? 15);
 
-  let visible = false;
+  let visible = false, shownOnce = false;
   const api = {
     root,
     get active() { return active; },
     /** Tampilkan adegan di bab `chapter` (0 = Beranda). Bila sudah tampil di bab itu, tidak melakukan apa-apa. */
     show({ chapter = 0 } = {}) {
-      const ch = Math.max(0, Math.min(CH.length - 1, chapter | 0));
+      let ch = Math.max(0, Math.min(CH.length - 1, chapter | 0));
+      // Tampil pertama kali dengan tautan #id bagian: buka bagian itu.
+      if (!shownOnce && location.hash) {
+        const hi = CH.findIndex((c) => '#' + c.id === location.hash);
+        if (hi >= 0) ch = hi;
+      }
+      shownOnce = true;
       if (visible) {
         if (ch !== active) goTo(ch);
         return;
