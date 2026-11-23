@@ -11,7 +11,7 @@ import { createDome, domeRadius } from './sundome.js';
 import { slidesFor, posesFor } from './slides.js';
 import { renderCard as defaultCard, sidesOf, sideName, f1 } from './content.js';
 import { contrast } from './colors.js';
-import { ottvToThreeColor } from '../viewer/modes.js';
+import { heatColor } from './heat.js';
 import './present.css';
 
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -86,8 +86,6 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   // Heatmap per sisi: skala panas SNI (0 / 25 / 35 / 50+ W/m², warna skala terang aplikasi) di semua tema
   // supaya legenda konsisten. Bila ada warna sisi yang kontrasnya < 3:1 terhadap latar, slide heatmap
   // memakai latar abu netral yang kontras dengan ujung terang maupun gelap skala.
-  const HEAT_TOKENS = { heat0: '#f6e7c8', heat1: '#eeb066', heat2: '#cf5a1f', heat3: '#7d1d10' };
-  const heatColor = (v) => '#' + ottvToThreeColor(v, HEAT_TOKENS).getHexString();
   const sideRows = sidesOf(analysis);
   const ottvByCode = Object.fromEntries(sideRows.map((r) => [r.code === 'TG' ? 'TGR' : r.code, r.ottv_orientation_wm2]));
   const HEAT_BG = '#7C7D82';
