@@ -643,11 +643,11 @@ class LuxaViewer {
   /**
    * Resolves the set of sunlit panel IDs for the active `sunHour` & `sunDate`.
    */
-  _getSunlitPanelIdSet(state) {
+  _getSunlitPanelIdSet(state, hourOverride = null) {
     if (state.facadeFilter !== 'sunlit_now' || !state.analysisData?.panels?.length) {
       return null;
     }
-    const hour = Math.round(Number(state.sunHour ?? 13));
+    const hour = hourOverride !== null ? hourOverride : Math.round(Number(state.sunHour ?? 13));
     const exp = state.exposureData;
     if (exp && exp.analysis_id === state.analysisData.analysis_id && exp.sunlit_by_hour) {
       const list = exp.sunlit_by_hour[String(hour)];
@@ -1094,10 +1094,25 @@ class LuxaViewer {
     const sunlitSet = this._getSunlitPanelIdSet(state);
     // Arah matahari jam aktif (koordinat model: E, N, atas) untuk gradasi sudut datang.
     let sunVec = null;
+    // Jam pecahan (animasi mulus): warna fasad dibaurkan antara jam bawah dan jam atas.
+    let sunBlend = null;
     if (sunlitSet) {
       const lat = Number(analysis?.location_info?.latitude_deg ?? -6.2088);
-      const sp = computeSolarPosition(lat, state.sunDate || '2026-09-23', Number(state.sunHour ?? 13), northDeg);
-      if (sp?.threeDir) sunVec = [sp.threeDir.x, -sp.threeDir.z, sp.threeDir.y];
+      const hRaw = Number(state.sunHour ?? 13);
+      const sunAt = (h) => {
+        const sp = computeSolarPosition(lat, state.sunDate || '2026-09-23', h, northDeg);
+        return sp?.threeDir ? [sp.threeDir.x, -sp.threeDir.z, sp.threeDir.y] : null;
+      };
+      sunVec = sunAt(hRaw);
+      const h0 = Math.floor(hRaw);
+      const f = hRaw - h0;
+      if (f > 0.001 && f < 0.999) {
+        const set0 = this._getSunlitPanelIdSet(state, h0);
+        const set1 = this._getSunlitPanelIdSet(state, h0 + 1);
+        const v0 = sunAt(h0);
+        const v1 = sunAt(h0 + 1);
+        if (set0 && set1 && v0 && v1) sunBlend = { set0, set1, v0, v1, f };
+      }
     }
     const flaggedGroups = _computeFlaggedGroupSet(state.inspectData);
     const checkFlagged = check && panels.some((p) => p.active && (flaggedGroups.has(p.group_name) || p.element_type === 'unknown'));
@@ -1237,7 +1252,14 @@ class LuxaViewer {
       let color = cWall;
       let isDimmed = false;
 
-      if (facadeFilter === 'sunlit_now' && sunlitSet) {
+      if (facadeFilter === 'sunlit_now' && sunlitSet && sunBlend) {
+        const litColor = (set, v) => {
+          if (!set.has(p.id)) return cWall;
+          const cosI = Math.max(0, fn[0] * v[0] + fn[1] * v[1] + fn[2] * v[2]);
+          return ottvToThreeColor(10 + 45 * cosI, tokens);
+        };
+        color = litColor(sunBlend.set0, sunBlend.v0).clone().lerp(litColor(sunBlend.set1, sunBlend.v1), sunBlend.f);
+      } else if (facadeFilter === 'sunlit_now' && sunlitSet) {
         const isSunlit = sunlitSet.has(p.id);
         if (isSunlit && sunVec) {
           // Makin tegak lurus ke matahari makin pekat (cos sudut datang 0..1 -> skala panas pucat..pekat).

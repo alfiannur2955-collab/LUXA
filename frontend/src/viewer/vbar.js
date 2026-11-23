@@ -7,6 +7,7 @@
 import { computeInitialSunDomeRadiusM, parseDecimalInput } from '../state.js';
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
+import { luxSvg } from '../ui/mascot.js';
 import { DIRECTION_NAMES, formatCameraDirectionLabel, PROJECTION_SHORT } from './cameras.js';
 
 function radiusToLogSlider(radiusM, initR) {
@@ -464,7 +465,15 @@ export function renderViewerBottomBar(state, handlers) {
       empty.style.margin = '4px 0';
       empty.style.fontSize = '12.5px';
       empty.textContent = 'Belum ada view tersimpan. Tekan S atau tombol Simpan; daftar ikut tersimpan di .ottv.json.';
-      pop.appendChild(empty);
+      if (state.mascotOn !== false) {
+        const row = document.createElement('div');
+        row.className = 'empty-lux';
+        row.innerHTML = luxSvg('guide', { size: 44 });
+        row.appendChild(empty);
+        pop.appendChild(row);
+      } else {
+        pop.appendChild(empty);
+      }
     } else {
       const ul = document.createElement('ul');
       ul.className = 'views-list';

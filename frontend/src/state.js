@@ -121,7 +121,15 @@ export function createInitialConfirm() {
 }
 
 const initialState = {
-  step: 'upload', // 'upload' | 'confirm' | 'inspect' | 'results' | 'loading' | 'error'
+  step: 'home', // 'home' | 'learn' | 'upload' | 'confirm' | 'inspect' | 'results' | 'compare' | 'loading' | 'error'
+  learnChapter: 0, // bab aktif di Belajar OTTV
+  mascotOn: (() => {
+    try {
+      return window.localStorage.getItem('luxa.mascot.v1') !== 'off';
+    } catch {
+      return true;
+    }
+  })(), // maskot Lux tampil (bisa dimatikan di kartu Tampilan)
   previousStep: 'upload',
   theme: 'light', // 'light' | 'dark'
   advancedMode: false,
@@ -363,6 +371,8 @@ export function parseDecimalInput(raw) {
 }
 
 export const STEP_TITLES = {
+  home: 'Beranda',
+  learn: 'Belajar OTTV',
   upload: 'Unggah model',
   confirm: 'Konfirmasi model',
   inspect: 'Inspeksi model',

@@ -10,6 +10,7 @@ import { icon } from '../ui/icons.js';
 import { makeTermTip } from '../ui/tooltips.js';
 import { renderInteractiveCompass } from '../viewer/compass.js';
 import { renderFormulaSheet } from '../viewer/formulaPill.js';
+import { luxSvg } from '../ui/mascot.js';
 import {
   ORIENTATION_CODES,
   ORIENTATION_NAMES_ID,
@@ -499,6 +500,14 @@ export function renderResultsScreen(state, handlers) {
     okChip.className = 'chip st-ok';
     okChip.innerHTML = `${icon('check', 14)}<span>Memenuhi (≤ 35 W/m²)</span>`;
     chipRow.appendChild(okChip);
+    // Lux ikut senang saat OTTV memenuhi batas.
+    if (state.mascotOn !== false) {
+      const happy = document.createElement('span');
+      happy.className = 'hero-lux';
+      happy.title = 'Lux senang: OTTV memenuhi batas SNI';
+      happy.innerHTML = luxSvg('happy', { size: 40 });
+      chipRow.appendChild(happy);
+    }
   }
 
   if (isProvisional) {

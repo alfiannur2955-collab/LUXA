@@ -54,6 +54,8 @@ import { renderResultsScreen } from './steps/results.js';
 import { renderCompareScreen } from './steps/compare.js';
 import { renderErrorScreen, renderLoadingScreen } from './steps/status.js';
 import { renderUploadScreen } from './steps/upload.js';
+import { renderHomeScreen } from './steps/home.js';
+import { renderLearnScreen } from './learn/learn.js';
 import { renderCommandPalette } from './ui/commandPalette.js';
 import { fmtFileSize } from './ui/escapeHtml.js';
 import { installShortcuts } from './ui/shortcuts.js';
@@ -1033,12 +1035,14 @@ async function handleExportFormat(fmt) {
     return;
   }
   try {
+    const luxOn = getState().mascotOn !== false;
+    if (luxOn) showToast('Lux sedang menyiapkan laporanmu...', 'ok', 2200, { lux: 'think' });
     const { blob, filename, warnings } = await engine.export(aid, fmt);
     triggerBlobDownload(blob, filename);
     if (warnings.length > 0) {
-      showToast(`Laporan diunduh dengan catatan: ${warnings[0]}`, 'warn', 6000);
+      showToast(`Laporan diunduh dengan catatan: ${warnings[0]}`, 'warn', 6000, { lux: luxOn ? 'report' : null });
     } else {
-      showToast('Laporan berhasil diunduh.', 'ok');
+      showToast('Laporan siap dan sudah diunduh.', 'ok', 4200, { lux: luxOn ? 'report' : null });
     }
   } catch (err) {
     showToast(err.message || 'Gagal mengunduh laporan.', 'fail');
@@ -1400,6 +1404,14 @@ const panelBuilders = createRailPanelBuilders({
   },
   onOpenShortcuts: () => setState({ shortcutsModalOpen: true, activeRailCard: null }),
   onSetModeBarPosition: (pos) => applyWorkspaceChange({ ...getState().workspace, modeBarPosition: pos }),
+  onToggleMascot: (on) => {
+    try {
+      window.localStorage.setItem('luxa.mascot.v1', on ? 'on' : 'off');
+    } catch {
+      // abaikan
+    }
+    setState({ mascotOn: Boolean(on) });
+  },
   onChangeSfSource: (sfSource) => {
     updateConfig((cfg) => {
       cfg.settings.sf_source = sfSource;
@@ -1471,7 +1483,7 @@ function renderApp(state) {
 
   frag.appendChild(
     renderTopbar(state, {
-      onHome: () => setState({ step: 'upload', activeRailCard: null, openPopover: null }),
+      onHome: () => setState({ step: 'home', activeRailCard: null, openPopover: null }),
       onNavigateStep: (target) => setState({ step: target, activeRailCard: null, openPopover: null }),
       onOpenCommandPalette: () =>
         setState({ commandPaletteOpen: true, shortcutsModalOpen: false, openPopover: null }),
@@ -1513,7 +1525,35 @@ function renderApp(state) {
     }),
   );
 
-  if (state.step === 'loading') {
+  if (state.step === 'home') {
+    frag.appendChild(
+      renderHomeScreen(state, {
+        savedAutosave: cachedAutosave,
+        onStartNew: () => setState({ step: 'upload', activeRailCard: null }),
+        onResume: (saved) => {
+          runInspectAndOpenConfirm(saved.modelId, saved.filename || saved.modelId, {
+            config: saved.config,
+            confirm: saved.confirm,
+            targetStep: 'confirm',
+          });
+        },
+        onTryExample: () => handleLoadExample('fasad_tower_twisted', 'Fasad tower twisted'),
+        onOpenLearn: (i) => setState({ step: 'learn', learnChapter: Number(i) || 0, activeRailCard: null }),
+        onRerender: () => setState({}),
+      }),
+    );
+  } else if (state.step === 'learn') {
+    frag.appendChild(
+      renderLearnScreen(state, {
+        onSetChapter: (i) => {
+          setState({ learnChapter: i });
+          window.requestAnimationFrame(() => document.querySelector('.learn-main')?.scrollTo({ top: 0 }));
+        },
+        onGoHome: () => setState({ step: 'home' }),
+        onTryExample: () => handleLoadExample('fasad_tower_twisted', 'Fasad tower twisted'),
+      }),
+    );
+  } else if (state.step === 'loading') {
     frag.appendChild(renderLoadingScreen(state));
   } else if (state.step === 'error') {
     frag.appendChild(renderErrorScreen(state));
@@ -2029,6 +2069,15 @@ async function bootstrap() {
 
   setState({ engineMode });
   onEngineStatus((st) => setState({ engineStatus: { ...st } }));
+
+  // Mode rekam video demo (tersembunyi): ?rekam=1 membuka akses untuk skrip perekam.
+  try {
+    if (new URLSearchParams(window.location.search).has('rekam')) {
+      window.__luxaRec = { viewer, getState, setState, handleLoadExample, handleChangeViewerMode, handleSetSunView, exposureController };
+    }
+  } catch {
+    // abaikan
+  }
   if (engineMode === 'browser') {
     registerServiceWorker();
     warmUpEngine().catch(() => {});

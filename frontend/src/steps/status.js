@@ -6,6 +6,7 @@
  */
 
 import { compassLoaderSvg, icon } from '../ui/icons.js';
+import { luxSvg } from '../ui/mascot.js';
 
 export function renderLoadingScreen(state) {
   const main = document.createElement('main');
@@ -20,7 +21,7 @@ export function renderLoadingScreen(state) {
   inner.className = 'status-inner';
 
   const loaderWrap = document.createElement('div');
-  loaderWrap.innerHTML = compassLoaderSvg();
+  loaderWrap.innerHTML = state.mascotOn !== false ? luxSvg('think', { size: 112, title: 'Lux sedang menghitung' }) : compassLoaderSvg();
 
   const loading = state.loading || {
     title: 'Memproses model',
