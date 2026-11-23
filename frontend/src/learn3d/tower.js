@@ -81,7 +81,7 @@ export function buildTower(pal) {
   // Kaca, kusen tipis (visual saja), overhang.
   const glass = { U: [], T: [], S: [], Bd: [], Sd: [], B: [] };
   const mull = [];
-  const over = { B: [], Bd: [] };
+  const over = {}; // kunci: kode fasad @ posisi bidang dinding (badan dan mahkota terpisah)
   const addBands = (fs, f0, f1) => {
     for (const f of fs) {
       const len = Math.abs(f.to - f.from) - 0.8;
@@ -94,7 +94,8 @@ export function buildTower(pal) {
         for (let m = 1; m < nM; m++) mull.push(facadeBox(f, mid - len / 2 + m * (len / nM), yc, 0.07, TOWER.glassH, 0.12, 0.06));
         if (OVERHANG_FACADES.has(f.id)) {
           const d = TOWER.overhangDepth;
-          over[f.id].push(facadeBox(f, mid, base + TOWER.sillH + TOWER.glassH + 0.18, len + 0.4, 0.16, d, d / 2));
+          const key = `${f.id}@${f.at}`;
+          (over[key] ||= []).push(facadeBox(f, mid, base + TOWER.sillH + TOWER.glassH + 0.18, len + 0.4, 0.16, d, d / 2));
         }
       }
     }
@@ -132,14 +133,16 @@ export function buildTower(pal) {
   const mullMesh = new THREE.Mesh(mergeGeometries(mull), mullMat);
   mullMesh.castShadow = mullMesh.receiveShadow = true;
   group.add(mullMesh);
-  for (const id of Object.keys(over)) {
-    const g = mergeGeometries(over[id]);
+  parts.overhangs = [];
+  for (const key of Object.keys(over)) {
+    const g = mergeGeometries(over[key]);
     const m = new THREE.Mesh(g, wallMat);
-    m.name = 'overhang-' + id;
+    m.name = 'overhang-' + key;
     m.castShadow = m.receiveShadow = true;
+    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 25), edgeMat));
+    m.userData.pivotX = Number(key.split('@')[1]);
     group.add(m);
-    group.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 25), edgeMat));
-    parts['overhang' + id] = m;
+    parts.overhangs.push(m);
   }
 
   // Skylight di atap podium: dua kelompok (timur dan selatan).
@@ -156,4 +159,14 @@ export function buildTower(pal) {
 
   group.userData.parts = parts;
   return group;
+}
+
+// Ubah kedalaman semua overhang (meter). Kotak overhang diskalakan dari bidang dinding ke luar.
+export function setOverhangDepth(towerGroup, depth) {
+  const s = Math.max(0, depth) / TOWER.overhangDepth;
+  for (const m of towerGroup.userData.parts.overhangs) {
+    m.visible = depth > 0.02;
+    m.scale.x = Math.max(s, 0.001);
+    m.position.x = m.userData.pivotX * (1 - m.scale.x);
+  }
 }

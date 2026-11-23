@@ -135,7 +135,12 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
     el.innerHTML = `<span class="l3d-text" style="bottom:${lift + 4}px"></span><i class="l3d-leader" style="height:${lift}px"></i><b class="l3d-dot"></b>`;
     el.querySelector('.l3d-text').textContent = text;
     labelLayer.appendChild(el);
-    labels.push({ el, p: new THREE.Vector3(...pos), maxDist });
+    const l = { el, p: new THREE.Vector3(...pos), maxDist, on: true };
+    labels.push(l);
+    return {
+      set on(b) { l.on = b; el.classList.toggle('is-off', !b); },
+      setText(t) { el.querySelector('.l3d-text').textContent = t; },
+    };
   }
 
   const v = new THREE.Vector3();
@@ -149,11 +154,25 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
     }
   }
 
+  // Geser pusat bingkai ke kanan sejauh separuh lebar panel teks, supaya objek tidak tertutup kartu.
+  let frameInset = 0;
+  function applyViewOffset() {
+    const w = container.clientWidth, h = container.clientHeight;
+    if (frameInset > 0) camera.setViewOffset(w + frameInset, h, 0, 0, w, h);
+    else camera.clearViewOffset();
+  }
+  function setFrameInset(px) {
+    frameInset = Math.max(0, px);
+    applyViewOffset();
+    camera.updateProjectionMatrix();
+  }
+
   function resize() {
     const w = container.clientWidth, h = container.clientHeight;
     renderer.setSize(w, h);
     composer.setSize(w, h);
-    camera.aspect = w / h;
+    camera.aspect = (w + frameInset) / h;
+    applyViewOffset();
     camera.updateProjectionMatrix();
   }
 
@@ -166,6 +185,6 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
   resize();
 
   setSun(...DEFAULT_SUN);
-  const api = { renderer, scene, camera, sun, city, tower, ao, composer, palette: pal, raw: false, setShot, poseOf, applyCamera, applyShadowArea, setSun, addLabel, resize, render };
+  const api = { renderer, scene, camera, sun, city, tower, ao, composer, palette: pal, raw: false, setShot, poseOf, applyCamera, applyShadowArea, setSun, addLabel, resize, render, setFrameInset };
   return api;
 }
