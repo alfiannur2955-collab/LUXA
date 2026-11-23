@@ -31,4 +31,34 @@ html[data-theme='dark'] .l3d-text {
 }
 html[data-theme='dark'] .is-tag .l3d-text { background: rgba(48, 49, 55, 0.66); }
 html[data-theme='dark'] .l3d-leader { background: linear-gradient(to top, rgba(241, 238, 232, 0.75), rgba(241, 238, 232, 0.25)); }
+/* Panel kontrol pratinjau (kaca) */
+.l3d-ui {
+  position: fixed; left: 20px; bottom: 20px; z-index: 5; display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 16px; border-radius: 16px; max-width: min(460px, calc(100vw - 40px));
+  background: rgba(255, 255, 255, 0.55); border: 1px solid rgba(255, 255, 255, 0.8);
+  -webkit-backdrop-filter: blur(18px) saturate(1.5); backdrop-filter: blur(18px) saturate(1.5);
+  box-shadow: 0 12px 32px rgba(40, 30, 20, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  color: #2A2620; font-size: 13px;
+}
+.l3d-ui-title { font-weight: 600; font-size: 14px; }
+.l3d-ui-title span { font-weight: 400; color: #7A7266; margin-left: 6px; }
+.l3d-ui-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.l3d-ui button {
+  font: inherit; color: inherit; cursor: pointer; padding: 6px 12px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.45); border: 1px solid rgba(42, 38, 32, 0.14);
+}
+.l3d-ui button:hover { background: rgba(255, 255, 255, 0.8); }
+.l3d-ui button.is-on { background: #F49B1A; border-color: #F49B1A; color: #fff; font-weight: 600; }
+.l3d-ui button:focus-visible { outline: 2px solid #138E86; outline-offset: 2px; }
+.l3d-ui-hour input { flex: 1; min-width: 160px; accent-color: #F49B1A; }
+.l3d-ui-hour output { min-width: 52px; font-variant-numeric: tabular-nums; }
+.l3d-ui-hint { color: #7A7266; font-size: 12px; margin-left: 4px; }
+html[data-theme='dark'] .l3d-ui {
+  color: #F1EEE8; background: rgba(36, 37, 42, 0.55); border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+html[data-theme='dark'] .l3d-ui button { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.16); }
+html[data-theme='dark'] .l3d-ui button:hover { background: rgba(255, 255, 255, 0.14); }
+html[data-theme='dark'] .l3d-ui button.is-on { background: #F49B1A; color: #1E1F24; }
+html[data-theme='dark'] .l3d-ui-title span, html[data-theme='dark'] .l3d-ui-hint { color: #A9A49B; }
 html[data-theme='dark'] .l3d-dot { background: rgba(40, 41, 46, 0.9); box-shadow: 0 0 0 1.5px rgba(241, 238, 232, 0.8), 0 2px 6px rgba(0, 0, 0, 0.4); }

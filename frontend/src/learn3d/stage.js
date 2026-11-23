@@ -92,28 +92,50 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
     applySun();
   }
 
-  function setShot(name) {
+  // Pose kamera sebuah sudut: posisi, titik tuju, dan area bayangan.
+  function poseOf(name) {
     const s = SHOTS[name];
-    const d = dirFrom(s.az, s.el);
     const t = new THREE.Vector3(...s.target);
-    sunState.focus.copy(s.shadowFocus ? new THREE.Vector3(...s.shadowFocus) : new THREE.Vector3(0, 0, 0));
-    sunState.half = s.shadow || 460;
-    [sunState.az, sunState.el] = s.sun || DEFAULT_SUN;
-    applySun();
-    camera.position.copy(t).addScaledVector(d, s.dist);
-    camera.near = Math.max(2, s.dist * 0.3);
-    camera.far = s.dist * 3.5;
-    camera.lookAt(t);
+    return {
+      target: t,
+      pos: t.clone().addScaledVector(dirFrom(s.az, s.el), s.dist),
+      shadowHalf: s.shadow || 460,
+      shadowFocus: s.shadowFocus ? new THREE.Vector3(...s.shadowFocus) : new THREE.Vector3(0, 0, 0),
+    };
+  }
+
+  // Atur kamera ke posisi + titik tuju; near/far mengikuti jarak supaya presisi kedalaman (AO) tetap baik.
+  function applyCamera(pos, target) {
+    camera.position.copy(pos);
+    const dist = pos.distanceTo(target);
+    camera.near = Math.max(1, dist * 0.3);
+    camera.far = Math.max(dist * 3.5, dist + 1800);
+    camera.lookAt(target);
     camera.updateProjectionMatrix();
   }
 
-  function addLabel(pos, text, { tag = false, lift = 46 } = {}) {
+  function applyShadowArea(half, focus) {
+    sunState.half = half;
+    sunState.focus.copy(focus);
+    applySun();
+  }
+
+  function setShot(name) {
+    const p = poseOf(name);
+    const s = SHOTS[name];
+    if (s.sun) [sunState.az, sunState.el] = s.sun;
+    applyShadowArea(p.shadowHalf, p.shadowFocus);
+    applyCamera(p.pos, p.target);
+    return p;
+  }
+
+  function addLabel(pos, text, { tag = false, lift = 46, maxDist = Infinity } = {}) {
     const el = document.createElement('div');
     el.className = 'l3d-label' + (tag ? ' is-tag' : '');
     el.innerHTML = `<span class="l3d-text" style="bottom:${lift + 4}px"></span><i class="l3d-leader" style="height:${lift}px"></i><b class="l3d-dot"></b>`;
     el.querySelector('.l3d-text').textContent = text;
     labelLayer.appendChild(el);
-    labels.push({ el, p: new THREE.Vector3(...pos) });
+    labels.push({ el, p: new THREE.Vector3(...pos), maxDist });
   }
 
   const v = new THREE.Vector3();
@@ -121,7 +143,7 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
     const w = renderer.domElement.clientWidth, h = renderer.domElement.clientHeight;
     for (const l of labels) {
       v.copy(l.p).project(camera);
-      const visible = v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1;
+      const visible = v.z < 1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1 && camera.position.distanceTo(l.p) < l.maxDist;
       l.el.style.display = visible ? '' : 'none';
       l.el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px)`;
     }
@@ -142,7 +164,8 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
   }
 
   resize();
-  setSun(250, 38);
-  const api = { renderer, scene, camera, sun, city, tower, ao, composer, palette: pal, raw: false, setShot, setSun, addLabel, resize, render };
+
+  setSun(...DEFAULT_SUN);
+  const api = { renderer, scene, camera, sun, city, tower, ao, composer, palette: pal, raw: false, setShot, poseOf, applyCamera, applyShadowArea, setSun, addLabel, resize, render };
   return api;
 }
