@@ -21,8 +21,8 @@ export function createDome(stage, { radius, lat = -6.2088, date = '2026-09-23', 
   const R = radius;
   const group = new THREE.Group();
   group.name = 'kubah-matahari';
-  const sunCol = new THREE.Color(dark ? '#F6B24A' : '#E8890C');
-  const lineCol = new THREE.Color(dark ? '#9A9BA2' : '#8C8273');
+  const sunCol = new THREE.Color(dark ? '#FFB62E' : '#F07F00'); // oranye matahari lebih jenuh supaya menonjol
+  const lineCol = new THREE.Color(dark ? '#C4C5CC' : '#6A6156'); // garis kubah lebih kontras terhadap latar
   const y0 = 0.05;
   const line = (pts, { color = lineCol, opacity = 0.5, dashed = false } = {}) => {
     const g = new THREE.BufferGeometry().setFromPoints(pts);
@@ -51,11 +51,11 @@ export function createDome(stage, { radius, lat = -6.2088, date = '2026-09-23', 
   // Lingkar tanah + garis penanda tiap 45° (arah utama lebih panjang).
   const ring = [];
   for (let i = 0; i <= 128; i++) ring.push(at((i / 128) * 360));
-  tube(ring, { opacity: 0.75, w: 0.0028 });
+  tube(ring, { opacity: 0.8, w: 0.0016 });
   for (let d = 0; d < 360; d += 45) {
     const major = d % 90 === 0;
     const tick = [at(d + north, R * (major ? 0.92 : 0.96)), at(d + north, R * (major ? 1.07 : 1.03))];
-    if (major) tube(tick, { opacity: 0.85, w: 0.003 }); else line(tick, { opacity: 0.6 });
+    if (major) tube(tick, { opacity: 0.85, w: 0.0018 }); else line(tick, { opacity: 0.65 });
   }
   // Dua busur meridian tipis supaya bentuk kubah terbaca.
   for (const base of [0, 90]) {
@@ -79,7 +79,7 @@ export function createDome(stage, { radius, lat = -6.2088, date = '2026-09-23', 
       if (sp.altitudeDeg >= 0) pts.push(center.clone().setY(0).addScaledVector(sp.threeDir, R));
     }
     if (pts.length < 2) continue;
-    if (active) tube(pts, { color: sunCol, opacity: 1, w: 0.005 });
+    if (active) tube(pts, { color: sunCol, opacity: 1, w: 0.0028 });
     else line(pts, { color: sunCol, opacity: 0.55, dashed: true });
   }
   // titik jam di lintasan aktif (6..18) untuk menggeser matahari, plus penanda jam genap
@@ -91,7 +91,7 @@ export function createDome(stage, { radius, lat = -6.2088, date = '2026-09-23', 
   for (let h = 6; h <= 18; h += 2) {
     const p = computeSolarPosition(lat, date, h, north);
     if (p.altitudeDeg <= 0) continue;
-    const dot = new THREE.Mesh(new THREE.SphereGeometry(R * 0.009, 12, 8), new THREE.MeshBasicMaterial({ color: sunCol, toneMapped: false }));
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(R * 0.0055, 12, 8), new THREE.MeshBasicMaterial({ color: sunCol, toneMapped: false }));
     dot.position.copy(center.clone().setY(0).addScaledVector(p.threeDir, R));
     group.add(dot);
   }
@@ -101,16 +101,16 @@ export function createDome(stage, { radius, lat = -6.2088, date = '2026-09-23', 
   const dir = sp.threeDir.clone();
   if (dir.y < 0.05) { dir.y = 0.05; dir.normalize(); }
   const sunPos = center.clone().setY(0).addScaledVector(dir, R);
-  const orbR = R * 0.045;
+  const orbR = R * 0.035; // ukuran semula
   const orb = new THREE.Mesh(new THREE.SphereGeometry(orbR, 24, 16), new THREE.MeshBasicMaterial({ color: sunCol, toneMapped: false }));
   orb.position.copy(sunPos);
   group.add(orb);
   const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTexture(), color: sunCol, transparent: true, opacity: 0.9, depthWrite: false, toneMapped: false }));
-  halo.scale.setScalar(orbR * 8);
+  halo.scale.setScalar(orbR * 7);
   halo.position.copy(sunPos);
   group.add(halo);
-  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTexture(), color: sunCol, transparent: true, opacity: dark ? 0.22 : 0.2, depthWrite: false, toneMapped: false }));
-  glow.scale.setScalar(orbR * 13);
+  const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: haloTexture(), color: sunCol, transparent: true, opacity: dark ? 0.16 : 0.12, depthWrite: false, toneMapped: false }));
+  glow.scale.setScalar(orbR * 10);
   glow.position.copy(sunPos);
   group.add(glow);
   const ray = line([sunPos.clone(), new THREE.Vector3(center.x, center.y, center.z)], { color: sunCol, opacity: 0.75, dashed: true });
