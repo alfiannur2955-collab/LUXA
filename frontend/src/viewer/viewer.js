@@ -1537,7 +1537,8 @@ class LuxaViewer {
 
 // Setiap pemanggilan metode viewer dari luar (ganti mode, sinkron state, kamera, dll.) menandai adegan berubah.
 for (const k of Object.getOwnPropertyNames(LuxaViewer.prototype)) {
-  if (k === 'constructor' || k === 'invalidate') continue;
+  // metode internal (awalan _) dan pembaca nilai dipanggil tiap frame dari tick: jangan ikut menandai perubahan
+  if (k === 'constructor' || k === 'invalidate' || k.startsWith('_') || /^(get|screen|export|is|has)/.test(k)) continue;
   const d = Object.getOwnPropertyDescriptor(LuxaViewer.prototype, k);
   if (!d || typeof d.value !== 'function') continue;
   const fn = d.value;

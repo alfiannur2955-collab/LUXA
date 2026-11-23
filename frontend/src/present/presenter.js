@@ -84,7 +84,7 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
     if (gov.n < 90) return;
     const avg = gov.sum / (gov.n - 30);
     gov.n = 0; gov.sum = 0;
-    if (avg < 24) { gov.level = 2; return; } // cukup cepat: berhenti memantau
+    if (avg < 40) { gov.level = 2; return; } // >= 25 fps (termasuk layar 30 Hz atau hemat baterai): cukup, berhenti memantau
     gov.level += 1;
     if (gov.level === 1) {
       stage.setAO(false);
