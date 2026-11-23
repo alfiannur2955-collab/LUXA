@@ -6,10 +6,13 @@ import 'lenis/dist/lenis.css';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createStage, dirFrom } from './stage.js';
 import { SHOTS } from './shots.js';
-import { setGlazing, setOverhangDepth, sillFor, PODIUM_H, TOWER_TOP } from './tower.js';
-import { createFacadeOverlay, createSunMarker, createHeatArrows, DIR_NAME, HEAT_COLORS, SOLAR_DIR } from './highlights.js';
-import { sim, sf, facade, total, glassH, effWwr, glassById, wallById, LIMIT, fmt, pct } from './sim.js';
-import { sceffHorizontal } from '../learn/ottvCalc.js';
+import { setGlazing, setOverhangDepth, setSkylightArea, sillFor, PODIUM_H, TOWER_TOP, PODIUM_ROOF_AREA, SKY_MAX_AREA } from './tower.js';
+import { createFacadeOverlay, createSunMarker, createHeatArrows, createWallSample, DIR_NAME, HEAT_COLORS, SOLAR_DIR } from './highlights.js';
+import { sim, sf, facade, total, glassH, effWwr, glassById, wallById, roofById, LIMIT, fmt, pct } from './sim.js';
+import { sceffHorizontal, rttv, tdekWall } from '../learn/ottvCalc.js';
+import { SNI } from '../learn/sniData.js';
+import { luxSvg } from '../ui/mascot.js';
+import './lux.css';
 import './learn3d.css';
 
 const q = new URLSearchParams(location.search);
@@ -76,13 +79,52 @@ const CH = [
     <label class="l3d-ctl">Jam <input id="hour5" type="range" min="6" max="18" step="0.25" value="15"><output id="hour5-out">15.00</output></label>
     <dl class="l3d-stats"><div><dt>Rasio R</dt><dd id="r-out">–</dd></div><div><dt>Faktor SC efektif (Barat)</dt><dd id="sc-out">–</dd></div><div><dt>Kaca terlindung jam ini</dt><dd id="shade-out">–</dd></div></dl>
     <p class="l3d-note">Faktor SC efektif diambil dari tabel SNI dan berlaku sepanjang tahun. Persentase kaca terlindung hanya untuk jam yang dipilih.</p>` },
+  { id: 'bab-6', shot: 'bab6', nav: 'Bab 6', html: `
+    <p class="l3d-kicker">Bab 6</p>
+    <h2>Dinding: nilai U, warna, dan berat</h2>
+    <p>Suku dinding ditentukan tiga hal: nilai U (seberapa mudah panas merambat), absorptansi α (seberapa banyak sinar diserap oleh warna permukaan), dan berat dinding yang menentukan TDek.</p>
+    <div class="l3d-seg l3d-seg-wrap" role="group" aria-label="Jenis dinding">${SNI.wall.map((w) => `<button type="button" data-wall="${w.id}">${w.name}</button>`).join('')}</div>
+    <label class="l3d-ctl">Warna permukaan luar (α) <input id="alpha" type="range" min="0.2" max="0.9" step="0.01"><output id="alpha-out">–</output></label>
+    <dl class="l3d-stats l3d-stats-4"><div><dt>Nilai U</dt><dd id="d-u">–</dd></div><div><dt>Berat</dt><dd id="d-m">–</dd></div><div><dt>TDek</dt><dd id="d-td">–</dd></div><div><dt>Suku dinding</dt><dd id="d-q">–</dd></div></dl>
+    <p class="l3d-sum">OTTV fasad Barat = <b id="d-total">–</b> W/m²</p>
+    <p class="l3d-note">Lapisan dan tebal di model hanya ilustrasi (tebal dibesarkan supaya terbaca). Nilai U, α, dan berat diambil dari katalog material LUXA.</p>` },
+  { id: 'bab-7', shot: 'bab7', nav: 'Bab 7', html: `
+    <p class="l3d-kicker">Bab 7</p>
+    <h2>Dari per arah ke OTTV total</h2>
+    <p>OTTV bangunan adalah rata-rata OTTV semua fasad, ditimbang dengan luasnya. Fasad yang luas dan menghadap arah panas paling besar pengaruhnya.</p>
+    <div class="l3d-sides">${['U', 'T', 'S', 'B'].map((d) => `<div class="l3d-side"><span>${DIR_NAME[d]}</span><input type="range" min="0.1" max="0.85" step="0.05" data-side="${d}" aria-label="WWR ${DIR_NAME[d]}"><output data-side-out="${d}">–</output><b data-side-ottv="${d}">–</b></div>`).join('')}<p class="l3d-muted">Geser WWR tiap arah. Angka kanan = OTTV fasad itu (W/m²).</p></div>
+    <div class="l3d-gauge"><div class="l3d-gauge-num"><b id="ottv-total7">–</b><span>W/m² OTTV total</span></div><div class="l3d-gauge-bar"><i id="ottv-bar7"></i><em style="left:${(LIMIT / 80) * 100}%"><span>batas ${fmt(LIMIT)}</span></em></div><p id="ottv-verdict7" class="l3d-verdict"></p></div>
+    <a class="l3d-cta" href="https://alfiannur2955-collab.github.io/LUXA/" target="_blank" rel="noopener">Coba hitung modelmu di LUXA</a>` },
+  { id: 'bab-8', shot: 'bab8', nav: 'Bab 8', html: `
+    <p class="l3d-kicker">Bonus · Bab 8</p>
+    <h2>Atap dan RTTV</h2>
+    <p>Atap punya ukuran sendiri, RTTV. Batasnya ${fmt(SNI.rttvLimitSky)} W/m² bila atap memakai skylight, dan ${fmt(SNI.rttvLimitOpaque)} W/m² bila atap tertutup penuh.</p>
+    <div class="l3d-seg" role="group" aria-label="Jenis atap">${SNI.roof.map((r) => `<button type="button" data-roof="${r.id}">${r.name}</button>`).join('')}</div>
+    <label class="l3d-ctl">Luas skylight <input id="sky" type="range" min="0" max="${(SKY_MAX_AREA / PODIUM_ROOF_AREA).toFixed(3)}" step="0.005"><output id="sky-out">–</output></label>
+    <dl class="l3d-stats"><div><dt>Atap</dt><dd id="r-roof">–</dd></div><div><dt>Konduksi skylight</dt><dd id="r-cond">–</dd></div><div><dt>Radiasi skylight</dt><dd id="r-solar">–</dd></div></dl>
+    <div class="l3d-gauge"><div class="l3d-gauge-num"><b id="rttv-total">–</b><span>W/m² RTTV</span></div><div class="l3d-gauge-bar"><i id="rttv-bar"></i><em id="rttv-limit"><span></span></em></div><p id="rttv-verdict" class="l3d-verdict"></p></div>
+    <p class="l3d-note">Contoh: atap podium ${fmt(PODIUM_ROOF_AREA)} m² di luar tapak tower, skylight dari ${glassById('glz_kaca_tinted_8').name.toLowerCase()}, SF atap Jakarta ${fmt(sf().ROOF)} W/m².</p>` },
 ];
+
+// Lux, pemandu kecil di tiap kartu.
+const LUX = {
+  mulai: ['wave', 'Halo, aku Lux. Yuk mulai dari kotanya dulu.'],
+  'bab-1': ['guide', 'Coba pilih Hemat, lalu lihat oranye di fasad memudar.'],
+  'bab-2': ['think', 'Radiasi lewat kaca hampir selalu jadi suku terbesar.'],
+  'bab-3': ['guide', 'Turunkan WWR ke 20%. OTTV-nya turun berapa?'],
+  'bab-4': ['guide', 'Seret matahari ke sore hari, lalu lihat fasad Barat.'],
+  'bab-5': ['think', 'Bandingkan overhang 0 m dan 1,5 m pada jam yang sama.'],
+  'bab-6': ['guide', 'Warna terang menyerap lebih sedikit panas matahari.'],
+  'bab-7': ['think', 'Fasad yang luas dan menghadap barat paling menentukan.'],
+  'bab-8': ['report', 'Tanpa skylight, batas RTTV turun jadi 10 W/m².'],
+};
+const luxRow = (id) => (LUX[id] ? `<div class="l3d-lux" data-lux="${id}">${luxSvg(LUX[id][0], { size: 46 })}<p>${LUX[id][1]}</p></div>` : '');
 
 // ---------- DOM ----------
 document.body.classList.add('l3d-story-page');
 const story = document.createElement('main');
 story.className = 'l3d-story';
-story.innerHTML = CH.map((c) => `<section class="l3d-sec" id="${c.id}"><article class="l3d-card">${c.html}</article></section>`).join('');
+story.innerHTML = CH.map((c) => `<section class="l3d-sec" id="${c.id}"><article class="l3d-card">${c.html}${luxRow(c.id)}</article></section>`).join('');
 document.body.appendChild(story);
 const sections = [...story.querySelectorAll('.l3d-sec')];
 
@@ -107,6 +149,7 @@ const stage = createStage(document.getElementById('stage'), { theme });
 const overlay = createFacadeOverlay(stage);
 const sun = createSunMarker(stage, { radius: 170 });
 const arrows = createHeatArrows(stage);
+const wallSample = createWallSample(stage, { origin: new THREE.Vector3(-14, 54.4, -9) });
 const V0 = [0, 0, 0];
 const L = {
   sf: [
@@ -124,7 +167,12 @@ const L = {
   overhang: stage.addLabel(V0, 'Overhang', { tag: true, lift: 40, maxDist: 160 }),
   glassH: stage.addLabel(V0, 'Kaca', { lift: 30, maxDist: 160 }),
 };
-const allLabels = [...L.sf, L.total, ...Object.values(L.heat), L.wwr, L.overhang, L.glassH];
+L.side = {
+  B: stage.addLabel([-14, PODIUM_H + 52, -6], 'Barat', { tag: true, lift: 46 }),
+  S: stage.addLabel([6, PODIUM_H + 44, 14], 'Selatan', { tag: true, lift: 40 }),
+};
+L.sky = stage.addLabel([17, PODIUM_H + 0.8, 0], 'Skylight', { tag: true, lift: 40, maxDist: 700 });
+const allLabels = [...L.sf, L.total, ...Object.values(L.heat), L.wwr, L.overhang, L.glassH, ...Object.values(L.side), L.sky];
 allLabels.forEach((l) => { l.on = false; });
 
 // Titik jangkar di lantai contoh (lantai 10) fasad Barat, mengikuti tinggi kaca.
@@ -144,6 +192,13 @@ const sunDirVec = () => dirFrom(sun.sun.az, Math.max(sun.sun.el, 3));
 // ---------- Pembaruan model + angka ----------
 let ottvWeights = { U: 0, T: 0, S: 0, B: 0 };
 const sfWeights = Object.fromEntries(['U', 'T', 'S', 'B'].map((d) => [d, clamp01((sf()[d] - 100) / 100)]));
+const outerColor = (a) => '#' + new THREE.Color('#F7F5F0').lerp(new THREE.Color('#4A4743'), clamp01((a - 0.2) / 0.7)).getHexString();
+function setLux(id, pose, text) {
+  const box = document.querySelector(`[data-lux="${id}"]`);
+  if (!box || box.dataset.pose === pose + text) return;
+  box.dataset.pose = pose + text;
+  box.innerHTML = `${luxSvg(pose, { size: 46 })}<p>${text}</p>`;
+}
 function syncModel() {
   setGlazing(stage.tower, { heights: { U: glassH('U'), T: glassH('T'), S: glassH('S'), B: glassH('B') }, depth: sim.depth });
 }
@@ -182,6 +237,46 @@ function refresh() {
   $('#sc-out').textContent = fmt(sceffHorizontal('B', R), 2);
   L.glassH.setText(`Kaca ${fmt(glassH('B'), 1)} m`);
   updateShade();
+  // Bab 6
+  const wall = wallById(sim.wall), alpha = sim.alpha ?? wall.alpha;
+  document.querySelectorAll('[data-wall]').forEach((x) => x.classList.toggle('is-on', x.dataset.wall === sim.wall));
+  $('#alpha').value = alpha;
+  $('#alpha-out').innerHTML = `<i class="l3d-swatch" style="background:${outerColor(alpha)}"></i>${fmt(alpha, 2)}`;
+  $('#d-u').textContent = `${fmt(wall.u_value, 2)} W/m²K`;
+  $('#d-m').textContent = `${fmt(wall.massa_kg_m2)} kg/m²`;
+  $('#d-td').textContent = `${tdekWall(wall.massa_kg_m2)} K`;
+  $('#d-q').textContent = fmt(w.qWall, 1);
+  $('#d-total').textContent = fmt(w.total, 1);
+  wallSample.update(sim.wall, outerColor(alpha));
+  // Bab 7
+  for (const d of ['U', 'T', 'S', 'B']) {
+    document.querySelector(`[data-side="${d}"]`).value = sim.wwr[d];
+    document.querySelector(`[data-side-out="${d}"]`).textContent = pct(effWwr(d));
+    document.querySelector(`[data-side-ottv="${d}"]`).textContent = fmt(t.per[d].total, 1);
+  }
+  $('#ottv-total7').textContent = fmt(t.ottv, 1);
+  $('#ottv-bar7').style.width = `${Math.min(100, (t.ottv / 80) * 100)}%`;
+  $('#ottv-bar7').classList.toggle('is-over', t.ottv > LIMIT);
+  $('#ottv-verdict7').textContent = t.ottv <= LIMIT ? `Memenuhi batas SNI (paling tinggi ${fmt(LIMIT)} W/m²)` : `Melebihi batas SNI sebesar ${fmt(t.ottv - LIMIT, 1)} W/m²`;
+  L.side.B.setText(`Barat · ${fmt(t.per.B.total, 1)}`);
+  L.side.S.setText(`Selatan · ${fmt(t.per.S.total, 1)}`);
+  setLux('bab-7', t.ottv <= LIMIT ? 'happy' : 'think', t.ottv <= LIMIT ? 'Memenuhi! Coba juga dengan modelmu sendiri di LUXA.' : LUX['bab-7'][1]);
+  // Bab 8
+  const rf = roofById(sim.roof), sg = glassById('glz_kaca_tinted_8');
+  const r = rttv({ alpha: rf.alpha, ur: rf.u_value, massa: rf.massa_kg_m2, areaRoof: PODIUM_ROOF_AREA, skyRatio: sim.sky, us: sg.u_value, sc: sg.sc, sfRoof: sf().ROOF });
+  document.querySelectorAll('[data-roof]').forEach((x) => x.classList.toggle('is-on', x.dataset.roof === sim.roof));
+  $('#sky').value = sim.sky;
+  $('#sky-out').textContent = sim.sky > 0.001 ? `${pct(sim.sky)} atap (${fmt(sim.sky * PODIUM_ROOF_AREA)} m²)` : 'tanpa skylight';
+  $('#r-roof').textContent = fmt(r.qRoof, 1);
+  $('#r-cond').textContent = fmt(r.qCond, 1);
+  $('#r-solar').textContent = fmt(r.qSolar, 1);
+  $('#rttv-total').textContent = fmt(r.total, 1);
+  $('#rttv-bar').style.width = `${Math.min(100, (r.total / 80) * 100)}%`;
+  $('#rttv-bar').classList.toggle('is-over', r.total > r.limit);
+  $('#rttv-limit').style.left = `${(r.limit / 80) * 100}%`;
+  $('#rttv-limit span').textContent = `batas ${fmt(r.limit)}`;
+  $('#rttv-verdict').textContent = r.total <= r.limit ? `Memenuhi batas ${fmt(r.limit)} W/m²` : `Melebihi batas ${fmt(r.limit)} W/m² sebesar ${fmt(r.total - r.limit, 1)}`;
+  L.sky.setText(sim.sky > 0.001 ? `Skylight ${pct(sim.sky)}` : 'Tanpa skylight');
   // Label dan panah yang ikut tinggi kaca dan arah matahari
   const a = anchorsWest();
   const out = new THREE.Vector3(-5.4, 0, 0);
@@ -243,6 +338,12 @@ $('#wwr').addEventListener('input', (e) => {
 });
 $('#depth').addEventListener('input', (e) => { sim.depth = Number(e.target.value); setOverhangDepth(stage.tower, sim.depth); refresh(); });
 $('#hour5').addEventListener('input', (e) => setHour(Number(e.target.value)));
+document.querySelectorAll('[data-wall]').forEach((b) => b.addEventListener('click', () => { sim.wall = b.dataset.wall; sim.alpha = null; clearPreset(); refresh(); }));
+$('#alpha').addEventListener('input', (e) => { sim.alpha = Number(e.target.value); clearPreset(); refresh(); });
+document.querySelectorAll('[data-side]').forEach((inp) => inp.addEventListener('input', () => { sim.wwr[inp.dataset.side] = Number(inp.value); clearPreset(); syncModel(); refresh(); }));
+document.querySelectorAll('[data-roof]').forEach((b) => b.addEventListener('click', () => { sim.roof = b.dataset.roof; refresh(); }));
+$('#sky').addEventListener('input', (e) => { sim.sky = Number(e.target.value); setSkylightArea(stage.tower, sim.sky * PODIUM_ROOF_AREA); refresh(); });
+function clearPreset() { document.querySelectorAll('[data-preset]').forEach((x) => x.classList.remove('is-on')); }
 
 // ---------- Kamera: interpolasi di ruang bola (target, azimut, elevasi, log jarak) ----------
 function shotParams(name) {
@@ -364,8 +465,9 @@ function tick(now) {
   }
 
   // Sorotan per bab: Bab 1 = OTTV per arah, Bab 4 = SF per arah.
-  const w1 = near(c, idx['bab-1']), w4 = near(c, idx['bab-4']);
+  const w1 = Math.max(near(c, idx['bab-1']), near(c, idx['bab-7'])), w4 = near(c, idx['bab-4']);
   if (w1 >= w4) { overlay.setWeights(ottvWeights); overlay.setAmount(w1); } else { overlay.setWeights(sfWeights); overlay.setAmount(w4); }
+  wallSample.setAmount(near(c, idx['bab-6'], 2));
   arrows.setAmount(near(c, idx['bab-2'], 2.2));
   arrows.tick(stage.camera, now / 1000, reduceMotion);
   sun.setVisible(c > idx['bab-4'] - 0.45 && c < idx['bab-4'] + 0.55);
@@ -373,7 +475,9 @@ function tick(now) {
   L.sf.forEach((l) => { l.on = at(c, 'bab-4'); });
   Object.values(L.heat).forEach((l) => { l.on = at(c, 'bab-2'); });
   L.wwr.on = at(c, 'bab-3');
-  L.overhang.on = L.glassH.on = c > idx['bab-5'] - 0.2;
+  L.overhang.on = L.glassH.on = at(c, 'bab-5', 0.35);
+  Object.values(L.side).forEach((l) => { l.on = at(c, 'bab-7'); });
+  L.sky.on = c > idx['bab-8'] - 0.3;
 
   const active = Math.round(c);
   dots.querySelectorAll('button').forEach((b, i) => b.classList.toggle('is-on', i === active));
@@ -386,6 +490,7 @@ function tick(now) {
 }
 
 applyPreset('seimbang');
+setSkylightArea(stage.tower, sim.sky * PODIUM_ROOF_AREA);
 setHour(15);
 fitFrame();
 requestAnimationFrame(tick);

@@ -1,0 +1,109 @@
+/* Maskot Lux, disalin dari theme.css untuk halaman prototipe. */
+.lux-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.lux {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.lux .lux-bob {
+  animation: lux-bob 3.2s ease-in-out infinite;
+  transform-origin: 60px 62px;
+}
+
+.lux .lux-rays {
+  animation: lux-spin 24s linear infinite;
+  transform-origin: 60px 62px;
+}
+
+.lux.lux-think .lux-rays {
+  animation-duration: 3s;
+}
+
+.lux.lux-happy .lux-bob {
+  animation: lux-hop 1.4s ease-in-out infinite;
+}
+
+.lux .lux-wave {
+  animation: lux-wave 1.6s ease-in-out infinite;
+}
+
+.lux .lux-eyes {
+  animation: lux-blink 5s infinite;
+  transform-origin: 60px 60px;
+}
+
+.lux .lux-glint {
+  animation: lux-glint 4.5s ease-in-out infinite;
+}
+
+@keyframes lux-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+@keyframes lux-hop {
+  0%, 100% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(-7px) scale(1.03); }
+  60% { transform: translateY(0) scale(0.98, 1.02); }
+}
+
+@keyframes lux-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes lux-wave {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-18deg); }
+  75% { transform: rotate(14deg); }
+}
+
+@keyframes lux-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  95% { transform: scaleY(0.1); }
+}
+
+@keyframes lux-glint {
+  0%, 70%, 100% { opacity: 0.75; }
+  80% { opacity: 0.15; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lux *,
+  .lux {
+    animation: none !important;
+  }
+}
+
+.lux-say {
+  position: relative;
+  align-self: center;
+  max-width: 360px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--glass-thin);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.lux-say::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-top: -6px;
+  background: inherit;
+  border-left: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  transform: rotate(45deg);
+}

@@ -196,3 +196,71 @@ export function createHeatArrows(stage) {
     setFocus(k) { focus = k; paint(); },
   };
 }
+
+// ---------- Bab 6: sampel dinding yang lapisannya dipisah ----------
+// Lapisan dan tebalnya ilustratif; nilai U, α, dan berat diambil dari katalog material.
+export const WALL_LAYERS = {
+  wal_bata_merah_plester: [['Plester luar', 15, '#E9E3D8'], ['Bata merah', 110, '#B8613F'], ['Plester dalam', 15, '#EFEAE1']],
+  wal_bata_ringan_aac_100: [['Plester luar', 10, '#E9E3D8'], ['Bata ringan (AAC)', 100, '#DAD5CA'], ['Plester dalam', 10, '#EFEAE1']],
+  wal_bata_ringan_aac_cat_putih: [['Cat putih + plester', 12, '#F7F5F0'], ['Bata ringan (AAC)', 150, '#DAD5CA'], ['Plester dalam', 10, '#EFEAE1']],
+  wal_spandrel_tanpa_insulasi: [['Kaca spandrel', 8, '#5E8F8A'], ['Rongga udara', 100, null], ['Panel belakang', 3, '#B9BDC2']],
+  wal_spandrel_insulasi_50: [['Kaca spandrel', 8, '#5E8F8A'], ['Insulasi', 50, '#E6CF86'], ['Panel belakang', 3, '#B9BDC2']],
+  wal_beton_pracetak_120: [['Beton pracetak', 120, '#B3AEA5']],
+};
+export function createWallSample(stage, { origin, width = 2.8, height = 1.5 }) {
+  const group = new THREE.Group();
+  group.visible = false;
+  stage.scene.add(group);
+  const edgeMat = new THREE.LineBasicMaterial({ color: stage.palette.edge, transparent: true, opacity: 0.8 });
+  let slabs = [];
+  let amount = 0;
+  const labels = [0, 1, 2].map(() => stage.addLabel([0, 0, 0], '', { lift: 26, maxDist: 120 }));
+  labels.forEach((l) => { l.on = false; });
+  const SCALE = 9; // tebal dibesarkan supaya terbaca
+  function build(wallId, outerColor) {
+    for (const s of slabs) { group.remove(s.mesh); s.mesh.geometry.dispose(); }
+    slabs = [];
+    const layers = WALL_LAYERS[wallId] || WALL_LAYERS.wal_bata_ringan_aac_100;
+    layers.forEach(([name, mm, color], i) => {
+      const t = Math.max(0.06, (mm / 1000) * SCALE);
+      if (!color) { slabs.push({ mesh: new THREE.Object3D(), t, i, name, mm, air: true }); group.add(slabs.at(-1).mesh); return; }
+      const geo = new THREE.BoxGeometry(t, height, width);
+      const mat = new THREE.MeshStandardMaterial({ color: i === 0 && outerColor ? outerColor : color, roughness: 0.85, transparent: true });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.castShadow = true;
+      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
+      group.add(mesh);
+      slabs.push({ mesh, t, i, name, mm });
+    });
+    place();
+  }
+  function place() {
+    // lapisan luar paling jauh dari fasad; jarak antarlapisan membuka mengikuti amount
+    let x = origin.x - 0.25;
+    const gap = 0.55 * amount;
+    const ordered = [...slabs].reverse(); // dari dalam ke luar
+    for (const s of ordered) {
+      x -= s.t / 2;
+      s.mesh.position.set(x, origin.y, origin.z);
+      s.cx = x;
+      x -= s.t / 2 + gap;
+    }
+    slabs.forEach((s, k) => {
+      const l = labels[k];
+      if (!l) return;
+      l.setText(`${s.name} · ${s.mm} mm`);
+      l.setPos(new THREE.Vector3(s.cx, origin.y + height / 2, origin.z - width / 2 + 0.2 + k * 0.05));
+    });
+    labels.forEach((l, k) => { l.on = amount > 0.6 && k < slabs.length; });
+  }
+  return {
+    update(wallId, outerColor) { build(wallId, outerColor); },
+    setAmount(a) {
+      if (Math.abs(a - amount) < 0.002 && group.visible === a > 0.01) return;
+      amount = a;
+      group.visible = a > 0.01;
+      for (const s of slabs) if (s.mesh.material) s.mesh.material.opacity = Math.min(1, a * 1.4);
+      place();
+    },
+  };
+}

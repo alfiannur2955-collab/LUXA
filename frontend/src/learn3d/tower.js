@@ -103,20 +103,10 @@ export function buildTower(pal) {
   podGlassMesh.receiveShadow = true;
   group.add(podGlassMesh);
 
-  // Skylight di atap podium: dua kelompok (timur dan selatan). Skala diatur di Bab 8.
-  const sky = [];
-  for (const z of [-10, -2, 6]) { const g = new THREE.BoxGeometry(3, 0.6, 5); g.translate(17, PODIUM_H + 0.3, z); sky.push(g); }
-  for (const x of [0, 7]) { const g = new THREE.BoxGeometry(5, 0.6, 3); g.translate(x, PODIUM_H + 0.3, 17); sky.push(g); }
-  const skyGeo = mergeGeometries(sky);
-  const skyMesh = new THREE.Mesh(skyGeo, mats.glass);
-  skyMesh.name = 'skylights';
-  skyMesh.castShadow = skyMesh.receiveShadow = true;
-  skyMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(skyGeo, 25), mats.edge));
-  group.add(skyMesh);
-
-  group.userData.parts = { skylights: skyMesh, overhangs: [] };
+  group.userData.parts = { skylights: null, overhangs: [] };
   group.userData.glazingOpts = { heights: { U: TOWER.glassH, T: TOWER.glassH, S: TOWER.glassH, B: TOWER.glassH }, depth: TOWER.overhangDepth };
   setGlazing(group, {});
+  setSkylightArea(group, 51);
   return group;
 }
 
@@ -192,11 +182,39 @@ export function setOverhangDepth(tower, depth) {
   }
 }
 
-// Skala skylight (Bab 8): 0 = tidak ada, 1 = ukuran awal, >1 = lebih luas.
-export function setSkylightScale(tower, s) {
-  const m = tower.userData.parts.skylights;
-  m.visible = s > 0.02;
-  m.scale.set(Math.max(s, 0.001), 1, Math.max(s, 0.001));
+// Luas atap podium di luar tapak tower (m²) dan pengaturan luas skylight (Bab 8).
+export const PODIUM_ROOF_AREA = (2 * TOWER.podium.half) ** 2 - (28 * 28 - 12 * 12);
+const SKY_SLOTS = [
+  ...[-15, -9, -3, 3, 9, 15].map((z) => [17, z, 3, 5]), // jalur timur
+  ...[-15, -9, -3, 3, 9].map((x) => [x, 17, 5, 3]), // jalur selatan
+];
+export const SKY_MAX_AREA = SKY_SLOTS.reduce((a, s) => a + s[2] * s[3], 0);
+export function setSkylightArea(tower, area) {
+  const { mats, parts } = tower.userData;
+  const old = parts.skylights;
+  if (old) { tower.remove(old); old.traverse((o) => o.geometry && o.geometry.dispose()); }
+  let left = Math.max(0, Math.min(SKY_MAX_AREA, area));
+  const geos = [];
+  for (const [x, z, w, d] of SKY_SLOTS) {
+    if (left <= 0.5) break;
+    const full = w * d, k = Math.min(1, left / full);
+    left -= full * k;
+    const dd = d * k; // panel terakhir dipendekkan sesuai sisa luas
+    const g = new THREE.BoxGeometry(w > d ? w * k : w, 0.6, w > d ? d : dd);
+    g.translate(x, PODIUM_H + 0.3, z);
+    geos.push(g);
+  }
+  const g = new THREE.Group();
+  g.name = 'skylights';
+  if (geos.length) {
+    const geo = mergeGeometries(geos);
+    const m = new THREE.Mesh(geo, mats.glass);
+    m.castShadow = m.receiveShadow = true;
+    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), mats.edge));
+    g.add(m);
+  }
+  tower.add(g);
+  parts.skylights = g;
 }
 
 // Luas fasad per arah (m²) untuk OTTV total.

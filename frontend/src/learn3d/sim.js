@@ -15,7 +15,10 @@ export const sim = {
   alpha: null, // null = ikut material dinding
   wwr: { U: 0.4, T: 0.4, S: 0.4, B: 0.4 },
   depth: 0.7, // overhang fasad Barat (m)
+  roof: 'rf_dak_beton_120_insulasi',
+  sky: 0.05, // rasio luas skylight terhadap luas atap podium
 };
+export const roofById = (id) => SNI.roof.find((r) => r.id === id) || SNI.roof[0];
 
 export const sf = () => cityById(sim.city).sf;
 export const glassH = (dir) => glassHForWwr(sim.wwr[dir]);
