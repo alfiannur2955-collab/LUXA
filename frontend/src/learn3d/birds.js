@@ -25,7 +25,9 @@ const FLOCKS = [
 ];
 const MIN_GAP = 15; // jarak minimum antarburung dalam satu kawanan (m), lebih dari rentang sayap terbesar
 
-export function createBirds(stage, { dark = false } = {}) {
+// scale: ukuran dunia relatif terhadap tower Belajar (lihat clouds.js).
+export function createBirds(stage, { dark = false, scale = 1 } = {}) {
+  const S = scale;
   const mat = new THREE.MeshBasicMaterial({ color: dark ? '#DCE0E6' : '#2E2A25', side: THREE.DoubleSide, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
   const gl = wingGeometry(-1), gr = wingGeometry(1);
   const group = new THREE.Group();
@@ -48,19 +50,19 @@ export function createBirds(stage, { dark = false } = {}) {
       const L = new THREE.Mesh(gl, mat), R = new THREE.Mesh(gr, mat);
       L.renderOrder = R.renderOrder = 8;
       body.add(L, R);
-      body.scale.setScalar(2 + r() * 0.6); // rentang sayap ±9–12 m supaya siluetnya terbaca dari kamera jauh
+      body.scale.setScalar((2 + r() * 0.6) * S); // rentang sayap ±9–12 m supaya siluetnya terbaca dari kamera jauh
       group.add(body);
       // goyangan kecil per burung (≤ 2 m) supaya formasi terasa hidup tanpa saling mendekat
       birds.push({ body, L, R, f, fi, ...o, wob: r() * Math.PI * 2, flap: r() * Math.PI * 2, fs: 7 + r() * 3 });
     });
   });
   const pos = new THREE.Vector3(), ahead = new THREE.Vector3(), fwd = new THREE.Vector3(), right = new THREE.Vector3();
-  const pathAt = (f, a, out) => out.set(f.c[0] + Math.cos(a) * f.r[0], f.y + Math.sin(a * 2) * 4, f.c[2] + Math.sin(a) * f.r[1]);
+  const pathAt = (f, a, out) => out.set((f.c[0] + Math.cos(a) * f.r[0]) * S, (f.y + Math.sin(a * 2) * 4) * S, (f.c[2] + Math.sin(a) * f.r[1]) * S);
   return {
     group,
     /** dist = jarak kamera ke titik bidik (m); still = gerak dikurangi. */
     tick(timeSec, dist, still) {
-      const vis = THREE.MathUtils.smoothstep(dist, 140, 320); // hilang saat close-up
+      const vis = THREE.MathUtils.smoothstep(dist / S, 140, 320); // hilang saat close-up
       mat.opacity = 0.85 * vis;
       group.visible = vis > 0.01;
       if (!group.visible) return;
@@ -74,8 +76,8 @@ export function createBirds(stage, { dark = false } = {}) {
         right.set(fwd.z, 0, -fwd.x).normalize();
         // posisi dalam formasi relatif terhadap pemimpin
         const wob = still ? 0 : Math.sin(t * 0.7 + b.wob);
-        b.body.position.copy(pos).addScaledVector(fwd, -b.back).addScaledVector(right, b.side + wob * 1.5);
-        b.body.position.y += b.up + wob * 1.2;
+        b.body.position.copy(pos).addScaledVector(fwd, -b.back * S).addScaledVector(right, (b.side + wob * 1.5) * S);
+        b.body.position.y += (b.up + wob * 1.2) * S;
         b.body.lookAt(b.body.position.clone().add(fwd));
         const flap = still ? 0.2 : Math.sin(t * b.fs + b.flap) * 0.55 + 0.1;
         b.L.rotation.z = -flap;

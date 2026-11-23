@@ -1,6 +1,7 @@
 // Panggung Belajar 3D: renderer, kamera telefoto, matahari, AO, label HTML.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { SMAAPass } from 'three/examples/jsm/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { N8AOPass } from 'n8ao';
@@ -20,7 +21,8 @@ export function dirFrom(azDeg, elDeg) {
   return new THREE.Vector3(Math.sin(az) * Math.cos(el), Math.sin(el), -Math.cos(az) * Math.cos(el));
 }
 
-export function createStage(container, { theme = 'light', fov = 14, shadowSize = 4096 } = {}) {
+// context: false = panggung kosong tanpa kota dan tower contoh (dipakai Mode Presentasi untuk model pengguna).
+export function createStage(container, { theme = 'light', fov = 14, shadowSize = 4096, context = true } = {}) {
   const pal = PALETTES[theme];
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -48,9 +50,9 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
   sun.shadow.normalBias = 0.6;
   scene.add(sun, sun.target);
 
-  const city = buildCity(pal);
-  const tower = buildTower(pal);
-  scene.add(city, tower);
+  const city = context ? buildCity(pal) : null;
+  const tower = context ? buildTower(pal) : null;
+  if (context) scene.add(city, tower);
 
   const composer = new EffectComposer(renderer);
   const ao = new N8AOPass(scene, camera, 1, 1);
@@ -60,7 +62,12 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
   ao.configuration.color = new THREE.Color(pal.ao);
   ao.configuration.gammaCorrection = false;
   ao.setQualityMode('High');
+  // Model berat: AO dimatikan, gambar adegan diambil oleh RenderPass biasa (AO pass sekaligus pass gambar).
+  const plainPass = new RenderPass(scene, camera);
+  plainPass.enabled = false;
+  composer.addPass(plainPass);
   composer.addPass(ao);
+  function setAO(on) { ao.enabled = on; plainPass.enabled = !on; }
   const smaa = new SMAAPass(1, 1);
   composer.addPass(smaa);
   composer.addPass(new OutputPass());
@@ -165,6 +172,7 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
   }
   function setFrameInset(px) {
     frameInset = Math.max(0, px);
+    camera.aspect = (container.clientWidth + frameInset) / Math.max(1, container.clientHeight);
     applyViewOffset();
     camera.updateProjectionMatrix();
   }
@@ -204,6 +212,6 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
     labelLayer.remove();
   }
 
-  const api = { renderer, scene, camera, sun, city, tower, ao, composer, palette: pal, raw: false, setShot, poseOf, applyCamera, applyShadowArea, setSun, addLabel, resize, render, setFrameInset, dispose };
+  const api = { renderer, scene, camera, sun, city, tower, ao, composer, palette: pal, raw: false, setAO, setShot, poseOf, applyCamera, applyShadowArea, setSun, addLabel, resize, render, setFrameInset, dispose };
   return api;
 }

@@ -71,23 +71,25 @@ const FRAG_SHADOW = /* glsl */ `
   varying vec3 vW;
   void main() {
     float a = texture2D(uMap, vUv).a;
-    float m = smoothstep(uClear, uClear + 40.0, length(vW.xz)); // tapak tower bersih
+    float m = smoothstep(uClear, uClear * 1.83, length(vW.xz)); // tapak tower bersih
     gl_FragColor = vec4(0.0, 0.0, 0.0, a * m * uOpacity);
   }`;
 
-export function createClouds(stage, { dark = false, count = 26, seed = 2020 } = {}) {
+// scale: ukuran dunia relatif terhadap tower Belajar (1 = tower 93,5 m); target = titik tengah model (garis pandang dibuka).
+export function createClouds(stage, { dark = false, count = 26, seed = 2020, scale = 1, target = [0, 45, 0], shadow = 1, opacity = 1, hole = null } = {}) {
+  const S = scale;
   const r = rng(seed);
   const textures = [0, 1, 2].map(() => cloudTexture(r));
   const shared = {
     uColor: { value: new THREE.Color(dark ? '#A3ABB8' : '#F7FAFF') },
     uCam: { value: new THREE.Vector3() },
-    uTarget: { value: new THREE.Vector3(0, 45, 0) },
-    uR0: { value: 40 },
-    uR1: { value: 115 },
+    uTarget: { value: new THREE.Vector3(...target) },
+    uR0: { value: hole ? hole[0] : 40 * S },
+    uR1: { value: hole ? hole[1] : 115 * S },
     uOpacity: { value: 0 },
   };
   const shadowOpacity = { value: 0 };
-  const clear = { value: 48 };
+  const clear = { value: 48 * S };
   const geo = new THREE.PlaneGeometry(1, 1);
   geo.rotateX(-Math.PI / 2);
   const group = new THREE.Group();
@@ -113,14 +115,14 @@ export function createClouds(stage, { dark = false, count = 26, seed = 2020 } = 
     const inner = i < 8;
     const rad = inner ? 60 + r() * 70 : 110 + Math.sqrt(r()) * 240;
     const size = inner ? 70 + r() * 50 : 100 + r() * 90;
-    const it = { cloud, shadow, ang, rad, y: inner ? 105 + r() * 35 : 120 + r() * 50, rot: r() * Math.PI * 2, sx: size * (1.2 + r() * 0.6), sz: size };
+    const it = { cloud, shadow, ang, rad: rad * S, y: (inner ? 105 + r() * 35 : 120 + r() * 50) * S, rot: r() * Math.PI * 2, sx: size * S * (1.2 + r() * 0.6), sz: size * S };
     cloud.scale.set(it.sx, 1, it.sz);
     shadow.scale.set(it.sx, 1, it.sz);
     cloud.rotation.y = shadow.rotation.y = it.rot;
     group.add(cloud, shadow);
     items.push(it);
   }
-  const base = dark ? 0.3 : 0.9;
+  const base = (dark ? 0.3 : 0.9) * opacity;
   const sunDir = new THREE.Vector3();
   const clamp01 = (x) => Math.min(1, Math.max(0, x));
   return {
@@ -128,12 +130,12 @@ export function createClouds(stage, { dark = false, count = 26, seed = 2020 } = 
     /** dist = jarak kamera ke titik bidiknya (m); still = tanpa gerak (gerak dikurangi). */
     tick(camera, timeSec, dist, still) {
       // 0 = kamera jauh (awan penuh), 1 = dekat (awan tersibak habis)
-      const open = clamp01((900 - dist) / 700);
+      const open = clamp01((900 - dist / S) / 700);
       const vis = 1 - THREE.MathUtils.smoothstep(open, 0.62, 0.97); // tetap terlihat sampai kamera cukup dekat
       group.visible = vis > 0.01;
       if (!group.visible) return;
       shared.uOpacity.value = base * vis;
-      shadowOpacity.value = (dark ? 0.26 : 0.3) * vis;
+      shadowOpacity.value = (dark ? 0.26 : 0.3) * vis * shadow;
       shared.uCam.value.copy(camera.position);
       sunDir.copy(stage.sun.position).sub(stage.sun.target.position).normalize();
       const push = 1 + 1.2 * open * open; // awan bergeser menjauh dari tower saat kamera mendekat
@@ -143,8 +145,9 @@ export function createClouds(stage, { dark = false, count = 26, seed = 2020 } = 
         const x = Math.cos(a) * it.rad * push, z = Math.sin(a) * it.rad * push;
         it.cloud.position.set(x, it.y, z);
         // bayangan: proyeksi awan ke tanah searah sinar matahari
-        const k = (it.y - 0.6) / Math.max(0.15, sunDir.y);
-        it.shadow.position.set(x - sunDir.x * k, 0.6, z - sunDir.z * k);
+        const gy = 0.6 * Math.min(1, S);
+        const k = (it.y - gy) / Math.max(0.15, sunDir.y);
+        it.shadow.position.set(x - sunDir.x * k, gy, z - sunDir.z * k);
       }
     },
     dispose() {
