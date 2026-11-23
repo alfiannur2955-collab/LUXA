@@ -1,0 +1,78 @@
+/* Mode Presentasi. Tema mengikuti panggung (data-theme di .lxp), bukan tema aplikasi.
+   Skala jarak 4/8/12/16/24; sudut 12 px (tombol, sel) dan 20 px (kartu); tinggi tombol 40 px. */
+.lxp {
+  --ink: #2A2620; --muted: #6F675B; --accent: #B86E0A; --line: rgba(42, 38, 32, 0.12);
+  --glass: rgba(255, 255, 255, 0.6); --glass-line: rgba(255, 255, 255, 0.88);
+  --glass-shadow: 0 16px 40px rgba(40, 30, 20, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+  --chip: rgba(255, 255, 255, 0.55); --dot: rgba(42, 38, 32, 0.28); --sun: #E8890C;
+  position: fixed; inset: 0; z-index: 60; overflow: hidden; color: var(--ink);
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; background: #F1EFEB;
+}
+.lxp[data-theme='dark'] {
+  --ink: #F1EEE8; --muted: #AAA59C; --accent: #F6B455; --line: rgba(255, 255, 255, 0.12);
+  --glass: rgba(36, 37, 42, 0.6); --glass-line: rgba(255, 255, 255, 0.14);
+  --glass-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --chip: rgba(36, 37, 42, 0.6); --dot: rgba(255, 255, 255, 0.32); --sun: #F6B24A;
+  background: #1F2024;
+}
+.lxp-stage { position: absolute; inset: 0; }
+.lxp-stage canvas { display: block; width: 100% !important; height: 100% !important; }
+.lxp-stage .l3d-labels { position: absolute; inset: 0; pointer-events: none; }
+
+.lxp-card, .lxp-btn, .lxp-nav { background: var(--glass); border: 1px solid var(--glass-line); box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5); }
+
+/* Kartu: kiri, tengah vertikal, tinggi tidak melewati layar. */
+.lxp-card {
+  position: absolute; left: 32px; top: 50%; transform: translateY(-50%);
+  width: 380px; max-height: calc(100vh - 160px); overflow: auto; box-sizing: border-box;
+  padding: 24px; border-radius: 20px; font-size: 14.5px; line-height: 1.55;
+}
+@media (min-width: 1280px) { .lxp-card { width: 420px; } }
+.lxp-kicker { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--accent); }
+.lxp-title { margin: 0 0 16px; font-size: 28px; line-height: 1.2; font-weight: 700; }
+.lxp-note { margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+
+/* Alat kanan atas: dua tombol sama lebar, sejajar satu baris. */
+.lxp-tools { position: absolute; top: 24px; right: 24px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.lxp-btn {
+  height: 40px; padding: 0 16px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.lxp-btn svg { width: 16px; height: 16px; flex: none; }
+.lxp-btn:hover { border-color: var(--accent); }
+.lxp-btn:focus-visible, .lxp-dot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Penanda slide: kanan tengah, nomor di atas titik. */
+.lxp-nav {
+  position: absolute; right: 24px; top: 50%; transform: translateY(-50%);
+  display: grid; justify-items: center; gap: 12px; padding: 12px 8px; border-radius: 20px; width: 56px; box-sizing: border-box;
+}
+.lxp-count { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted); }
+.lxp-dots { display: grid; gap: 4px; }
+.lxp-dot { width: 24px; height: 24px; padding: 0; border: 0; background: none; cursor: pointer; display: grid; place-items: center; border-radius: 12px; }
+.lxp-dot::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--dot); transition: transform 0.2s, background 0.2s; }
+.lxp-dot.is-on::before { background: var(--accent); transform: scale(1.35); }
+
+/* Arah mata angin kubah dan penanda matahari di tepi layar. */
+.lxp-marks { position: absolute; inset: 0; pointer-events: none; }
+.lxp-compass { position: absolute; left: 0; top: 0; font-size: 12px; font-weight: 700; color: var(--muted); }
+.lxp-sunmark { position: absolute; left: 0; top: 0; display: inline-flex; align-items: center; gap: 8px; }
+.lxp-sunmark i {
+  flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--sun);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--sun) 22%, transparent), 0 0 20px 6px color-mix(in srgb, var(--sun) 30%, transparent);
+}
+.lxp-sunmark b { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+/* di tepi layar: matahari di luar bingkai, cukup penunjuk arah */
+.lxp-sunmark.is-edge i { width: 12px; height: 12px; box-shadow: 0 0 0 4px color-mix(in srgb, var(--sun) 25%, transparent); }
+.lxp-sunmark.is-flip { flex-direction: row-reverse; }
+@media (max-width: 720px) {
+  .lxp-card { left: 16px; right: 16px; top: auto; bottom: 16px; transform: none; width: auto; max-height: 46vh; padding: 16px; }
+  .lxp-title { font-size: 22px; }
+  .lxp-tools { top: 16px; right: 16px; }
+  .lxp-btn span { display: none; }
+  .lxp-btn { width: 40px; padding: 0; }
+  .lxp-nav { top: 16px; right: auto; left: 16px; transform: none; grid-auto-flow: column; width: auto; padding: 8px 12px; }
+  .lxp-dots { grid-auto-flow: column; }
+}
+@media (prefers-reduced-motion: reduce) { .lxp-dot::before { transition: none; } }

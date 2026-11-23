@@ -1,0 +1,320 @@
+// Mode Presentasi: panggung maket model pengguna, kamera per slide, navigasi scroll / keyboard / clicker,
+// penanda slide, layar penuh, keluar. Hanya tampilan: membaca state apa adanya, tidak menghitung ulang.
+import * as THREE from 'three';
+import { createStage, dirFrom } from '../learn3d/stage.js';
+import { createClouds } from '../learn3d/clouds.js';
+import { createBirds } from '../learn3d/birds.js';
+import { PALETTES } from '../learn3d/palette.js';
+import { buildMaket, swatchesOf } from './maket.js';
+import { colorResolver, pickStageTheme } from './colors.js';
+import { createDome, domeRadius } from './sundome.js';
+import { slidesFor, posesFor } from './slides.js';
+import './present.css';
+
+const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const shortest = (from, to) => from + ((((to - from) % 360) + 540) % 360) - 180;
+const FLY_MS = 1500;
+
+const ICON = {
+  full: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  exitFull: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2v4H2M14 6h-4V2M10 14v-4h4M2 10h4v4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  close: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+};
+
+/**
+ * state: { analysisData, config, materials, sunDate, sunHour, sunDomeRadiusM }
+ * appTheme: 'light' | 'dark'; onExit(): dipanggil saat pengguna keluar (Esc / tombol Keluar).
+ * renderCard(slide, ctx) -> HTML isi kartu (diisi di P3).
+ */
+export function createPresenter({ host, state, appTheme = 'light', onExit = () => {}, renderCard = null, startAt = 0 }) {
+  const analysis = state.analysisData;
+  const roles = state.config?.roles;
+  const settings = state.config?.settings || {};
+  const north = Number(settings.north_angle_deg || 0);
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Warna material -> tema panggung (ikut aplikasi, pindah bila kontras kurang).
+  const colors = colorResolver(state.materials, settings);
+  const pick = pickStageTheme(appTheme, swatchesOf(analysis, roles, colors), { light: PALETTES.light.bg, dark: PALETTES.dark.bg });
+  const theme = pick.theme;
+  const pal = PALETTES[theme];
+
+  const root = document.createElement('div');
+  root.className = 'lxp';
+  root.dataset.theme = theme;
+  root.setAttribute('role', 'region');
+  root.setAttribute('aria-roledescription', 'presentasi');
+  root.setAttribute('aria-label', 'Presentasi hasil OTTV');
+  root.innerHTML = `
+    <div class="lxp-stage"></div>
+    <div class="lxp-marks" aria-hidden="true"><span class="lxp-sunmark"><i></i><b></b></span></div>
+    <article class="lxp-card" aria-live="polite"></article>
+    <div class="lxp-tools">
+      <button type="button" class="lxp-btn" data-act="full" aria-label="Layar penuh (F)">${ICON.full}<span>Layar penuh</span></button>
+      <button type="button" class="lxp-btn" data-act="exit" aria-label="Keluar presentasi (Esc)">${ICON.close}<span>Keluar</span></button>
+    </div>
+    <nav class="lxp-nav" aria-label="Slide">
+      <span class="lxp-count"></span>
+      <div class="lxp-dots"></div>
+    </nav>`;
+  host.appendChild(root);
+  const $ = (s) => root.querySelector(s);
+  const stageEl = $('.lxp-stage');
+
+  const maket = buildMaket(analysis, roles, pal, colors);
+  const stage = createStage(stageEl, { theme, context: false, shadowSize: maket.quality.shadowSize });
+  stage.setAO(maket.quality.ao);
+  stage.scene.add(maket.group);
+  const b = maket.bounds;
+
+  const lat = Number(analysis?.location_info?.latitude_deg ?? -6.2088);
+  const R = domeRadius(state, b);
+  const dome = createDome(stage, { radius: R, lat, date: state.sunDate || '2026-09-23', hour: Number(state.sunHour ?? 15), north, center: new THREE.Vector3(b.center.x, b.center.y, b.center.z), dark: theme === 'dark' });
+  const marks = $('.lxp-marks');
+  dome.labels.forEach((l) => marks.appendChild(l.el));
+  // Bayangan mencakup model dan kubah.
+  stage.applyShadowArea(Math.max(b.footprint * 2.2, b.size.y * 1.2, R * 1.15), new THREE.Vector3(b.center.x, 0, b.center.z));
+
+  // Awan di atas puncak kubah, burung di ketinggian yang sama.
+  const skyScale = Math.max(maket.scale, (R * 1.2) / 105);
+  const clouds = createClouds(stage, { dark: theme === 'dark', scale: skyScale, target: [b.center.x, b.center.y, b.center.z], count: 14, opacity: 0.55, shadow: 0.35, hole: [Math.max(b.radius, R * 0.6) * 1.2, Math.max(b.radius, R * 0.6) * 3] });
+  const birds = createBirds(stage, { dark: theme === 'dark', scale: skyScale });
+
+  const slides = slidesFor(analysis);
+  let poses = {};
+  let index = Math.min(Math.max(0, startAt), slides.length - 1);
+  const cam = { az: 0, el: 0, dist: 1, target: new THREE.Vector3() };
+  let fly = null;
+  const domeFade = { from: 1, to: 1, t0: 0 };
+  domeFade.from = domeFade.to = slides[index].wide ? 1 : 0;
+  const domeK = (t) => domeFade.from + (domeFade.to - domeFade.from) * ease(Math.min(1, (t - domeFade.t0) / 700));
+
+  function computePoses() {
+    const w = stageEl.clientWidth, h = stageEl.clientHeight;
+    poses = posesFor({ bounds: b, dome: R, breakdown: analysis?.orientation_breakdown, north, aspect: w / Math.max(1, h) });
+    // Slide lebar: geser azimut sedikit bila bola matahari menutupi model di layar.
+    for (const s of slides) if (s.wide) poses[s.id] = clearOfSun(poses[s.id]);
+  }
+  const corners = [];
+  for (const x of [b.box.min.x, b.box.max.x]) for (const y of [b.box.min.y, b.box.max.y]) for (const z of [b.box.min.z, b.box.max.z]) corners.push(new THREE.Vector3(x, y, z));
+  function sunOverModel(p) {
+    const tgt = new THREE.Vector3(...p.target);
+    stage.applyCamera(tgt.clone().addScaledVector(dirFrom(p.az, p.el), p.dist), tgt);
+    stage.camera.updateMatrixWorld();
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    const q = new THREE.Vector3();
+    for (const c of corners) { q.copy(c).project(stage.camera); x0 = Math.min(x0, q.x); x1 = Math.max(x1, q.x); y0 = Math.min(y0, q.y); y1 = Math.max(y1, q.y); }
+    q.copy(dome.sun.pos).project(stage.camera);
+    const m = 0.06; // ruang bebas di sekitar bola matahari (layar ternormalisasi)
+    return q.z < 1 && q.x > x0 - m && q.x < x1 + m && q.y > y0 - m && q.y < y1 + m;
+  }
+  function clearOfSun(p) {
+    for (const d of [0, 10, -10, 20, -20, 30, -30, 40, -40, 50, -50, 60, -60, 75, -75, 90, -90]) {
+      const c = { ...p, az: (p.az + d + 360) % 360 };
+      if (!sunOverModel(c)) return c;
+    }
+    return p;
+  }
+  function applyCam() {
+    const pos = cam.target.clone().addScaledVector(dirFrom(cam.az, cam.el), cam.dist);
+    stage.applyCamera(pos, cam.target);
+  }
+  function snapTo(p) {
+    Object.assign(cam, { az: p.az, el: p.el, dist: p.dist });
+    cam.target.set(...p.target);
+    fly = null;
+    applyCam();
+  }
+
+  // Kartu dan penanda.
+  const dotsEl = $('.lxp-dots');
+  dotsEl.innerHTML = slides.map((s, i) => `<button type="button" class="lxp-dot" data-i="${i}" aria-label="${i + 1}. ${s.name}"></button>`).join('');
+  const card = $('.lxp-card');
+  function renderUI() {
+    const s = slides[index];
+    $('.lxp-count').textContent = `${index + 1} / ${slides.length}`;
+    dotsEl.querySelectorAll('.lxp-dot').forEach((d, i) => { d.classList.toggle('is-on', i === index); d.setAttribute('aria-current', i === index ? 'step' : 'false'); });
+    const ctx = { index, total: slides.length, analysis, state, theme, pick, sun: dome.sun };
+    card.innerHTML = renderCard ? renderCard(s, ctx) : `
+      <p class="lxp-kicker">${index + 1} / ${slides.length} · ${s.name}</p>
+      <h2 class="lxp-title">${s.name}</h2>
+      <p class="lxp-note">Isi slide menyusul di tahap P3.</p>`;
+    card.dataset.slide = s.id;
+    layoutInset();
+  }
+  function layoutInset() {
+    const r = card.getBoundingClientRect();
+    stage.setFrameInset(window.innerWidth > 720 ? r.right + 24 : 0);
+  }
+
+  function go(i, { instant = false } = {}) {
+    const n = Math.min(Math.max(0, i), slides.length - 1);
+    const changed = n !== index;
+    index = n;
+    renderUI();
+    const p = poses[slides[index].id];
+    const want = slides[index].wide ? 1 : 0;
+    if (want !== domeFade.to) Object.assign(domeFade, { from: instant || reduceMotion ? want : domeK(now()), to: want, t0: now() });
+    if (instant || reduceMotion) { snapTo(p); return changed; }
+    fly = { t0: now(), from: { az: cam.az, el: cam.el, dist: cam.dist, target: cam.target.clone() }, to: { ...p, az: shortest(cam.az, p.az), target: new THREE.Vector3(...p.target) } };
+    return changed;
+  }
+  const next = () => go(index + 1);
+  const prev = () => go(index - 1);
+
+  // Navigasi: keyboard dan clicker (clicker mengirim PageDown / PageUp).
+  function onKey(e) {
+    if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey) return;
+    const k = e.key;
+    let used = true;
+    if (k === 'ArrowRight' || k === 'ArrowDown' || k === 'PageDown' || k === 'Enter' || (k === ' ' && !e.shiftKey)) next();
+    else if (k === 'ArrowLeft' || k === 'ArrowUp' || k === 'PageUp' || (k === ' ' && e.shiftKey)) prev();
+    else if (k === 'Home') go(0);
+    else if (k === 'End') go(slides.length - 1);
+    else if (k === 'f' || k === 'F') toggleFull();
+    else if (k === 'Escape') exit();
+    else used = false;
+    if (used) e.preventDefault();
+  }
+  // Scroll: satu gerakan = satu slide (akumulasi, lalu dikunci sampai kamera tiba).
+  let wheelAcc = 0, wheelLock = 0;
+  function onWheel(e) {
+    e.preventDefault();
+    const t = performance.now();
+    if (t < wheelLock) return;
+    wheelAcc += e.deltaY || e.deltaX;
+    if (Math.abs(wheelAcc) < 40) return;
+    const moved = wheelAcc > 0 ? next() : prev();
+    wheelAcc = 0;
+    wheelLock = t + (moved ? (reduceMotion ? 450 : 900) : 250);
+  }
+  let touch0 = null;
+  const onTouchStart = (e) => { touch0 = e.touches[0] ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null; };
+  const onTouchEnd = (e) => {
+    if (!touch0 || !e.changedTouches[0]) return;
+    const dx = e.changedTouches[0].clientX - touch0.x, dy = e.changedTouches[0].clientY - touch0.y;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) > 50) ((Math.abs(dy) > Math.abs(dx) ? dy : dx) < 0 ? next : prev)();
+    touch0 = null;
+  };
+  root.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-act], .lxp-dot');
+    if (!t) return;
+    if (t.classList.contains('lxp-dot')) go(Number(t.dataset.i));
+    else if (t.dataset.act === 'full') toggleFull();
+    else if (t.dataset.act === 'exit') exit();
+  });
+
+  function toggleFull() {
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else root.requestFullscreen?.().catch(() => {});
+  }
+  function onFullChange() {
+    const on = document.fullscreenElement === root;
+    const btn = $('[data-act="full"]');
+    btn.innerHTML = `${on ? ICON.exitFull : ICON.full}<span>${on ? 'Keluar layar penuh' : 'Layar penuh'}</span>`;
+    btn.setAttribute('aria-label', on ? 'Keluar layar penuh (F)' : 'Layar penuh (F)');
+  }
+
+  function onResize() {
+    stage.resize();
+    layoutInset();
+    computePoses();
+    snapTo(poses[slides[index].id]);
+  }
+
+  // Penanda matahari di tepi layar saat bola matahari di luar bingkai (mis. kamera membelakangi matahari).
+  const sunMark = $('.lxp-sunmark');
+  const hourText = `${String(Math.floor(Number(state.sunHour ?? 15))).padStart(2, '0')}.${String(Math.round((Number(state.sunHour ?? 15) % 1) * 60)).padStart(2, '0')}`;
+  const v = new THREE.Vector3();
+  function placeMarks() {
+    const w = stageEl.clientWidth, h = stageEl.clientHeight;
+    for (const l of dome.labels) {
+      v.copy(l.p).project(stage.camera);
+      const vis = v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
+      l.el.style.display = vis ? '' : 'none';
+      l.el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px) translate(-50%, -50%)`;
+    }
+    // Kubah tampil: penanda hanya bila bola matahari di luar bingkai. Kubah tersembunyi: penanda selalu tampil,
+    // ditaruh searah sinar matahari (titik jauh di arah matahari), di tepi layar bila di luar bingkai.
+    const domeOn = domeFade.to > 0.5;
+    if (domeOn) v.copy(dome.sun.pos); else v.copy(cam.target).addScaledVector(dome.dir, cam.dist * 50);
+    v.project(stage.camera);
+    const behind = v.z > 1;
+    let x = behind ? -v.x : v.x, y = behind ? -v.y : v.y;
+    const inside = !behind && Math.abs(x) < 0.94 && Math.abs(y) < 0.9;
+    const show = domeOn ? !inside : true;
+    sunMark.style.display = show ? '' : 'none';
+    sunMark.classList.toggle('is-edge', !inside);
+    if (show) {
+      const left = (window.innerWidth > 720 ? card.getBoundingClientRect().right + 24 : 0) / w * 2 - 1; // jangan di belakang kartu
+      if (!inside) {
+        const k = 1 / Math.max(Math.abs(x) / 0.94, Math.abs(y) / 0.86, 1e-6);
+        x *= k; y *= k;
+      }
+      y = Math.min(y, 1 - 2 * 88 / h); // di bawah baris tombol kanan atas
+      x = Math.max(left + 0.06, x);
+      // titik matahari tepat di posisinya; teks di sisi yang masih ada ruang
+      const flip = x > 0.3;
+      sunMark.classList.toggle('is-flip', flip);
+      sunMark.style.transform = `translate(${((x + 1) / 2) * w}px, ${((1 - y) / 2) * h}px) translate(${flip ? 'calc(-100% + 10px)' : '-10px'}, -50%)`;
+      sunMark.querySelector('b').textContent = behind ? `Matahari ${hourText} · di belakang kamera` : `Matahari ${hourText}`;
+    }
+  }
+
+  const now = () => (window.__lxpT ?? performance.now());
+  let raf = 0, alive = true;
+  function frame() {
+    if (!alive) return;
+    const t = now();
+    if (fly) {
+      const k = Math.min(1, (t - fly.t0) / FLY_MS), e = ease(k);
+      // jarak diinterpolasi secara logaritmik supaya zoom terasa rata
+      cam.az = fly.from.az + (fly.to.az - fly.from.az) * e;
+      cam.el = fly.from.el + (fly.to.el - fly.from.el) * e;
+      cam.dist = Math.exp(Math.log(fly.from.dist) + (Math.log(fly.to.dist) - Math.log(fly.from.dist)) * e);
+      cam.target.lerpVectors(fly.from.target, fly.to.target, e);
+      applyCam();
+      if (k >= 1) fly = null;
+    }
+    dome.setOpacity(domeK(t));
+    clouds.tick(stage.camera, t / 1000, cam.dist, reduceMotion);
+    birds.tick(t / 1000, cam.dist, reduceMotion);
+    stage.render();
+    placeMarks();
+    raf = requestAnimationFrame(frame);
+  }
+
+  function exit() { onExit(); }
+  function destroy() {
+    alive = false;
+    cancelAnimationFrame(raf);
+    window.removeEventListener('keydown', onKey);
+    window.removeEventListener('resize', onResize);
+    root.removeEventListener('wheel', onWheel);
+    document.removeEventListener('fullscreenchange', onFullChange);
+    if (document.fullscreenElement === root) document.exitFullscreen?.().catch(() => {});
+    clouds.dispose();
+    dome.dispose();
+    maket.dispose();
+    stage.dispose();
+    root.remove();
+  }
+
+  window.addEventListener('keydown', onKey);
+  window.addEventListener('resize', onResize);
+  root.addEventListener('wheel', onWheel, { passive: false });
+  root.addEventListener('touchstart', onTouchStart, { passive: true });
+  root.addEventListener('touchend', onTouchEnd, { passive: true });
+  document.addEventListener('fullscreenchange', onFullChange);
+
+  renderUI();
+  computePoses();
+  snapTo(poses[slides[index].id]);
+  frame();
+
+  return {
+    get index() { return index; },
+    slides, go, next, prev, destroy, toggleFull,
+    _debug: { stage, maket, dome, pick, poses: () => poses, cam, skyScale },
+  };
+}
