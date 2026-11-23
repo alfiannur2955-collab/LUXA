@@ -10,6 +10,8 @@ import { buildTower } from './tower.js';
 import { SHOTS } from './shots.js';
 
 const DEG = Math.PI / 180;
+// Matahari bawaan dari selatan-barat daya: bayangan jatuh ke samping kamera, jadi kedalaman kota terbaca.
+const DEFAULT_SUN = [168, 34];
 
 // Arah dari target ke kamera; azimut dari utara searah jarum jam (utara = -z).
 export function dirFrom(azDeg, elDeg) {
@@ -95,6 +97,7 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
     const t = new THREE.Vector3(...s.target);
     sunState.focus.copy(s.shadowFocus ? new THREE.Vector3(...s.shadowFocus) : new THREE.Vector3(0, 0, 0));
     sunState.half = s.shadow || 460;
+    [sunState.az, sunState.el] = s.sun || DEFAULT_SUN;
     applySun();
     camera.position.copy(t).addScaledVector(d, s.dist);
     camera.near = Math.max(2, s.dist * 0.3);

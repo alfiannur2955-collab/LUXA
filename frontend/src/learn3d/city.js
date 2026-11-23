@@ -31,9 +31,9 @@ function speckleTexture(base, speck) {
   x.fillRect(0, 0, 256, 256);
   const r = rng(11);
   x.fillStyle = speck;
-  for (let i = 0; i < 1400; i++) {
-    const s = r() < 0.85 ? 1 : 1.6;
-    x.globalAlpha = 0.35 + r() * 0.5;
+  for (let i = 0; i < 2600; i++) {
+    const s = r() < 0.7 ? 1.4 : 2.4;
+    x.globalAlpha = 0.45 + r() * 0.5;
     x.fillRect(r() * 256, r() * 256, s, s);
   }
   const t = new THREE.CanvasTexture(c);
@@ -146,7 +146,7 @@ export function buildCity(pal) {
   massMesh.castShadow = massMesh.receiveShadow = true;
   massMesh.name = 'masses';
   group.add(massMesh);
-  const edgeMat = new THREE.LineBasicMaterial({ color: pal.edge, transparent: true, opacity: pal.edgeOpacity * 0.85 });
+  const edgeMat = new THREE.LineBasicMaterial({ color: pal.edge, transparent: true, opacity: pal.edgeOpacity * 0.9 });
   group.add(new THREE.LineSegments(mergeGeometries(masses.map((g) => new THREE.EdgesGeometry(g, 25))), edgeMat));
 
   // Tanah tanpa cahaya yang memudar ke warna latar, plus penangkap bayangan di atasnya,
@@ -174,7 +174,7 @@ export function buildCity(pal) {
   group.add(catcher);
 
   const walkTex = speckleTexture(pal.walk, pal.speck);
-  walkTex.repeat.set(0.08, 0.08);
+  walkTex.repeat.set(0.03, 0.03);
   const walkGeo = mergeGeometries(walks);
   // UV dunia supaya bintik tidak melar.
   const pos = walkGeo.attributes.position, uv = walkGeo.attributes.uv;
