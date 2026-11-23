@@ -207,60 +207,106 @@ export const WALL_LAYERS = {
   wal_spandrel_insulasi_50: [['Kaca spandrel', 8, '#5E8F8A'], ['Insulasi', 50, '#E6CF86'], ['Panel belakang', 3, '#B9BDC2']],
   wal_beton_pracetak_120: [['Beton pracetak', 120, '#B3AEA5']],
 };
-export function createWallSample(stage, { origin, width = 2.8, height = 1.5 }) {
+// Arsiran bidang potong per jenis material (tekstur kanvas).
+function hatchTexture(kind, base) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const x = c.getContext('2d');
+  x.fillStyle = base;
+  x.fillRect(0, 0, 256, 256);
+  x.strokeStyle = 'rgba(40,32,24,0.55)';
+  x.fillStyle = 'rgba(40,32,24,0.45)';
+  x.lineWidth = 2;
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  if (kind === 'bata') {
+    for (let i = -256; i < 512; i += 22) { x.beginPath(); x.moveTo(i, 256); x.lineTo(i + 256, 0); x.stroke(); }
+  } else if (kind === 'aac') {
+    x.lineWidth = 1.5;
+    for (let i = 0; i < 70; i++) { x.beginPath(); x.arc(rnd() * 256, rnd() * 256, 3 + rnd() * 6, 0, Math.PI * 2); x.stroke(); }
+  } else if (kind === 'plester') {
+    for (let i = 0; i < 900; i++) x.fillRect(rnd() * 256, rnd() * 256, 1.6, 1.6);
+  } else if (kind === 'beton') {
+    for (let i = 0; i < 260; i++) x.fillRect(rnd() * 256, rnd() * 256, 2, 2);
+    for (let i = 0; i < 40; i++) { const px = rnd() * 256, py = rnd() * 256, r = 4 + rnd() * 5; x.beginPath(); x.moveTo(px, py - r); x.lineTo(px + r, py + r); x.lineTo(px - r, py + r); x.closePath(); x.stroke(); }
+  } else if (kind === 'insulasi') {
+    for (let y = 10; y < 256; y += 26) { x.beginPath(); for (let i = 0; i <= 256; i += 4) x.lineTo(i, y + Math.sin(i / 14) * 8); x.stroke(); }
+  } else if (kind === 'kaca') {
+    x.strokeStyle = 'rgba(255,255,255,0.7)';
+    for (let i = -256; i < 512; i += 60) { x.beginPath(); x.moveTo(i, 256); x.lineTo(i + 120, 0); x.stroke(); }
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+const LAYER_KIND = (name) => (/Bata merah/.test(name) ? 'bata' : /AAC|ringan/.test(name) ? 'aac' : /Plester|Cat/.test(name) ? 'plester' : /Beton/.test(name) ? 'beton' : /Insulasi/.test(name) ? 'insulasi' : /Kaca/.test(name) ? 'kaca' : 'polos');
+
+// Potongan dinding (Bab 6): blok dinding di depan fasad Barat, bidang potongnya menghadap selatan.
+// origin = pusat muka dalam dinding; lapisan tersusun ke arah luar (−x). Tebal dibesarkan supaya terbaca.
+export function createWallSection(stage, { origin, height = 1.3, length = 0.9 }) {
   const group = new THREE.Group();
   group.visible = false;
   stage.scene.add(group);
-  const edgeMat = new THREE.LineBasicMaterial({ color: stage.palette.edge, transparent: true, opacity: 0.8 });
-  let slabs = [];
-  let amount = 0;
-  const labels = [0, 1, 2].map(() => stage.addLabel([0, 0, 0], '', { lift: 26, maxDist: 120 }));
-  labels.forEach((l) => { l.on = false; });
-  const SCALE = 9; // tebal dibesarkan supaya terbaca
+  const edgeMat = new THREE.LineBasicMaterial({ color: '#2A2620', transparent: true, opacity: 0.85 });
+  const SCALE = 4;
+  let parts = [], amount = 0, totalT = 0;
+  const labels = [0, 1, 2].map(() => stage.addLabel([0, 0, 0], '', { lift: 30, maxDist: 60 }));
+  const sideOut = stage.addLabel([0, 0, 0], 'Luar', { tag: true, lift: 18, maxDist: 60 });
+  const sideIn = stage.addLabel([0, 0, 0], 'Dalam', { lift: 18, maxDist: 60 });
+  const all = [...labels, sideOut, sideIn];
+  all.forEach((l) => { l.on = false; });
+  const texCache = {};
   function build(wallId, outerColor) {
-    for (const s of slabs) { group.remove(s.mesh); s.mesh.geometry.dispose(); }
-    slabs = [];
+    for (const p of parts) { group.remove(p.mesh); p.mesh.traverse((o) => o.geometry && o.geometry.dispose()); }
+    parts = [];
     const layers = WALL_LAYERS[wallId] || WALL_LAYERS.wal_bata_ringan_aac_100;
-    layers.forEach(([name, mm, color], i) => {
-      const t = Math.max(0.06, (mm / 1000) * SCALE);
-      if (!color) { slabs.push({ mesh: new THREE.Object3D(), t, i, name, mm, air: true }); group.add(slabs.at(-1).mesh); return; }
-      const geo = new THREE.BoxGeometry(t, height, width);
-      const mat = new THREE.MeshStandardMaterial({ color: i === 0 && outerColor ? outerColor : color, roughness: 0.85, transparent: true });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.castShadow = true;
+    let x = origin.x; // muka dalam
+    const ordered = [...layers].reverse(); // dari dalam ke luar
+    ordered.forEach(([name, mm, color], k) => {
+      const t = Math.max(0.05, (mm / 1000) * SCALE);
+      const cx = x - t / 2;
+      x -= t;
+      const isOuter = k === ordered.length - 1;
+      if (!color) { parts.push({ mesh: new THREE.Object3D(), name, mm, cx, t }); group.add(parts.at(-1).mesh); return; }
+      const kind = LAYER_KIND(name);
+      const key = kind + color;
+      texCache[key] ||= hatchTexture(kind, color);
+      const side = new THREE.MeshStandardMaterial({ color: isOuter && outerColor ? outerColor : color, roughness: 0.9, transparent: true });
+      const cut = new THREE.MeshBasicMaterial({ map: texCache[key], transparent: true, toneMapped: false });
+      // urutan muka BoxGeometry: +x, −x, +y, −y, +z (bidang potong), −z
+      const mats = [side, side, side, side, cut, side];
+      const geo = new THREE.BoxGeometry(t, height, length);
+      const mesh = new THREE.Mesh(geo, mats);
+      mesh.position.set(cx, origin.y, origin.z);
+      mesh.castShadow = mesh.receiveShadow = true;
       mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
       group.add(mesh);
-      slabs.push({ mesh, t, i, name, mm });
+      parts.push({ mesh, name, mm, cx, t });
     });
-    place();
-  }
-  function place() {
-    // lapisan luar paling jauh dari fasad; jarak antarlapisan membuka mengikuti amount
-    let x = origin.x - 0.25;
-    const gap = 0.55 * amount;
-    const ordered = [...slabs].reverse(); // dari dalam ke luar
-    for (const s of ordered) {
-      x -= s.t / 2;
-      s.mesh.position.set(x, origin.y, origin.z);
-      s.cx = x;
-      x -= s.t / 2 + gap;
-    }
-    slabs.forEach((s, k) => {
+    totalT = origin.x - x;
+    // label: titik di tengah bidang potong tiap lapisan, tinggi angkat berselang supaya tidak bertumpuk
+    const cutZ = origin.z + length / 2 + 0.01;
+    [...parts].reverse().forEach((p, k) => {
       const l = labels[k];
       if (!l) return;
-      l.setText(`${s.name} · ${s.mm} mm`);
-      l.setPos(new THREE.Vector3(s.cx, origin.y + height / 2, origin.z - width / 2 + 0.2 + k * 0.05));
+      l.setText(`${p.name} · ${p.mm} mm`);
+      l.setPos(new THREE.Vector3(p.cx, origin.y + height * 0.22, cutZ));
+      l.el.querySelector(".l3d-leader").style.height = `${40 + k * 30}px`;
+      l.el.querySelector(".l3d-text").style.bottom = `${44 + k * 30}px`;
     });
-    labels.forEach((l, k) => { l.on = amount > 0.6 && k < slabs.length; });
+    sideOut.setPos(new THREE.Vector3(origin.x - totalT - 0.25, origin.y - height * 0.42, cutZ));
+    sideIn.setPos(new THREE.Vector3(origin.x + 0.22, origin.y - height * 0.42, cutZ));
+    paint();
+  }
+  function paint() {
+    group.visible = amount > 0.01;
+    for (const p of parts) if (p.mesh.material) for (const m of [].concat(p.mesh.material)) m.opacity = Math.min(1, amount * 1.5);
+    labels.forEach((l, k) => { l.on = amount > 0.6 && k < parts.length; });
+    sideOut.on = sideIn.on = amount > 0.6;
   }
   return {
     update(wallId, outerColor) { build(wallId, outerColor); },
-    setAmount(a) {
-      if (Math.abs(a - amount) < 0.002 && group.visible === a > 0.01) return;
-      amount = a;
-      group.visible = a > 0.01;
-      for (const s of slabs) if (s.mesh.material) s.mesh.material.opacity = Math.min(1, a * 1.4);
-      place();
-    },
+    setAmount(a) { if (Math.abs(a - amount) > 0.002) { amount = a; paint(); } },
   };
 }

@@ -7,7 +7,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createStage, dirFrom } from './stage.js';
 import { SHOTS } from './shots.js';
 import { setGlazing, setOverhangDepth, setSkylightArea, sillFor, PODIUM_H, TOWER_TOP, PODIUM_ROOF_AREA, SKY_MAX_AREA } from './tower.js';
-import { createFacadeOverlay, createSunMarker, createHeatArrows, createWallSample, DIR_NAME, HEAT_COLORS, SOLAR_DIR } from './highlights.js';
+import { createFacadeOverlay, createSunMarker, createHeatArrows, createWallSection, DIR_NAME, HEAT_COLORS, SOLAR_DIR } from './highlights.js';
 import { sim, sf, facade, total, glassH, effWwr, glassById, wallById, roofById, LIMIT, fmt, pct } from './sim.js';
 import { sceffHorizontal, rttv, tdekWall } from '../learn/ottvCalc.js';
 import { SNI } from '../learn/sniData.js';
@@ -87,7 +87,7 @@ const CH = [
     <label class="l3d-ctl">Warna permukaan luar (α) <input id="alpha" type="range" min="0.2" max="0.9" step="0.01"><output id="alpha-out">–</output></label>
     <dl class="l3d-stats l3d-stats-4"><div><dt>Nilai U</dt><dd id="d-u">–</dd></div><div><dt>Berat</dt><dd id="d-m">–</dd></div><div><dt>TDek</dt><dd id="d-td">–</dd></div><div><dt>Suku dinding</dt><dd id="d-q">–</dd></div></dl>
     <p class="l3d-sum">OTTV fasad Barat = <b id="d-total">–</b> W/m²</p>
-    <p class="l3d-note">Lapisan dan tebal di model hanya ilustrasi (tebal dibesarkan supaya terbaca). Nilai U, α, dan berat diambil dari katalog material LUXA.</p>` },
+    <p class="l3d-note">Potongan dinding di model hanya ilustrasi, tebal lapisannya dibesarkan supaya terbaca. Nilai U, α, dan berat diambil dari katalog material LUXA.</p>` },
   { id: 'bab-7', shot: 'bab7', nav: 'Bab 7', html: `
     <p class="l3d-kicker">Bab 7</p>
     <h2>Dari per arah ke OTTV total</h2>
@@ -114,7 +114,7 @@ const LUX = {
   'bab-3': ['guide', 'Turunkan WWR ke 20%. OTTV-nya turun berapa?'],
   'bab-4': ['guide', 'Seret matahari ke sore hari, lalu lihat fasad Barat.'],
   'bab-5': ['think', 'Bandingkan overhang 0 m dan 1,5 m pada jam yang sama.'],
-  'bab-6': ['guide', 'Warna terang menyerap lebih sedikit panas matahari.'],
+  'bab-6': ['guide', 'Lihat potongannya: makin berat dindingnya, makin kecil TDek-nya.'],
   'bab-7': ['think', 'Fasad yang luas dan menghadap barat paling menentukan.'],
   'bab-8': ['report', 'Tanpa skylight, batas RTTV turun jadi 10 W/m².'],
 };
@@ -149,7 +149,8 @@ const stage = createStage(document.getElementById('stage'), { theme });
 const overlay = createFacadeOverlay(stage);
 const sun = createSunMarker(stage, { radius: 170 });
 const arrows = createHeatArrows(stage);
-const wallSample = createWallSample(stage, { origin: new THREE.Vector3(-14, 54.4, -9) });
+// Potongan dinding menempel di depan fasad Barat (0,35 m keluar), muka dalam menghadap fasad.
+const wallSample = createWallSection(stage, { origin: new THREE.Vector3(-14.35, 54.6, -9) });
 const V0 = [0, 0, 0];
 const L = {
   sf: [
