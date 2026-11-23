@@ -1,5 +1,5 @@
 // Kawanan burung siluet yang terbang berputar di atas kota, berulang terus.
-// Tiap burung = dua sayap segitiga yang mengepak; kawanan terbang membentuk huruf V mengikuti lintasan elips.
+// Tiap burung = dua sayap segitiga yang mengepak; kawanan terbang dalam formasi acak mengikuti lintasan elips.
 // Burung memudar saat kamera close-up supaya tidak menutupi bagian yang sedang dibahas.
 import * as THREE from 'three';
 
@@ -15,36 +15,47 @@ function wingGeometry(side) {
   return g;
 }
 
+// Tiap kawanan punya ketinggian sendiri (selisih ≥ 25 m) sehingga lintasan yang bersilangan tidak bertabrakan.
 const FLOCKS = [
   // pusat lintasan, jari-jari (x, z), ketinggian, kecepatan sudut (rad/s), jumlah burung, fase awal
-  { c: [-40, 0, 30], r: [210, 150], y: 95, w: 0.07, n: 7, p: 0 },
-  { c: [60, 0, -50], r: [170, 230], y: 120, w: -0.055, n: 5, p: 2.1 },
-  { c: [0, 0, 200], r: [260, 120], y: 80, w: 0.05, n: 6, p: 4.2 },
+  { c: [-40, 0, 30], r: [210, 150], y: 68, w: 0.07, n: 6, p: 0 },
+  { c: [60, 0, -50], r: [170, 230], y: 98, w: -0.055, n: 5, p: 2.1 },
+  { c: [0, 0, 200], r: [260, 120], y: 128, w: 0.05, n: 7, p: 4.2 },
+  { c: [-120, 0, -100], r: [150, 190], y: 158, w: -0.065, n: 4, p: 1.2 },
 ];
+const MIN_GAP = 15; // jarak minimum antarburung dalam satu kawanan (m), lebih dari rentang sayap terbesar
 
 export function createBirds(stage, { dark = false } = {}) {
-  const mat = new THREE.MeshBasicMaterial({ color: dark ? '#111215' : '#2E2A25', side: THREE.DoubleSide, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
+  const mat = new THREE.MeshBasicMaterial({ color: dark ? '#DCE0E6' : '#2E2A25', side: THREE.DoubleSide, transparent: true, opacity: 0, depthWrite: false, toneMapped: false });
   const gl = wingGeometry(-1), gr = wingGeometry(1);
   const group = new THREE.Group();
   stage.scene.add(group);
   const birds = [];
   const r = (() => { let a = 77; return () => ((a = (a * 16807) % 2147483647) / 2147483647); })();
   FLOCKS.forEach((f, fi) => {
+    // Formasi acak: posisi tiap burung relatif terhadap pemimpin diambil acak, ditolak bila terlalu dekat dengan burung lain.
+    const offs = [];
     for (let i = 0; i < f.n; i++) {
+      let o = null;
+      for (let tries = 0; tries < 200 && !o; tries++) {
+        const c = { back: i === 0 ? 0 : 6 + r() * 45, side: i === 0 ? 0 : (r() - 0.5) * 50, up: i === 0 ? 0 : (r() - 0.5) * 12 };
+        if (offs.every((q) => Math.hypot(q.back - c.back, q.side - c.side, q.up - c.up) >= MIN_GAP)) o = c;
+      }
+      offs.push(o || { back: i * MIN_GAP, side: 0, up: 0 });
+    }
+    offs.forEach((o) => {
       const body = new THREE.Group();
       const L = new THREE.Mesh(gl, mat), R = new THREE.Mesh(gr, mat);
       L.renderOrder = R.renderOrder = 8;
       body.add(L, R);
-      const scale = 2 + r() * 0.6; // rentang sayap ±9–12 m supaya siluetnya terbaca dari kamera jauh
-      body.scale.setScalar(scale);
+      body.scale.setScalar(2 + r() * 0.6); // rentang sayap ±9–12 m supaya siluetnya terbaca dari kamera jauh
       group.add(body);
-      // formasi V: burung ke-i mundur dan menyamping dari pemimpin
-      const rank = Math.ceil(i / 2), side = i === 0 ? 0 : i % 2 ? 1 : -1;
-      birds.push({ body, L, R, f, fi, back: rank * 12 + r() * 3, side: side * rank * 9, up: (r() - 0.5) * 3, flap: r() * Math.PI * 2, fs: 7 + r() * 3 });
-    }
+      // goyangan kecil per burung (≤ 2 m) supaya formasi terasa hidup tanpa saling mendekat
+      birds.push({ body, L, R, f, fi, ...o, wob: r() * Math.PI * 2, flap: r() * Math.PI * 2, fs: 7 + r() * 3 });
+    });
   });
   const pos = new THREE.Vector3(), ahead = new THREE.Vector3(), fwd = new THREE.Vector3(), right = new THREE.Vector3();
-  const pathAt = (f, a, out) => out.set(f.c[0] + Math.cos(a) * f.r[0], f.y + Math.sin(a * 2) * 6, f.c[2] + Math.sin(a) * f.r[1]);
+  const pathAt = (f, a, out) => out.set(f.c[0] + Math.cos(a) * f.r[0], f.y + Math.sin(a * 2) * 4, f.c[2] + Math.sin(a) * f.r[1]);
   return {
     group,
     /** dist = jarak kamera ke titik bidik (m); still = gerak dikurangi. */
@@ -62,7 +73,9 @@ export function createBirds(stage, { dark = false } = {}) {
         fwd.copy(ahead).sub(pos).normalize();
         right.set(fwd.z, 0, -fwd.x).normalize();
         // posisi dalam formasi relatif terhadap pemimpin
-        b.body.position.copy(pos).addScaledVector(fwd, -b.back).addScaledVector(right, b.side).add(new THREE.Vector3(0, b.up, 0));
+        const wob = still ? 0 : Math.sin(t * 0.7 + b.wob);
+        b.body.position.copy(pos).addScaledVector(fwd, -b.back).addScaledVector(right, b.side + wob * 1.5);
+        b.body.position.y += b.up + wob * 1.2;
         b.body.lookAt(b.body.position.clone().add(fwd));
         const flap = still ? 0.2 : Math.sin(t * b.fs + b.flap) * 0.55 + 0.1;
         b.L.rotation.z = -flap;
