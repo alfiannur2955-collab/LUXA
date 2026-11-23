@@ -129,3 +129,7 @@
   .lxp-dots { grid-auto-flow: column; }
 }
 @media (prefers-reduced-motion: reduce) { .lxp-dot::before { transition: none; } }
+
+/* Mode capture (gambar laporan): hanya kanvas, mengikuti ukuran host. */
+.lxp.is-capture { position: absolute; z-index: auto; }
+.lxp.is-capture > :not(.lxp-stage) { display: none !important; }

@@ -29,7 +29,8 @@ const ICON = {
  * appTheme: 'light' | 'dark'; onExit(): dipanggil saat pengguna keluar (Esc / tombol Keluar).
  * renderCard(slide, ctx) -> HTML isi kartu (diisi di P3).
  */
-export function createPresenter({ host, state, appTheme = 'light', userName = '', onExit = () => {}, renderCard = defaultCard, startAt = 0 }) {
+// capture: true = tanpa antarmuka dan tanpa navigasi, hanya untuk mengambil gambar slide (laporan).
+export function createPresenter({ host, state, appTheme = 'light', userName = '', onExit = () => {}, renderCard = defaultCard, startAt = 0, capture = false, pixelRatio = null }) {
   const analysis = state.analysisData;
   const roles = state.config?.roles;
   const settings = state.config?.settings || {};
@@ -43,7 +44,7 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   const pal = PALETTES[theme];
 
   const root = document.createElement('div');
-  root.className = 'lxp';
+  root.className = capture ? 'lxp is-capture' : 'lxp';
   root.dataset.theme = theme;
   root.setAttribute('role', 'region');
   root.setAttribute('aria-roledescription', 'presentasi');
@@ -65,7 +66,8 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   const stageEl = $('.lxp-stage');
 
   const maket = buildMaket(analysis, roles, pal, colors);
-  const stage = createStage(stageEl, { theme, context: false, shadowSize: maket.quality.shadowSize });
+  const stage = createStage(stageEl, { theme, context: false, shadowSize: capture ? 4096 : maket.quality.shadowSize });
+  if (pixelRatio) { stage.renderer.setPixelRatio(pixelRatio); stage.resize(); }
   stage.setAO(maket.quality.ao);
   stage.scene.add(maket.group);
   const b = maket.bounds;
@@ -178,6 +180,7 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
     layoutInset();
   }
   function layoutInset() {
+    if (capture) { stage.setFrameInset(0); return; }
     const r = card.getBoundingClientRect();
     stage.setFrameInset(window.innerWidth > 720 ? r.right + 24 : 0);
   }
@@ -352,21 +355,36 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
     root.remove();
   }
 
-  window.addEventListener('keydown', onKey);
-  window.addEventListener('resize', onResize);
-  root.addEventListener('wheel', onWheel, { passive: false });
-  root.addEventListener('touchstart', onTouchStart, { passive: true });
-  root.addEventListener('touchend', onTouchEnd, { passive: true });
-  document.addEventListener('fullscreenchange', onFullChange);
+  if (!capture) {
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onResize);
+    root.addEventListener('wheel', onWheel, { passive: false });
+    root.addEventListener('touchstart', onTouchStart, { passive: true });
+    root.addEventListener('touchend', onTouchEnd, { passive: true });
+    document.addEventListener('fullscreenchange', onFullChange);
+  }
 
   renderUI();
   computePoses();
   snapTo(poses[slides[index].id]);
-  frame();
+  if (!capture) frame();
+
+  /** Gambar satu slide (mode capture): JPEG data URL dengan awan dan burung pada waktu tetap. */
+  function shot(id, { time = 20000, quality = 0.92 } = {}) {
+    const i = slides.findIndex((x) => x.id === id);
+    if (i < 0) return null;
+    go(i, { instant: true });
+    dome.setOpacity(domeK(time));
+    stage.scene.background.lerpColors(bgBase, bgHeat, bgK(time));
+    clouds.tick(stage.camera, time / 1000, cam.dist, false);
+    birds.tick(time / 1000, cam.dist, false);
+    stage.render();
+    return stage.renderer.domElement.toDataURL('image/jpeg', quality);
+  }
 
   return {
     get index() { return index; },
-    slides, go, next, prev, destroy, toggleFull,
+    slides, go, next, prev, destroy, toggleFull, shot, theme, heatNeedsBg,
     _debug: { stage, maket, dome, pick, poses: () => poses, cam, skyScale },
   };
 }
