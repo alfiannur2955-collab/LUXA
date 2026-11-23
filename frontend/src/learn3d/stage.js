@@ -94,7 +94,7 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
     const d = dirFrom(s.az, s.el);
     const t = new THREE.Vector3(...s.target);
     sunState.focus.copy(s.shadowFocus ? new THREE.Vector3(...s.shadowFocus) : new THREE.Vector3(0, 0, 0));
-    sunState.half = s.shadow || 230;
+    sunState.half = s.shadow || 460;
     applySun();
     camera.position.copy(t).addScaledVector(d, s.dist);
     camera.near = Math.max(2, s.dist * 0.3);

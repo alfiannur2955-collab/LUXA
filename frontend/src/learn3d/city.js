@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-export const CITY = { block: 60, road: 16, seed: 6389 };
+export const CITY = { block: 60, road: 16, seed: 6389, rings: 5 };
 const PITCH = CITY.block + CITY.road; // 76
 
 function rng(seed) {
@@ -92,8 +92,9 @@ export function buildCity(pal) {
   const marks = [];
   const half = CITY.block / 2;
 
-  for (let i = -2; i <= 2; i++) {
-    for (let j = -2; j <= 2; j++) {
+  const N = CITY.rings;
+  for (let i = -N; i <= N; i++) {
+    for (let j = -N; j <= N; j++) {
       const cx = i * PITCH, cz = j * PITCH;
       const ring = Math.max(Math.abs(i), Math.abs(j));
       walks.push(box(cx - half, cz - half, cx + half, cz + half, 0, 0.25));
@@ -105,7 +106,7 @@ export function buildCity(pal) {
       }
       // Blok di depan kamera (barat dan selatan tower) dibuat lebih rendah supaya kaki tower terlihat.
       const front = i <= 0 && j >= 0;
-      const maxF = Math.min(ring === 1 ? 12 : 7, front ? 6 : 99);
+      const maxF = Math.min(ring === 1 ? 12 : ring === 2 ? 9 : 7, front && ring <= 2 ? 6 : 99);
       // Kavling 2 x 2 dengan celah 4 m; kadang dua kavling digabung.
       const lots = [[-half + 1, -half + 1, -2, -2], [2, -half + 1, half - 1, -2], [-half + 1, 2, -2, half - 1], [2, 2, half - 1, half - 1]];
       const merge = r();
@@ -130,8 +131,8 @@ export function buildCity(pal) {
   for (const [x, z] of [[-26, -26], [26, -26], [-26, 26], [26, 26], [-26, 0], [26, 8]]) trees.push([x, z, 1]);
 
   // Garis tengah jalan putus-putus.
-  const ext = 2.5 * PITCH;
-  for (let k = -2; k <= 1; k++) {
+  const ext = (N + 0.5) * PITCH;
+  for (let k = -N; k < N; k++) {
     const c = k * PITCH + PITCH / 2;
     for (let t = -ext; t < ext; t += 9) {
       marks.push(box(t, c - 0.15, t + 4.5, c + 0.15, 0.02, 0.02));
@@ -150,14 +151,14 @@ export function buildCity(pal) {
 
   // Tanah tanpa cahaya yang memudar ke warna latar, plus penangkap bayangan di atasnya,
   // supaya tepi bidang tanah tidak pernah terlihat.
-  const groundSize = 2600;
+  const groundSize = 4400;
   const gc = document.createElement('canvas');
   gc.width = gc.height = 512;
   const gx = gc.getContext('2d');
   const grad = gx.createRadialGradient(256, 256, 0, 256, 256, 256);
   grad.addColorStop(0, pal.road);
-  grad.addColorStop(0.17, pal.road);
-  grad.addColorStop(0.42, pal.bg);
+  grad.addColorStop(0.22, pal.road);
+  grad.addColorStop(0.5, pal.bg);
   grad.addColorStop(1, pal.bg);
   gx.fillStyle = grad;
   gx.fillRect(0, 0, 512, 512);
