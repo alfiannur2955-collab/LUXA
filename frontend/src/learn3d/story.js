@@ -184,14 +184,14 @@ function refresh() {
   updateShade();
   // Label dan panah yang ikut tinggi kaca dan arah matahari
   const a = anchorsWest();
-  const out = new THREE.Vector3(-5.7, 0, 0);
+  const out = new THREE.Vector3(-5.4, 0, 0);
   L.heat.wall.setPos(a.wall.clone().add(out));
   L.heat.glass.setPos(a.glass.clone().add(out));
   const sd = sunDirVec();
-  L.heat.solar.setPos(a.solar.clone().addScaledVector(SOLAR_DIR, 6.2));
+  L.heat.solar.setPos(a.solar.clone().addScaledVector(SOLAR_DIR, 5.6));
   L.overhang.setPos(a.overhang);
   L.glassH.setPos(a.glassMid);
-  arrows.update({ q: w, anchors: a, sunDir: sd });
+  arrows.update({ q: w, anchors: a });
 }
 
 function compass(az) {
@@ -367,6 +367,7 @@ function tick(now) {
   const w1 = near(c, idx['bab-1']), w4 = near(c, idx['bab-4']);
   if (w1 >= w4) { overlay.setWeights(ottvWeights); overlay.setAmount(w1); } else { overlay.setWeights(sfWeights); overlay.setAmount(w4); }
   arrows.setAmount(near(c, idx['bab-2'], 2.2));
+  arrows.tick(stage.camera, now / 1000, reduceMotion);
   sun.setVisible(c > idx['bab-4'] - 0.45 && c < idx['bab-4'] + 0.55);
   L.total.on = at(c, 'bab-1');
   L.sf.forEach((l) => { l.on = at(c, 'bab-4'); });
