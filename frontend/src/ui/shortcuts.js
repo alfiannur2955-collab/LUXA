@@ -25,6 +25,8 @@ export function installShortcuts({ getState, pieMenu, handlers }) {
   let holdingV = false;
 
   const onKeyDown = (e) => {
+    // Mode Presentasi memegang keyboard sendiri (navigasi slide, Esc keluar).
+    if (getState().presentation) return;
     // Ctrl+K / Cmd+K works anywhere
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault();
@@ -67,7 +69,7 @@ export function installShortcuts({ getState, pieMenu, handlers }) {
         handlers.onClosePopover();
         return;
       }
-      if (s.dockCustomizerOpen || s.activeRailCard || s.workspace?.preset === 'presentasi') {
+      if (s.dockCustomizerOpen || s.activeRailCard) {
         e.preventDefault();
         handlers.onCloseRailCard();
         return;

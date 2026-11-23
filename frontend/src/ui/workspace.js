@@ -3,7 +3,7 @@
  * - 3 presets:
  *   1. `belajar`    : all dock items, SNI term tooltips active
  *   2. `lanjut`     : panel-level data table, per-orientation material override, shortcut hints
- *   3. `presentasi` : hides rail & side column for full-bleed 3D viewer, keeps bottom pills
+ *   (Presentasi kini lapisan tersendiri, present/presenter.js; preset lama 'presentasi' dibaca sebagai 'belajar'.)
  * - Dock v1 customization: reorder rail items, show/hide rail items, move mode bar top/bottom.
  * - Persisted in `localStorage` (`luxa.workspace.v1`) wrapped in `try/catch`.
  */
@@ -25,7 +25,7 @@ export const RAIL_ITEM_META = {
 
 export function createDefaultWorkspace() {
   return {
-    preset: 'belajar', // 'belajar' | 'lanjut' | 'presentasi'
+    preset: 'belajar', // 'belajar' | 'lanjut'
     railOrder: [...DEFAULT_RAIL_ORDER],
     hiddenRailItems: [],
     modeBarPosition: 'top', // 'top' | 'bottom'
@@ -35,7 +35,7 @@ export function createDefaultWorkspace() {
 export function sanitizeWorkspace(raw) {
   const base = createDefaultWorkspace();
   if (!raw || typeof raw !== 'object') return base;
-  const preset = ['belajar', 'lanjut', 'presentasi'].includes(raw.preset) ? raw.preset : 'belajar';
+  const preset = ['belajar', 'lanjut'].includes(raw.preset) ? raw.preset : 'belajar';
   const order = [];
   if (Array.isArray(raw.railOrder)) {
     for (const id of raw.railOrder) {

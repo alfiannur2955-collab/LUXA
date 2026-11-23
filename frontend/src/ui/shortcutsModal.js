@@ -13,7 +13,7 @@ const SHORTCUT_ROWS = [
   { keys: ['C'], desc: 'Simpan gambar PNG' },
   { keys: ['Spasi'], desc: 'Putar matahari satu hari' },
   { keys: ['Shift', 'klik'], desc: 'Tambah panel ke pilihan' },
-  { keys: ['Esc'], desc: 'Selesai atur arah utara, tutup kartu, palet, menu arah, atau Presentasi' },
+  { keys: ['Esc'], desc: 'Selesai atur arah utara, tutup kartu, palet, atau menu arah; di Presentasi: keluar' },
   { keys: ['Ctrl', 'K'], desc: 'Cari perintah' },
   { keys: ['?'], desc: 'Daftar pintasan ini' },
 ];

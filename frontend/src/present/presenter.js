@@ -139,10 +139,15 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
     const m = 0.06; // ruang bebas di sekitar bola matahari (layar ternormalisasi)
     return q.z < 1 && q.x > x0 - m && q.x < x1 + m && q.y > y0 - m && q.y < y1 + m;
   }
+  // Coba geser azimut dulu; bila matahari tinggi (dekat puncak kubah), turunkan kamera supaya bola
+  // matahari tampak di atas model.
   function clearOfSun(p) {
-    for (const d of [0, 10, -10, 20, -20, 30, -30, 40, -40, 50, -50, 60, -60, 75, -75, 90, -90]) {
-      const c = { ...p, az: (p.az + d + 360) % 360 };
-      if (!sunOverModel(c)) return c;
+    for (const de of [0, -12, -22, -32]) {
+      const el = Math.max(8, p.el + de);
+      for (const d of [0, 10, -10, 20, -20, 30, -30, 40, -40, 50, -50, 60, -60, 75, -75, 90, -90]) {
+        const c = { ...p, el, az: (p.az + d + 360) % 360 };
+        if (!sunOverModel(c)) return c;
+      }
     }
     return p;
   }

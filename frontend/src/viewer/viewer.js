@@ -298,6 +298,7 @@ class LuxaViewer {
 
     const tick = (now) => {
       this.rafId = window.requestAnimationFrame(tick);
+      if (this.paused) return; // dijeda selama Mode Presentasi (lapisan lain yang menggambar)
       if (this.container && this.container.isConnected) {
         this.rig.tick(now);
         this.controls.update();

@@ -37,6 +37,7 @@ function buildCommandItems(state, actions) {
       { id: 'mode-sun', label: 'Mode tampilan Matahari', hint: 'Mode', keywords: 'mode matahari paparan sinar bayangan terkena', run: () => actions.onChangeViewerMode?.('sun') },
       { id: 'tool-xray', label: state.overlayXray ? 'Matikan Transparan' : 'Nyalakan Transparan', hint: 'Alat', keywords: 'transparan xray tembus pandang', run: () => actions.onToggleOverlay?.('xray', !state.overlayXray) },
       { id: 'tool-check', label: state.overlayCheck ? 'Matikan Perlu dicek' : 'Nyalakan Perlu dicek', hint: 'Alat', keywords: 'perlu dicek periksa catatan kejanggalan', run: () => actions.onToggleOverlay?.('check', !state.overlayCheck) },
+      ...(state.analysisData ? [{ id: 'present', label: 'Mulai presentasi', hint: 'Slide', keywords: 'presentasi slide paparan sidang clicker', run: () => actions.onOpenPresentation?.() }] : []),
       { id: 'cam-fit', label: 'Pas kamera ke model', hint: 'F', keywords: 'fit zoom pas model kamera', run: () => actions.onFitCamera() },
       { id: 'view-save', label: 'Simpan view sekarang', hint: 'S', keywords: 'simpan view kamera', run: () => actions.onSaveView() },
       { id: 'cap-1x', label: 'Simpan gambar (1x)', hint: 'PNG', keywords: 'simpan gambar capture screenshot png 1x', run: () => actions.onCapturePng(1) },

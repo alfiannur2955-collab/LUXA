@@ -160,6 +160,7 @@ const initialState = {
   captureScale: 2, // 1 | 2 | 4
   openPopover: null, // null | 'direction' | 'views' | 'capture'
   commandPaletteOpen: false,
+  presentation: false, // Mode Presentasi terbuka (tidak disimpan)
   shortcutsModalOpen: false,
   materialCatalog: null, // null | { open: true, mode: 'browse'|'pick', tab: 'catalog'|'recommend', lockedCategory, targetField, targetOrientCode, targetLabel }
   selectedGroup: null,
@@ -197,7 +198,7 @@ const initialState = {
   compareBusy: false,
   designHistory: [], // [{ id, label, config, analysisData, savedAt }]
   workspace: {
-    preset: 'belajar', // 'belajar' | 'lanjut' | 'presentasi'
+    preset: 'belajar', // 'belajar' | 'lanjut'
     railOrder: ['model', 'material', 'location', 'display', 'compare', 'report'],
     hiddenRailItems: [],
     modeBarPosition: 'top', // 'top' | 'bottom'

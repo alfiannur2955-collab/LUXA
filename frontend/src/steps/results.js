@@ -430,16 +430,6 @@ export function renderResultsScreen(state, handlers) {
   }
   viewerSec.appendChild(bottomStack);
 
-  // Presentation mode exit pill (`Esc` also exits)
-  if (state.workspace?.preset === 'presentasi') {
-    const exitPres = document.createElement('button');
-    exitPres.type = 'button';
-    exitPres.className = 'glass pres-exit-chip';
-    exitPres.innerHTML = `${icon('close', 14)}<span>Keluar Presentasi</span><kbd>Esc</kbd>`;
-    exitPres.addEventListener('click', () => handlers.onExitPresentation?.());
-    viewerStage.appendChild(exitPres);
-  }
-
   // Right column (300px)
   const side = document.createElement('div');
   side.className = 'results-col';

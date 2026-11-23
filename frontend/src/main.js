@@ -76,6 +76,7 @@ import {
 import { captureViewerPng } from './viewer/capture.js';
 import { pieMenu } from './viewer/pieMenu.js';
 import { viewer } from './viewer/viewer.js';
+import { loadUserName } from './ui/userName.js';
 import { togglePanelSelection } from './viewer/selection.js';
 import { SunDomeController } from './viewer/sundome.js';
 import { NorthRingController } from './viewer/northRing.js';
@@ -639,7 +640,7 @@ const vbarHandlers = {
   onSunNow: handleSunNow,
   onChangeSunDate: handleChangeSunDate,
   onFitCamera: handleFitCamera,
-  onTogglePresentation: () => (getState().workspace?.preset === 'presentasi' ? handleExitPresentation() : handleSetWorkspacePreset('presentasi')),
+  onTogglePresentation: () => (getState().presentation ? handleExitPresentation() : handleOpenPresentation()),
   onSetProjection: handleSetProjection,
   onSelectDirection: handleSelectDirection,
   onTogglePopover: (pop) => setState({ openPopover: pop }),
@@ -1059,23 +1060,58 @@ function applyWorkspaceChange(nextWs) {
   setState({
     workspace: nextWs,
     advancedMode: nextWs.preset === 'lanjut',
-    activeRailCard: nextWs.preset === 'presentasi' ? null : getState().activeRailCard,
+    activeRailCard: getState().activeRailCard,
   });
 }
 
-let presetBeforePresentation = 'belajar';
+// Mode Presentasi: lapisan layar penuh di atas aplikasi (present/presenter.js), dimuat saat dibuka.
+// Viewer dijeda selama presentasi dan tidak diubah, jadi setelah keluar kamera dan tampilannya tetap seperti semula.
+let presenter = null;
+let presenterOpening = false;
+async function handleOpenPresentation() {
+  const s = getState();
+  if (!s.analysisData) {
+    showToast('Hitung dulu untuk membuat presentasi.', 'warn', 2400);
+    return;
+  }
+  if (presenter || presenterOpening) return;
+  presenterOpening = true;
+  setState({ presentation: true, openPopover: null, commandPaletteOpen: false, shortcutsModalOpen: false });
+  try {
+    const { createPresenter } = await import('./present/presenter.js');
+    const st = getState();
+    if (!st.presentation) return; // dibatalkan saat memuat
+    viewer.paused = true;
+    presenter = createPresenter({
+      host: document.body,
+      state: st,
+      appTheme: st.theme,
+      userName: loadUserName() || '',
+      onExit: handleExitPresentation,
+    });
+  } catch (err) {
+    console.error(err);
+    viewer.paused = false;
+    presenter = null;
+    setState({ presentation: false });
+    showToast('Presentasi gagal dibuka di perangkat ini.', 'warn', 3000);
+  } finally {
+    presenterOpening = false;
+  }
+}
 
-/** Keluar Presentasi: kembali ke preset sebelumnya (Belajar atau Lanjut). */
 function handleExitPresentation() {
-  handleSetWorkspacePreset(presetBeforePresentation === 'lanjut' ? 'lanjut' : 'belajar');
+  if (presenter) presenter.destroy();
+  presenter = null;
+  viewer.paused = false;
+  setState({ presentation: false });
 }
 
 function handleSetWorkspacePreset(preset) {
   const cur = getState().workspace || createDefaultWorkspace();
-  if (preset === 'presentasi' && cur.preset !== 'presentasi') presetBeforePresentation = cur.preset || 'belajar';
   const next = { ...cur, preset };
   applyWorkspaceChange(next);
-  const labels = { belajar: 'Belajar', lanjut: 'Lanjut', presentasi: 'Presentasi' };
+  const labels = { belajar: 'Belajar', lanjut: 'Lanjut' };
   showToast(`Workspace: ${labels[preset] || preset}`, 'ok', 2000);
 }
 
@@ -1472,7 +1508,6 @@ const panelBuilders = createRailPanelBuilders({
 function renderApp(state) {
   if (!rootEl) return;
   applyThemeToDom(state.theme);
-  rootEl.classList.toggle('is-presentation', state.workspace?.preset === 'presentasi');
   // Kartu fitur kiri mendorong area kerja ke kanan (tidak menutupi viewer dan bar-nya).
   rootEl.classList.toggle('has-rail-card', Boolean(state.activeRailCard));
   updateDocumentTitle(state.step);
@@ -1747,7 +1782,6 @@ function renderApp(state) {
     onSetSunView: handleSetSunView,
         onChangeNorth: handleChangeNorthAngle,
         onToggleFormulaPill: (open) => setState({ formulaPillExpanded: Boolean(open) }),
-        onExitPresentation: () => handleExitPresentation(),
         onChangeHeatmapGranularity: (gran) => setState({ heatmapGranularity: gran }),
         onToggleHeatmapSmooth: (enabled) => setState({ heatmapSmooth: Boolean(enabled) }),
         onToggleExposureShading: (enabled) => setState({ exposureShading: Boolean(enabled) }),
@@ -1889,6 +1923,7 @@ function renderApp(state) {
 
   const cmdEl = renderCommandPalette(state, {
     onClose: () => setState({ commandPaletteOpen: false }),
+    onOpenPresentation: () => handleOpenPresentation(),
     onSetProjection: (p) => {
       handleSetProjection(p);
       showToast(`Proyeksi: ${PROJECTION_LABELS[p] || p}`, 'ok', 1800);
@@ -2037,8 +2072,6 @@ installShortcuts({
         setState({ dockCustomizerOpen: false });
       } else if (s.activeRailCard) {
         setState({ activeRailCard: null });
-      } else if (s.workspace?.preset === 'presentasi') {
-        handleExitPresentation();
       }
     },
     onSetProjection: (p) => {
