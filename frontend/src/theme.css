@@ -1520,6 +1520,35 @@ body.is-d5-rotating * {
   color: var(--ink);
 }
 
+.compare-seam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  border-left: 1px solid var(--line);
+  z-index: 11;
+  pointer-events: none;
+}
+
+.compare-vs {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 13;
+  width: 44px;
+  height: 44px;
+  border-radius: 22px;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  pointer-events: none;
+}
+
 .compare-diff-strip {
   position: absolute;
   left: 50%;
@@ -2635,33 +2664,59 @@ body.is-d5-rotating * {
   bottom: 82px;
   z-index: 60;
   display: grid;
+  justify-items: center;
   gap: 8px;
-  width: min(380px, calc(100vw - 32px));
+  width: min(460px, calc(100vw - 32px));
   pointer-events: none;
 }
 
+/* Notifikasi kaca: tembus pandang ke model di belakangnya, nada ditandai titik kecil (bukan garis tepi) */
 .toast {
   pointer-events: auto;
-  padding: 12px 16px;
-  border-radius: var(--radius-lg);
+  width: fit-content;
+  max-width: 100%;
+  padding: 9px 16px 9px 12px;
+  border-radius: 14px;
   font-size: 13px;
-  font-weight: 600;
+  line-height: 18px;
+  font-weight: 500;
   color: var(--ink);
   display: flex;
   align-items: center;
   gap: 10px;
+  background: var(--glass-thin);
+  border: 1px solid var(--glass-edge);
+  -webkit-backdrop-filter: blur(22px) saturate(1.6);
+  backdrop-filter: blur(22px) saturate(1.6);
+  box-shadow: 0 6px 24px rgba(20, 16, 10, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  animation: toast-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.toast.is-warn {
-  border-left: 4px solid var(--warn);
+.toast::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tone, var(--muted));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone, var(--muted)) 22%, transparent);
 }
 
-.toast.is-ok {
-  border-left: 4px solid var(--ok);
+.toast.has-lux::before {
+  display: none;
 }
 
-.toast.is-fail {
-  border-left: 4px solid var(--fail);
+.toast.is-warn { --tone: var(--warn); }
+.toast.is-ok { --tone: var(--ok); }
+.toast.is-fail { --tone: var(--fail); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { animation: none; }
 }
 
 .toast-with-undo {
@@ -3563,34 +3618,7 @@ body.is-d5-rotating * {
  * Audit UI 22 Nov: tidak saling tumpuk, tanpa geser horizontal
  * ============================================================================ */
 
-/* Toast kecil di pojok kanan atas (di bawah topbar), tidak menutupi bar viewer. */
-.toast-stack {
-  left: auto;
-  right: 16px;
-  top: 72px;
-  bottom: auto;
-  transform: none;
-  width: min(300px, calc(100vw - 32px));
-  gap: 6px;
-  justify-items: end;
-}
-
-.toast {
-  padding: 7px 10px 7px 12px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.35;
-  gap: 8px;
-  box-shadow: var(--shadow-float);
-  max-width: 100%;
-}
-
-.toast.is-warn,
-.toast.is-ok,
-.toast.is-fail {
-  border-left-width: 3px;
-}
+/* Toast: lihat bagian Toast Notifications (kaca, ditengahkan di bawah area 3D). */
 
 .toast-undo-btn {
   padding: 2px 8px;

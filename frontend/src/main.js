@@ -55,7 +55,7 @@ import { renderCompareScreen } from './steps/compare.js';
 import { renderErrorScreen, renderLoadingScreen } from './steps/status.js';
 import { renderUploadScreen } from './steps/upload.js';
 import { renderCommandPalette } from './ui/commandPalette.js';
-import { fmtFileSize } from './ui/escapeHtml.js';
+import { fmtFileSize, fmtId } from './ui/escapeHtml.js';
 import { installShortcuts } from './ui/shortcuts.js';
 import { renderShortcutsModal } from './ui/shortcutsModal.js';
 import { showConfirmDeleteProjectDialog, showReplaceMaterialDialog } from './ui/dialogs.js';
@@ -420,7 +420,7 @@ async function handleCreateAlternative({ name, glazingMaterialId, wallMaterialId
       activeAlternativeId: altRec.id,
       compareBusy: false,
     });
-    showToast(`Alternatif ${codeChar} selesai dihitung (${result.ottv_total_wm2} W/m²).`, 'ok', 2800);
+    showToast(`Alternatif ${codeChar} selesai dihitung: ${fmtId(result.ottv_total_wm2, 2)} W/m².`, 'ok', 2800);
   } catch (err) {
     setState({ compareBusy: false });
     showToast(err.message || 'Gagal menghitung alternatif desain.', 'fail');
@@ -606,7 +606,7 @@ async function handleCreateModelAlternative({ unit, upAxis, scope, northAngleDeg
       compareBusy: false,
       compareModelDraft: null,
     });
-    showToast(`Alternatif ${codeChar} (${d.filename}) selesai dihitung: ${result.ottv_total_wm2} W/m².`, 'ok', 3200);
+    showToast(`Alternatif ${codeChar} (${d.filename}) selesai dihitung: ${fmtId(result.ottv_total_wm2, 2)} W/m².`, 'ok', 3200);
   } catch (err) {
     setState({ compareBusy: false, compareModelDraft: { ...d, busy: false, error: err.message || 'Gagal menghitung model ini.' } });
   }
