@@ -114,7 +114,8 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   const skyScale = Math.max(maket.scale, (R * 1.2) / 105);
   const clouds = createClouds(stage, { dark: theme === 'dark', scale: skyScale, target: [b.center.x, b.center.y, b.center.z], count: 14, opacity: 0.55, shadow: capture ? 0 : 0.35, hole: [Math.max(b.radius, R * 0.6) * 1.2, Math.max(b.radius, R * 0.6) * 3] });
   const birds = createBirds(stage, { dark: theme === 'dark', scale: skyScale });
-  clouds.group.visible = birds.group.visible = sky;
+  clouds.group.visible = sky === true; // sky: true = awan + burung, 'birds' = burung saja (sampul laporan), false = tanpa langit
+  birds.group.visible = Boolean(sky);
 
   // Heatmap per sisi: skala panas SNI (0 / 25 / 35 / 50+ W/m², warna skala terang aplikasi) di semua tema
   // supaya legenda konsisten. Bila ada warna sisi yang kontrasnya < 3:1 terhadap latar, slide heatmap
@@ -432,7 +433,7 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   if (!capture) frame();
 
   /** Gambar satu slide (mode capture): JPEG data URL dengan awan dan burung pada waktu tetap. */
-  function shot(id, { time = 20000, quality = 0.92, zoom = 1, labels = false, heat = null, shiftLeft = 0, shiftRight = 0, shiftUp = 0, fit = null, pose = null, project = null, dome: domeOn = null, context = true } = {}) {
+  function shot(id, { time = 20000, quality = 0.92, zoom = 1, labels = false, heat = null, shiftLeft = 0, shiftRight = 0, shiftUp = 0, fit = null, pose = null, project = null, dome: domeOn = null, context = true, birdsInView = false } = {}) {
     const i = slides.findIndex((x) => x.id === id);
     if (maket.site) maket.site.visible = context; // tampak: konteks di depan fasad disembunyikan
     if (i < 0) return null;
@@ -461,7 +462,30 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
     stage.scene.background.lerpColors(bgBase, bgHeat, bgK(time));
     if (sky) {
       clouds.tick(stage.camera, time / 1000, cam.dist, false);
-      birds.tick(time / 1000, cam.dist, false);
+      let bt = time;
+      if (birdsInView) {
+        // cari saat kawanan burung paling banyak masuk bingkai (bagian atas gambar, tidak menutupi gedung)
+        let best = -1;
+        stage.camera.updateMatrixWorld();
+        // kotak gedung di layar: burung yang menutupi gedung tidak dihitung
+        let gx0 = 1, gx1 = -1, gy0 = 1, gy1 = -1;
+        for (const x of [b.box.min.x, b.box.max.x]) for (const y of [b.box.min.y, b.box.max.y]) for (const z of [b.box.min.z, b.box.max.z]) {
+          v.set(x, y, z).project(stage.camera);
+          gx0 = Math.min(gx0, v.x); gx1 = Math.max(gx1, v.x); gy0 = Math.min(gy0, v.y); gy1 = Math.max(gy1, v.y);
+        }
+        for (let ts = 0; ts < 120000; ts += 1500) {
+          birds.tick(ts / 1000, cam.dist, false);
+          let n = 0;
+          birds.group.traverse((o) => {
+            if (!o.isGroup || o === birds.group) return;
+            v.copy(o.position).project(stage.camera);
+            const onBld = v.x > gx0 - 0.06 && v.x < gx1 + 0.06 && v.y > gy0 - 0.04 && v.y < gy1 + 0.06;
+            if (Math.abs(v.x) < 0.85 && v.y > 0.15 && v.y < 0.9 && v.z < 1) n += onBld ? -2 : 1;
+          });
+          if (n > best) { best = n; bt = ts; }
+        }
+      }
+      birds.tick(bt / 1000, cam.dist, false);
     }
     stage.render();
     const img = stage.renderer.domElement.toDataURL('image/jpeg', quality);

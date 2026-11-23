@@ -10,15 +10,15 @@ const pc = (v) => `${f0((Number(v) || 0) * 100)}%`;
 const list = (arr) => (arr.length <= 1 ? arr.join('') : `${arr.slice(0, -1).join(', ')}, dan ${arr[arr.length - 1]}`);
 
 const cssFor = (port) => `
-@page { size: ${port ? '297mm 420mm' : '420mm 297mm'}; margin: 0; }
+@page { size: ${port ? '297mm 419.8mm' : '419.8mm 297mm'}; margin: 0; } /* sedikit di bawah A3 baku: Chrome tidak membulatkan ke 420,2 mm yang meninggalkan garis kertas putih */
 * { box-sizing: border-box; }
 body { margin: 0; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; background: #9C978F; }
 .pg { --ink: #1E1F24; --body: #44403A; --muted: #857E73; --line: rgba(30,31,36,0.12); --soft: rgba(30,31,36,0.07); --bg: #FFFFFF; --bg8: rgba(255,255,255,0.8); --bg0: rgba(255,255,255,0); --ok: #0F6E66; --fail: #B3261E; --sun: #E8890C; --glass: rgba(255,255,255,0.7); --gline: rgba(255,255,255,0.95);
-  position: relative; width: ${port ? 297 : 420}mm; height: ${port ? 420 : 297}mm; margin: 0 auto 10mm; background: var(--bg); color: var(--ink); overflow: hidden; break-after: page; }
+  position: relative; width: ${port ? 297 : 419.8}mm; height: ${port ? 419.8 : 297}mm; margin: 0 auto 10mm; background: var(--bg); color: var(--ink); overflow: hidden; break-after: page; }
 .pg.dark { --ink: #F2EFE9; --body: #CBC6BD; --muted: #8E8980; --line: rgba(255,255,255,0.13); --soft: rgba(255,255,255,0.09); --bg: #17181B; --bg8: rgba(23,24,27,0.8); --bg0: rgba(23,24,27,0); --ok: #5EC4BA; --fail: #F2867E; --sun: #F6B24A; --glass: rgba(30,31,35,0.62); --gline: rgba(255,255,255,0.12); }
-@media print { body { background: none; } .pg { margin: 0; } }
+@media print { html, body { background: var(--print-bg, #fff); } .pg { margin: 0; } }
 /* gambar utama = latar satu halaman; tirai lembut di kiri dan bawah supaya teks yang melayang tetap terbaca */
-.bg { position: absolute; inset: 0; }
+.bg { position: absolute; inset: -1mm; } /* sedikit melewati tepi: tanpa garis putih karena pembulatan piksel */
 .bg img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .veil { position: absolute; inset: 0; pointer-events: none;
   /* warna transparan ditulis dengan rgba warna latar: 'transparent' (hitam 0%) membuat gradasi keabuan di PDF */
@@ -170,8 +170,23 @@ ul.do b { color: var(--ink); font-weight: 600; }
 .pt dl.spec { --n: 3 !important; }
 .pt .mat { grid-template-columns: 1fr; row-gap: 3mm; }
 .pt .keyimg { width: 54mm; }
+/* sampul: gambar melebur ke halaman di semua tepi, tirai diberi tekstur awan */
+.cover .veil { background: linear-gradient(90deg, var(--bg) 0%, var(--bg8) 30%, var(--bg0) 46%),
+  linear-gradient(0deg, var(--bg) 0%, var(--bg) 14%, var(--bg8) 24%, var(--bg0) 36%),
+  linear-gradient(270deg, var(--bg) 0%, var(--bg0) 14%), linear-gradient(180deg, var(--bg) 0%, var(--bg0) 16%); }
+.pt.cover .veil { background: linear-gradient(180deg, var(--bg) 0%, var(--bg8) 16%, var(--bg0) 30%),
+  linear-gradient(0deg, var(--bg) 0%, var(--bg) 36%, var(--bg8) 41%, var(--bg0) 50%),
+  linear-gradient(90deg, var(--bg) 0%, var(--bg0) 10%), linear-gradient(270deg, var(--bg) 0%, var(--bg0) 10%); }
+.cover .clouds { position: absolute; inset: 0; background-size: cover; background-position: center; pointer-events: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 26%, transparent 50%), linear-gradient(0deg, #000 0%, #000 22%, transparent 42%),
+    linear-gradient(270deg, #000 0%, transparent 20%), linear-gradient(180deg, #000 0%, transparent 22%);
+  mask-image: linear-gradient(90deg, #000 0%, #000 26%, transparent 50%), linear-gradient(0deg, #000 0%, #000 22%, transparent 42%),
+    linear-gradient(270deg, #000 0%, transparent 20%), linear-gradient(180deg, #000 0%, transparent 22%); }
+.pt.cover .clouds { -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 18%, transparent 34%), linear-gradient(0deg, #000 0%, #000 40%, transparent 56%),
+    linear-gradient(90deg, #000 0%, transparent 16%), linear-gradient(270deg, #000 0%, transparent 16%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 18%, transparent 34%), linear-gradient(0deg, #000 0%, #000 40%, transparent 56%),
+    linear-gradient(90deg, #000 0%, transparent 16%), linear-gradient(270deg, #000 0%, transparent 16%); }
 .pt.p3 .txt { bottom: 128mm; }
-.pt.cover .bg img { transform: translateY(9%); }
 .pt .fig svg { max-height: 120mm; }
 .facwide { flex: 1; min-height: 30mm; display: flex; flex-direction: column; gap: 3mm; }
 .facwide img { flex: 1; min-height: 0; width: 100%; object-fit: contain; object-position: left top; }
@@ -370,7 +385,7 @@ function finish(state, c) {
 
   // ---- 01 Sampul
   const p1 = `<section class="pg${dk} cover">
-    <div class="bg"><img src="${assets.iso?.img}" alt=""></div><div class="veil"></div>
+    <div class="bg"><img src="${assets.cover || assets.iso?.img}" alt=""></div><div class="veil"></div>${assets.clouds ? `<div class="clouds" style="background-image:url(${assets.clouds})"></div>` : ''}
     ${top('01 Sampul', 1)}
     <div class="txt">
       <div class="hd"><p class="cover-k">Laporan OTTV · SNI 6389:2020</p><h1>${esc(name)}</h1>
@@ -498,5 +513,5 @@ function finish(state, c) {
 
   const pages = [p1, p2, p3, p4, p5, p6, p7];
   const html = pages.join('').replaceAll('{{N}}', String(pages.length).padStart(2, '0'));
-  return `<!doctype html><html lang="id"><head><meta charset="utf-8"><title>Laporan OTTV ${esc(name)}</title><style>${cssFor(port)}</style></head><body>${html}</body></html>`;
+  return `<!doctype html><html lang="id" style="--print-bg:${theme === 'dark' ? '#17181B' : '#FFFFFF'}"><head><meta charset="utf-8"><title>Laporan OTTV ${esc(name)}</title><style>${cssFor(port)}</style></head><body>${html}</body></html>`;
 }

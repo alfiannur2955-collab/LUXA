@@ -16,11 +16,11 @@ export async function captureReportAssets(state, { theme = 'light', orient = 'la
   const hot = [...sides].sort((x, y) => y.ottv_orientation_wm2 - x.ottv_orientation_wm2)[0];
   const ISO_EL = 35.264; // isometri: arah pandang sepanjang diagonal kubus
 
-  function cap(w, h, fn) {
+  function cap(w, h, fn, { sky = false } = {}) {
     const host = document.createElement('div');
     host.style.cssText = `position:fixed;left:-${w + 300}px;top:0;width:${w}px;height:${h}px;overflow:hidden;`;
     document.body.appendChild(host);
-    const p = createPresenter({ host, state, appTheme: theme, capture: true, pixelRatio: 1, background: bg, fov: 1, sky: false, shadow: 0.35 });
+    const p = createPresenter({ host, state, appTheme: theme, capture: true, pixelRatio: 1, background: bg, fov: 1, sky, shadow: 0.35 });
     const r = fn(p); p.destroy(); host.remove(); return r;
   }
   // sumbu utama denah dari tepi horizontal panel dinding (rata-rata melingkar 4θ, berbobot luas), supaya isometri
@@ -94,10 +94,36 @@ export async function captureReportAssets(state, { theme = 'light', orient = 'la
     g.putImageData(d, 0, 0);
     return c.toDataURL('image/jpeg', 0.92);
   }
+  // sampul: pose isometri yang sama, dengan burung (tanpa awan 3D; awan diberikan sebagai tekstur di tirai)
+  const cover = cap(...PAGE, (p) => p.shot('sampul', { heat: true, dome: false, birdsInView: true, pose: { az: isoAz, el: ISO_EL },
+    ...(port ? { fit: { h: 0.34, w: 0.62 }, shiftRight: 0.08, shiftUp: 0.04 } : { fit: { h: 0.56, w: 0.34 }, shiftRight: 0.15, shiftUp: 0.05 }) }), { sky: 'birds' });
+  const coverImg = await whiten(typeof cover === 'string' ? cover : cover?.img);
   iso.img = await whiten(iso.img);
   elev.img = await whiten(elev.img);
   const keyImg = await whiten(key);
-  return { iso, elev, key: keyImg, facades, pageW: PAGE[0], sunText: `${state.sunHour ?? 15}.00` };
+  return { iso, elev, key: keyImg, cover: coverImg, clouds: cloudTexture(PAGE[0], PAGE[1], theme === 'dark'), facades, pageW: PAGE[0], sunText: `${state.sunHour ?? 15}.00` };
+}
+
+/** Tekstur awan lembut (PNG tembus) untuk tirai gradasi sampul: gumpalan acak berlapis, seragam dengan acuan benih. */
+function cloudTexture(w, h, dark) {
+  const s = 0.5, W = Math.round(w * s), H = Math.round(h * s);
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const col = dark ? '58,59,66' : '255,255,255';
+  // gugus awan: tiap gugus = banyak gumpalan bulat yang saling menumpuk
+  for (let k = 0; k < 26; k++) {
+    const cx = rnd() * W, cy = rnd() * H, spread = (0.06 + rnd() * 0.12) * W;
+    for (let i = 0; i < 18; i++) {
+      const x = cx + (rnd() - 0.5) * spread * 2, y = cy + (rnd() - 0.5) * spread * 0.7, r = spread * (0.25 + rnd() * 0.45);
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      const a = dark ? 0.18 + rnd() * 0.12 : 0.32 + rnd() * 0.25;
+      gr.addColorStop(0, `rgba(${col},${a})`); gr.addColorStop(0.6, `rgba(${col},${a * 0.45})`); gr.addColorStop(1, `rgba(${col},0)`);
+      g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    }
+  }
+  return c.toDataURL('image/png');
 }
 
 /** HTML laporan lengkap (siap dicetak ke PDF lewat dialog cetak peramban). */
