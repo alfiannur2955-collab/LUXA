@@ -19,35 +19,49 @@ function ensureStack() {
 }
 
 /**
- * Toast ditengahkan di bagian bawah area 3D, tepat di atas elemen bawah viewer (bar bawah, kartu selisih
- * Bandingkan), supaya hanya menutupi model dan tidak menutupi tombol, kartu, atau kolom kanan. Tanpa viewer
- * (mis. halaman Unggah), toast ditengahkan di bawah layar.
+ * Toast di pojok kanan bawah area 3D (ruang yang biasanya kosong), di atas elemen bawah viewer yang
+ * bersinggungan dengan pojok itu. Tanpa viewer (mis. halaman Unggah), di pojok kanan bawah layar.
  */
+const TOAST_W = 380;
 function positionStack() {
   if (!stackEl) return;
   const viewerEl = [...document.querySelectorAll('.viewer')].find((v) => v.offsetParent);
   const st = stackEl.style;
   st.top = 'auto';
-  st.right = 'auto';
+  st.left = 'auto';
+  st.transform = 'none';
   if (!viewerEl) {
-    st.left = '50%';
-    st.bottom = '24px';
-    st.width = '';
+    st.right = '20px';
+    st.bottom = '20px';
+    st.width = `${Math.min(TOAST_W, window.innerWidth - 32)}px`;
     return;
   }
   const vr = viewerEl.getBoundingClientRect();
+  let w = Math.min(TOAST_W, vr.width - 32);
+  // elemen bawah viewer di pojok kanan bawah (bar bawah, kartu selisih Bandingkan): bila sisa ruang di
+  // kanannya cukup, notifikasi menyempit dan tetap di pojok; kalau tidak, naik ke atas elemen itu
   let floorY = vr.bottom - 16;
-  for (const el of viewerEl.querySelectorAll('.viewer-bottom-stack, .compare-diff-strip')) {
+  for (const el of viewerEl.querySelectorAll('.viewer-bottom-stack, .compare-diff-strip, .legend')) {
     const r = el.getBoundingClientRect();
-    if (r.height > 0) floorY = Math.min(floorY, r.top);
+    if (!(r.height > 0 && r.top > vr.top + vr.height / 2)) continue;
+    if (r.right <= vr.right - 16 - w) continue;
+    const room = vr.right - 16 - (r.right + 12);
+    if (room >= 240) w = Math.min(w, room);
+    else floorY = Math.min(floorY, r.top - 10);
   }
-  st.left = `${Math.round(vr.left + vr.width / 2)}px`;
-  st.width = `${Math.round(Math.min(460, vr.width - 32))}px`;
-  st.bottom = `${Math.max(16, Math.round(window.innerHeight - floorY + 10))}px`;
+  st.right = `${Math.max(16, Math.round(window.innerWidth - vr.right + 16))}px`;
+  st.width = `${Math.round(w)}px`;
+  st.bottom = `${Math.max(16, Math.round(window.innerHeight - floorY))}px`;
+}
+
+/** Satu notifikasi biasa dalam satu waktu: yang baru menggantikan yang lama, tidak menumpuk. */
+function clearPlain(host) {
+  host.querySelectorAll('.toast:not(.toast-with-undo)').forEach((t) => t.remove());
 }
 
 export function showToast(message, tone = 'ok', durationMs = 4200, { lux = null } = {}) {
   const host = ensureStack();
+  clearPlain(host);
   const item = document.createElement('div');
   item.className = `toast is-${tone}${lux ? ' has-lux' : ''}`;
   item.setAttribute('role', 'status');
