@@ -12,12 +12,13 @@ export const TOWER = {
 };
 export const PODIUM_H = TOWER.podium.floors * TOWER.podium.floorH; // 13.5
 export const TOWER_TOP = PODIUM_H + TOWER.tower.floors * TOWER.tower.floorH; // 93.5
+export const BODY_TOP = PODIUM_H + (TOWER.tower.floors - TOWER.tower.crownFloors) * TOWER.tower.floorH;
 
 // Denah L: tower 28 x 28 m, takik 12 x 12 m di sudut barat daya.
 const L_MAIN = [[-14, -14], [14, -14], [14, 14], [-2, 14], [-2, 2], [-14, 2]];
 const L_CROWN = [[-12, -12], [12, -12], [12, 12], [0, 12], [0, 0], [-12, 0]];
 
-// Fasad: sumbu tetap, posisi, rentang, arah normal, kode arah.
+// Fasad: sumbu tetap, posisi, rentang, arah normal, kode fasad.
 function facadesOf(pts) {
   const [a, b, c, d, e, f] = pts;
   return [
@@ -31,6 +32,8 @@ function facadesOf(pts) {
 }
 export const FACADES = facadesOf(L_MAIN);
 const CROWN_FACADES = facadesOf(L_CROWN);
+// Kode fasad → arah tabel SNI (fasad dalam takik ikut arahnya).
+export const FACADE_DIR = { U: 'U', T: 'T', S: 'S', B: 'B', Sd: 'S', Bd: 'B' };
 const OVERHANG_FACADES = new Set(['B', 'Bd']);
 
 function extrudeShape(pts, y0, h) {
@@ -50,13 +53,20 @@ function facadeBox(f, u, y, len, h, depth, off) {
   return g;
 }
 
+// Tinggi kaca per lantai dari WWR (lantai 4 m). Ambang dibuat agar pita kaca berada di tengah lantai.
+export const glassHForWwr = (wwr) => Math.min(3.4, Math.max(0.2, wwr * TOWER.tower.floorH));
+export const sillFor = (h) => Math.max(0.25, (TOWER.tower.floorH - h) / 2 - 0.15);
+
 export function buildTower(pal) {
   const group = new THREE.Group();
   group.name = 'tower';
-  const wallMat = new THREE.MeshStandardMaterial({ color: pal.tower, roughness: 0.92, metalness: 0 });
-  const glassMat = new THREE.MeshStandardMaterial({ color: pal.glass, roughness: 0.3, metalness: 0.05 });
-  const mullMat = new THREE.MeshStandardMaterial({ color: pal.mullion, roughness: 0.9 });
-  const edgeMat = new THREE.LineBasicMaterial({ color: pal.edge, transparent: true, opacity: pal.edgeOpacity });
+  const mats = {
+    wall: new THREE.MeshStandardMaterial({ color: pal.tower, roughness: 0.92, metalness: 0 }),
+    glass: new THREE.MeshStandardMaterial({ color: pal.glass, roughness: 0.3, metalness: 0.05 }),
+    mull: new THREE.MeshStandardMaterial({ color: pal.mullion, roughness: 0.9 }),
+    edge: new THREE.LineBasicMaterial({ color: pal.edge, transparent: true, opacity: pal.edgeOpacity }),
+  };
+  group.userData.mats = mats;
 
   const { floors, floorH, crownFloors } = TOWER.tower;
   const mainFloors = floors - crownFloors;
@@ -71,39 +81,12 @@ export function buildTower(pal) {
   const mech = new THREE.BoxGeometry(8, 3, 6);
   mech.translate(4, TOWER_TOP + 1.5, -4);
   solids.push(mech);
-  const solidGeo = mergeGeometries(solids.map((g) => g.toNonIndexed()));
-  const solid = new THREE.Mesh(solidGeo, wallMat);
+  const solid = new THREE.Mesh(mergeGeometries(solids.map((g) => g.toNonIndexed())), mats.wall);
   solid.castShadow = solid.receiveShadow = true;
   group.add(solid);
-  const edges = new THREE.LineSegments(mergeGeometries(solids.map((g) => new THREE.EdgesGeometry(g, 25))), edgeMat);
-  group.add(edges);
+  group.add(new THREE.LineSegments(mergeGeometries(solids.map((g) => new THREE.EdgesGeometry(g, 25))), mats.edge));
 
-  // Kaca, kusen tipis (visual saja), overhang.
-  const glass = { U: [], T: [], S: [], Bd: [], Sd: [], B: [] };
-  const mull = [];
-  const over = {}; // kunci: kode fasad @ posisi bidang dinding (badan dan mahkota terpisah)
-  const addBands = (fs, f0, f1) => {
-    for (const f of fs) {
-      const len = Math.abs(f.to - f.from) - 0.8;
-      const mid = (f.from + f.to) / 2;
-      for (let k = f0; k < f1; k++) {
-        const base = PODIUM_H + k * floorH;
-        const yc = base + TOWER.sillH + TOWER.glassH / 2;
-        glass[f.id].push(facadeBox(f, mid, yc, len, TOWER.glassH, 0.08, 0.04));
-        const nM = Math.floor(len / 1.5);
-        for (let m = 1; m < nM; m++) mull.push(facadeBox(f, mid - len / 2 + m * (len / nM), yc, 0.07, TOWER.glassH, 0.12, 0.06));
-        if (OVERHANG_FACADES.has(f.id)) {
-          const d = TOWER.overhangDepth;
-          const key = `${f.id}@${f.at}`;
-          (over[key] ||= []).push(facadeBox(f, mid, base + TOWER.sillH + TOWER.glassH + 0.18, len + 0.4, 0.16, d, d / 2));
-        }
-      }
-    }
-  };
-  addBands(FACADES, 0, mainFloors);
-  addBands(CROWN_FACADES, mainFloors, floors);
-
-  // Pita kaca podium di keempat sisi.
+  // Pita kaca podium di keempat sisi (tetap).
   const h = P.half;
   const podFacades = [
     { axis: 'z', at: -h, from: -h, to: h, n: [0, -1] },
@@ -114,59 +97,112 @@ export function buildTower(pal) {
   const podGlass = [];
   for (const f of podFacades) {
     const len = Math.abs(f.to - f.from) - 2;
-    for (let k = 0; k < P.floors; k++) {
-      podGlass.push(facadeBox(f, (f.from + f.to) / 2, k * P.floorH + 0.9 + 1.35, len, 2.7, 0.08, 0.04));
-    }
+    for (let k = 0; k < P.floors; k++) podGlass.push(facadeBox(f, (f.from + f.to) / 2, k * P.floorH + 0.9 + 1.35, len, 2.7, 0.08, 0.04));
   }
-
-  const parts = {};
-  for (const id of Object.keys(glass)) {
-    const m = new THREE.Mesh(mergeGeometries(glass[id]), glassMat.clone());
-    m.name = 'glass-' + id;
-    m.receiveShadow = true;
-    group.add(m);
-    parts['glass' + id] = m;
-  }
-  const podGlassMesh = new THREE.Mesh(mergeGeometries(podGlass), glassMat);
+  const podGlassMesh = new THREE.Mesh(mergeGeometries(podGlass), mats.glass);
   podGlassMesh.receiveShadow = true;
   group.add(podGlassMesh);
-  const mullMesh = new THREE.Mesh(mergeGeometries(mull), mullMat);
-  mullMesh.castShadow = mullMesh.receiveShadow = true;
-  group.add(mullMesh);
-  parts.overhangs = [];
-  for (const key of Object.keys(over)) {
-    const g = mergeGeometries(over[key]);
-    const m = new THREE.Mesh(g, wallMat);
-    m.name = 'overhang-' + key;
-    m.castShadow = m.receiveShadow = true;
-    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(g, 25), edgeMat));
-    m.userData.pivotX = Number(key.split('@')[1]);
-    group.add(m);
-    parts.overhangs.push(m);
-  }
 
-  // Skylight di atap podium: dua kelompok (timur dan selatan).
+  // Skylight di atap podium: dua kelompok (timur dan selatan). Skala diatur di Bab 8.
   const sky = [];
   for (const z of [-10, -2, 6]) { const g = new THREE.BoxGeometry(3, 0.6, 5); g.translate(17, PODIUM_H + 0.3, z); sky.push(g); }
   for (const x of [0, 7]) { const g = new THREE.BoxGeometry(5, 0.6, 3); g.translate(x, PODIUM_H + 0.3, 17); sky.push(g); }
   const skyGeo = mergeGeometries(sky);
-  const skyMesh = new THREE.Mesh(skyGeo, glassMat);
+  const skyMesh = new THREE.Mesh(skyGeo, mats.glass);
   skyMesh.name = 'skylights';
   skyMesh.castShadow = skyMesh.receiveShadow = true;
+  skyMesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(skyGeo, 25), mats.edge));
   group.add(skyMesh);
-  group.add(new THREE.LineSegments(new THREE.EdgesGeometry(skyGeo, 25), edgeMat));
-  parts.skylights = skyMesh;
 
-  group.userData.parts = parts;
+  group.userData.parts = { skylights: skyMesh, overhangs: [] };
+  group.userData.glazingOpts = { heights: { U: TOWER.glassH, T: TOWER.glassH, S: TOWER.glassH, B: TOWER.glassH }, depth: TOWER.overhangDepth };
+  setGlazing(group, {});
   return group;
 }
 
-// Ubah kedalaman semua overhang (meter). Kotak overhang diskalakan dari bidang dinding ke luar.
-export function setOverhangDepth(towerGroup, depth) {
-  const s = Math.max(0, depth) / TOWER.overhangDepth;
-  for (const m of towerGroup.userData.parts.overhangs) {
-    m.visible = depth > 0.02;
-    m.scale.x = Math.max(s, 0.001);
-    m.position.x = m.userData.pivotX * (1 - m.scale.x);
+// Bangun ulang kaca, kusen tipis (visual), dan overhang.
+// heights: tinggi kaca per arah {U,T,S,B} (m); depth: kedalaman overhang di fasad Barat dan Barat takik (m).
+export function setGlazing(tower, { heights, depth } = {}) {
+  const opts = tower.userData.glazingOpts;
+  if (heights) opts.heights = { ...opts.heights, ...heights };
+  if (depth != null) opts.depth = depth;
+  const { mats } = tower.userData;
+  const old = tower.getObjectByName('glazing');
+  if (old) {
+    tower.remove(old);
+    old.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
   }
+  const g = new THREE.Group();
+  g.name = 'glazing';
+  const { floors, floorH, crownFloors } = TOWER.tower;
+  const mainFloors = floors - crownFloors;
+  const glass = [], mull = [], over = {};
+  const baseDepth = 1; // overhang dibangun 1 m lalu diskalakan, supaya kedalaman bisa diubah tanpa membangun ulang
+  const add = (fs, f0, f1) => {
+    for (const f of fs) {
+      const gh = opts.heights[FACADE_DIR[f.id]];
+      const sill = sillFor(gh);
+      const len = Math.abs(f.to - f.from) - 0.8;
+      const mid = (f.from + f.to) / 2;
+      const nM = Math.max(1, Math.floor(len / 1.5));
+      for (let k = f0; k < f1; k++) {
+        const base = PODIUM_H + k * floorH;
+        const yc = base + sill + gh / 2;
+        glass.push(facadeBox(f, mid, yc, len, gh, 0.08, 0.04));
+        for (let m = 1; m < nM; m++) mull.push(facadeBox(f, mid - len / 2 + m * (len / nM), yc, 0.07, gh, 0.12, 0.06));
+        if (OVERHANG_FACADES.has(f.id)) {
+          const key = `${f.id}@${f.at}`;
+          (over[key] ||= []).push(facadeBox(f, mid, base + sill + gh + 0.18, len + 0.4, 0.16, baseDepth, baseDepth / 2));
+        }
+      }
+    }
+  };
+  add(FACADES, 0, mainFloors);
+  add(CROWN_FACADES, mainFloors, floors);
+  const glassMesh = new THREE.Mesh(mergeGeometries(glass), mats.glass);
+  glassMesh.receiveShadow = true;
+  g.add(glassMesh);
+  const mullMesh = new THREE.Mesh(mergeGeometries(mull), mats.mull);
+  mullMesh.castShadow = mullMesh.receiveShadow = true;
+  g.add(mullMesh);
+  const overhangs = [];
+  for (const key of Object.keys(over)) {
+    const geo = mergeGeometries(over[key]);
+    const m = new THREE.Mesh(geo, mats.wall);
+    m.castShadow = m.receiveShadow = true;
+    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 25), mats.edge));
+    m.userData.pivotX = Number(key.split('@')[1]);
+    m.userData.baseDepth = baseDepth;
+    g.add(m);
+    overhangs.push(m);
+  }
+  tower.userData.parts.overhangs = overhangs;
+  tower.add(g);
+  setOverhangDepth(tower, opts.depth);
+}
+
+// Ubah kedalaman overhang (meter): kotak diskalakan dari bidang dinding ke luar.
+export function setOverhangDepth(tower, depth) {
+  tower.userData.glazingOpts.depth = depth;
+  for (const m of tower.userData.parts.overhangs) {
+    const s = Math.max(depth, 0.001) / m.userData.baseDepth;
+    m.visible = depth > 0.02;
+    m.scale.x = s;
+    m.position.x = m.userData.pivotX * (1 - s);
+  }
+}
+
+// Skala skylight (Bab 8): 0 = tidak ada, 1 = ukuran awal, >1 = lebih luas.
+export function setSkylightScale(tower, s) {
+  const m = tower.userData.parts.skylights;
+  m.visible = s > 0.02;
+  m.scale.set(Math.max(s, 0.001), 1, Math.max(s, 0.001));
+}
+
+// Luas fasad per arah (m²) untuk OTTV total.
+export function facadeAreas() {
+  const H = (TOWER.tower.floors) * TOWER.tower.floorH;
+  const out = { U: 0, T: 0, S: 0, B: 0 };
+  for (const f of FACADES) out[FACADE_DIR[f.id]] += Math.abs(f.to - f.from) * H;
+  return out;
 }

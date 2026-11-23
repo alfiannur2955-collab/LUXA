@@ -1,41 +1,39 @@
-// Sorotan per bab: lapisan warna SF di fasad tower, penanda matahari + lintasannya.
+// Sorotan per bab: lapisan warna per fasad, penanda matahari + lintasannya, panah jalur panas.
 import * as THREE from 'three';
-import { FACADES, PODIUM_H, TOWER } from './tower.js';
+import { FACADES, FACADE_DIR, BODY_TOP, PODIUM_H } from './tower.js';
 import { dirFrom } from './stage.js';
 import { sunPosition } from './sun.js';
 
-const BODY_H = (TOWER.tower.floors - TOWER.tower.crownFloors) * TOWER.tower.floorH;
-
-// Kode fasad tower → kode arah di tabel SF (fasad dalam takik memakai arah yang sama).
-export const FACADE_DIR = { U: 'U', T: 'T', S: 'S', B: 'B', Sd: 'S', Bd: 'B' };
+export { FACADE_DIR };
 export const DIR_NAME = { U: 'Utara', T: 'Timur', S: 'Selatan', B: 'Barat' };
 
-// Lapisan oranye tipis di tiap fasad badan tower; pekatnya mengikuti nilai SF.
-export function createSfOverlay(stage, sfByDir) {
+// Lapisan oranye tipis di tiap fasad badan tower. Bobot 0–1 per fasad diatur oleh bab yang aktif.
+export function createFacadeOverlay(stage) {
   const group = new THREE.Group();
-  const vals = Object.values(FACADE_DIR).map((d) => sfByDir[d]);
-  const lo = Math.min(...vals), hi = Math.max(...vals);
-  const items = [];
+  const items = {};
+  const H = BODY_TOP - PODIUM_H;
   for (const f of FACADES) {
     const len = Math.abs(f.to - f.from);
-    const g = new THREE.PlaneGeometry(len, BODY_H);
     const mat = new THREE.MeshBasicMaterial({ color: stage.palette.heat, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
-    const m = new THREE.Mesh(g, mat);
-    const mid = (f.from + f.to) / 2, y = PODIUM_H + BODY_H / 2, off = 0.12;
-    if (f.axis === 'z') { m.position.set(mid, y, f.at + f.n[1] * off); }
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(len, H), mat);
+    const mid = (f.from + f.to) / 2, y = PODIUM_H + H / 2, off = 0.12;
+    if (f.axis === 'z') m.position.set(mid, y, f.at + f.n[1] * off);
     else { m.position.set(f.at + f.n[0] * off, y, mid); m.rotation.y = Math.PI / 2; }
     m.renderOrder = 2;
-    const sf = sfByDir[FACADE_DIR[f.id]];
-    items.push({ m, weight: 0.12 + 0.5 * ((sf - lo) / Math.max(1, hi - lo)) });
+    items[f.id] = { m, w: 0 };
     group.add(m);
   }
   group.visible = false;
   stage.scene.add(group);
+  let amount = 0;
+  const paint = () => {
+    group.visible = amount > 0.001;
+    for (const it of Object.values(items)) it.m.material.opacity = amount * (0.06 + 0.55 * it.w);
+  };
   return {
-    setAmount(a) {
-      group.visible = a > 0.001;
-      for (const it of items) it.m.material.opacity = a * it.weight;
-    },
+    // w: { U, T, S, B } bobot per arah (0–1); fasad takik mengikuti arahnya.
+    setWeights(w) { for (const [id, it] of Object.entries(items)) it.w = w[FACADE_DIR[id]] ?? 0; paint(); },
+    setAmount(a) { amount = a; paint(); },
   };
 }
 
@@ -59,20 +57,19 @@ export function createSunMarker(stage, { radius = 330, center = [0, 0, 0] } = {}
     pts.push(p);
     samples.push({ h, p, s });
   }
-  const pathGeo = new THREE.BufferGeometry().setFromPoints(pts);
-  const path = new THREE.Line(pathGeo, new THREE.LineDashedMaterial({ color: stage.palette.heat, dashSize: 8, gapSize: 6, transparent: true, opacity: 0.85 }));
+  const path = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: stage.palette.heat, dashSize: 8, gapSize: 6, transparent: true, opacity: 0.85 }));
   path.computeLineDistances();
   group.add(path);
   group.visible = false;
   stage.scene.add(group);
 
-  let hour = 15;
+  let hour = 15, cur = at(15);
   function setHour(h) {
     hour = Math.min(18, Math.max(6, h));
-    const s = at(hour);
-    disc.position.copy(c).addScaledVector(dirFrom(s.az, Math.max(s.el, 0)), radius);
-    stage.setSun(s.az, Math.max(s.el, 3));
-    return { hour, ...s };
+    cur = at(hour);
+    disc.position.copy(c).addScaledVector(dirFrom(cur.az, Math.max(cur.el, 0)), radius);
+    stage.setSun(cur.az, Math.max(cur.el, 3));
+    return { hour, ...cur };
   }
 
   // Jam terdekat dengan posisi pointer di layar (untuk menyeret matahari di lintasannya).
@@ -97,5 +94,67 @@ export function createSunMarker(stage, { radius = 330, center = [0, 0, 0] } = {}
   }
 
   setHour(hour);
-  return { group, setHour, hourAtScreen, discScreen, get hour() { return hour; }, setVisible(b) { group.visible = b; } };
+  return {
+    group, setHour, hourAtScreen, discScreen,
+    get hour() { return hour; },
+    get sun() { return cur; },
+    setVisible(b) { group.visible = b; },
+  };
+}
+
+// Panah 3D: batang + kepala, dari titik a ke titik b, tebal r.
+function arrowGeometry(a, b, r) {
+  const dir = b.clone().sub(a);
+  const L = dir.length();
+  const head = Math.min(L * 0.35, r * 4.5);
+  const shaft = new THREE.CylinderGeometry(r, r, Math.max(0.01, L - head), 18);
+  shaft.translate(0, (L - head) / 2, 0);
+  const cone = new THREE.ConeGeometry(r * 2.4, head, 18);
+  cone.translate(0, L - head / 2, 0);
+  const g = new THREE.BufferGeometry();
+  const merged = [shaft.toNonIndexed(), cone.toNonIndexed()];
+  const pos = [], nor = [];
+  for (const m of merged) { pos.push(...m.attributes.position.array); nor.push(...m.attributes.normal.array); }
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  g.applyQuaternion(q);
+  g.translate(a.x, a.y, a.z);
+  return g;
+}
+
+// Tiga panah jalur panas di fasad Barat (Bab 2).
+export const SOLAR_DIR = new THREE.Vector3(-0.35, 0.85, -0.4).normalize();
+export const HEAT_COLORS = { wall: '#C27A3E', glass: '#E7B04B', solar: '#F49B1A' };
+export function createHeatArrows(stage) {
+  const group = new THREE.Group();
+  const meshes = {};
+  for (const k of ['wall', 'glass', 'solar']) {
+    const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ color: HEAT_COLORS[k], roughness: 0.6, emissive: HEAT_COLORS[k], emissiveIntensity: 0.25, transparent: true, opacity: 1 }));
+    m.castShadow = false;
+    meshes[k] = m;
+    group.add(m);
+  }
+  group.visible = false;
+  stage.scene.add(group);
+  let amount = 0, focus = null;
+  const paint = () => {
+    group.visible = amount > 0.01;
+    for (const [k, m] of Object.entries(meshes)) m.material.opacity = amount * (focus && focus !== k ? 0.22 : 1);
+  };
+  return {
+    // q: { qWall, qGlass, qSolar } (W/m²); anchors: titik tujuan di fasad; sunDir: arah ke matahari.
+    update({ q, anchors, sunDir }) {
+      const rad = (x) => 0.06 + 0.06 * Math.sqrt(Math.max(0, x));
+      const out = new THREE.Vector3(-1, 0, 0);
+      const set = (k, a, b, r) => { meshes[k].geometry.dispose(); meshes[k].geometry = arrowGeometry(a, b, r); };
+      set('wall', anchors.wall.clone().addScaledVector(out, 5.5), anchors.wall.clone().addScaledVector(out, 0.15), rad(q.qWall));
+      set('glass', anchors.glass.clone().addScaledVector(out, 5.5), anchors.glass.clone().addScaledVector(out, 0.15), rad(q.qGlass));
+      // Arah sinar ilustratif (tinggi dari barat), supaya panah tidak mengarah ke kamera.
+      const sd = SOLAR_DIR.clone();
+      set('solar', anchors.solar.clone().addScaledVector(sd, 6), anchors.solar.clone().addScaledVector(out, 0.15), rad(q.qSolar));
+    },
+    setAmount(a) { amount = a; paint(); },
+    setFocus(k) { focus = k; paint(); },
+  };
 }

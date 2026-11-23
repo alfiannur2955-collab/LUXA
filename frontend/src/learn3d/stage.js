@@ -140,6 +140,8 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
     return {
       set on(b) { l.on = b; el.classList.toggle('is-off', !b); },
       setText(t) { el.querySelector('.l3d-text').textContent = t; },
+      setPos(v) { l.p.copy(v); },
+      el,
     };
   }
 

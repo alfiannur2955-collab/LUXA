@@ -3,6 +3,8 @@
 export const SHOTS = {
   beranda: { target: [0, 22, 0], az: 200, el: 35, dist: 1100 },
   bab1: { target: [0, 40, 0], az: 200, el: 32, dist: 860 },
+  bab2: { target: [-17.5, 57.8, -7], az: 215, el: 10, dist: 50, shadow: 26, shadowFocus: [-14, 55, -6] },
+  bab3: { target: [-14, 52, -6], az: 270, el: 3, dist: 340, shadow: 90, shadowFocus: [-14, 52, -6] },
   bab4: { target: [-40, 60, 10], az: 200, el: 40, dist: 1050 },
   bab5: { target: [-14, 55.2, -6], az: 245, el: 14, dist: 46, shadow: 28, shadowFocus: [-14, 55, -6] },
   bab7: { target: [0, 50, 0], az: 200, el: 30, dist: 760 },

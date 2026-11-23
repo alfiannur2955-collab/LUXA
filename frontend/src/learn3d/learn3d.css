@@ -133,3 +133,38 @@ html[data-theme='dark'] .l3d-dots button.is-on { background: #F49B1A; border-col
   .l3d-card { position: sticky; top: auto; bottom: 16px; margin: 58vh auto 0; width: calc(100vw - 32px); padding: 16px 18px; font-size: 14px; }
   .l3d-dots { right: 10px; }
 }
+.l3d-label.is-dim { opacity: 0.35; }
+/* Bab 1: pilihan versi + angka OTTV */
+.l3d-seg { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 6px; }
+.l3d-seg button, .l3d-terms button { font: inherit; color: inherit; cursor: pointer; }
+.l3d-seg button { font-size: 13px; padding: 7px 13px; border-radius: 999px; background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(42, 38, 32, 0.14); }
+.l3d-seg button:hover { background: rgba(255, 255, 255, 0.85); }
+.l3d-seg button.is-on { background: #F49B1A; border-color: #F49B1A; color: #fff; font-weight: 600; }
+.l3d-gauge { margin-top: 12px; }
+.l3d-gauge-num b { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.l3d-gauge-num span { margin-left: 6px; color: #7A7266; font-size: 13px; }
+.l3d-gauge-bar { position: relative; height: 10px; border-radius: 99px; background: rgba(42, 38, 32, 0.08); margin: 8px 0 22px; }
+.l3d-gauge-bar i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 99px; background: #138E86; transition: width 0.4s ease; }
+.l3d-gauge-bar i.is-over { background: #F49B1A; }
+.l3d-gauge-bar em { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #2A2620; font-style: normal; }
+.l3d-gauge-bar em span { position: absolute; top: 18px; left: 50%; transform: translateX(-50%); font-size: 11px; color: #5E574C; white-space: nowrap; }
+.l3d-verdict { font-size: 13px; font-weight: 600; margin: 0; }
+/* Bab 2: suku rumus */
+.l3d-terms { display: grid; gap: 6px; margin: 12px 0; }
+.l3d-terms button { display: grid; grid-template-columns: 12px 1fr auto; grid-template-rows: auto auto; column-gap: 10px; text-align: left; padding: 9px 12px; border-radius: 12px; background: rgba(255, 255, 255, 0.45); border: 1px solid rgba(255, 255, 255, 0.8); }
+.l3d-terms button i { grid-row: 1 / 3; width: 12px; height: 12px; border-radius: 50%; align-self: center; }
+.l3d-terms button span { font-size: 13px; font-weight: 600; }
+.l3d-terms button code { grid-column: 2; font-family: inherit; font-size: 12px; color: #7A7266; }
+.l3d-terms button b { grid-column: 3; grid-row: 1 / 3; align-self: center; font-size: 16px; font-variant-numeric: tabular-nums; }
+.l3d-terms button:hover, .l3d-terms button.is-on { background: rgba(255, 255, 255, 0.85); border-color: rgba(244, 155, 26, 0.6); }
+.l3d-sum { font-size: 14px; margin-top: 6px !important; }
+.l3d-sum b { font-size: 17px; font-variant-numeric: tabular-nums; }
+/* Bab 3: batang komposisi */
+.l3d-stack { display: flex; height: 12px; border-radius: 99px; overflow: hidden; background: rgba(42, 38, 32, 0.07); margin: 6px 0 4px; }
+.l3d-stack i { display: block; height: 100%; transition: width 0.3s ease; }
+html[data-theme='dark'] .l3d-seg button, html[data-theme='dark'] .l3d-terms button { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); }
+html[data-theme='dark'] .l3d-seg button.is-on { background: #F49B1A; color: #1E1F24; }
+html[data-theme='dark'] .l3d-terms button:hover, html[data-theme='dark'] .l3d-terms button.is-on { background: rgba(255, 255, 255, 0.12); }
+html[data-theme='dark'] .l3d-terms button code, html[data-theme='dark'] .l3d-gauge-num span, html[data-theme='dark'] .l3d-gauge-bar em span { color: #A9A49B; }
+html[data-theme='dark'] .l3d-gauge-bar { background: rgba(255, 255, 255, 0.1); }
+html[data-theme='dark'] .l3d-gauge-bar em { background: #F1EEE8; }
