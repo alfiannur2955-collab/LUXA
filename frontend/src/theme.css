@@ -4614,3 +4614,29 @@ body.is-d5-rotating * {
   align-items: center;
   gap: 10px;
 }
+
+/* ============================================================================
+ * Dialog Unduh laporan PDF (ui/reportDialog.js)
+ * ============================================================================ */
+.rpt-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.rpt-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 20px 22px;
+  display: grid;
+  gap: 12px;
+}
+.rpt-dialog h2 { margin: 0; font-size: 16px; }
+.rpt-dialog p { margin: 0; font-size: 12.5px; line-height: 18px; }
+.rpt-row { display: grid; grid-template-columns: 76px 1fr; align-items: center; gap: 10px; }
+.rpt-seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border-radius: 12px; background: var(--glass-thin); border: 1px solid var(--glass-edge); }
+.rpt-seg button { height: 32px; border: 0; border-radius: 9px; background: transparent; color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.rpt-seg button.on { background: var(--ink); color: var(--surface); }
+.rpt-note { font-weight: 500; }
+.rpt-act { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }

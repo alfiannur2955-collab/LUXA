@@ -1026,7 +1026,40 @@ async function handleCalculateOttv() {
   }
 }
 
+// Laporan PDF A3 bergaya LUXA: gambar dirender di peramban, lalu dicetak lewat dialog cetak (Simpan sebagai PDF).
+let reportBusy = false;
+async function handleReportPdf() {
+  const s0 = getState();
+  if (!s0.analysisData) {
+    showToast('Hitung OTTV terlebih dahulu sebelum mengunduh laporan.', 'warn');
+    return;
+  }
+  if (reportBusy) return;
+  const { askReportOptions, printHtml } = await import('./ui/reportDialog.js');
+  const opt = await askReportOptions(s0.theme);
+  if (!opt) return;
+  reportBusy = true;
+  const luxOn = getState().mascotOn !== false;
+  showToast('Menyiapkan laporan PDF...', 'ok', 3000, { lux: luxOn ? 'think' : null });
+  try {
+    await new Promise((r) => setTimeout(r, 60)); // beri waktu notifikasi tampil sebelum render berat
+    const { buildReportHtml } = await import('./report/assetsA3.js');
+    const st = getState();
+    const logo = new URL(opt.theme === 'dark' ? 'brand/luxa-logo-dark.svg' : 'brand/luxa-logo.svg', document.baseURI).href;
+    let html = await buildReportHtml(st, { theme: opt.theme, orient: opt.orient, logoUrl: logo, userName: loadUserName() || '' });
+    const fonts = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Newsreader:ital,wght@1,400;1,600&display=swap">';
+    html = html.replace('</head>', `${fonts}</head>`);
+    await printHtml(html);
+  } catch (err) {
+    console.error('[LUXA laporan PDF]', err);
+    showToast('Gagal menyiapkan laporan PDF.', 'fail');
+  } finally {
+    reportBusy = false;
+  }
+}
+
 async function handleExportFormat(fmt) {
+  if (fmt === 'pdf') return handleReportPdf();
   const s = getState();
   const aid = s.analysisData?.analysis_id;
   if (!aid) {

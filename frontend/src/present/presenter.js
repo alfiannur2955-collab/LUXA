@@ -30,7 +30,7 @@ const ICON = {
  * renderCard(slide, ctx) -> HTML isi kartu (diisi di P3).
  */
 // capture: true = tanpa antarmuka dan tanpa navigasi, hanya untuk mengambil gambar slide (laporan).
-export function createPresenter({ host, state, appTheme = 'light', userName = '', onExit = () => {}, renderCard = defaultCard, startAt = 0, capture = false, pixelRatio = null }) {
+export function createPresenter({ host, state, appTheme = 'light', userName = '', onExit = () => {}, renderCard = defaultCard, startAt = 0, capture = false, pixelRatio = null, background = null, fov = 14, sky = true, shadow = 1 }) {
   const analysis = state.analysisData;
   const roles = state.config?.roles;
   const settings = state.config?.settings || {};
@@ -66,7 +66,9 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   const stageEl = $('.lxp-stage');
 
   const maket = buildMaket(analysis, roles, pal, colors);
-  const stage = createStage(stageEl, { theme, context: false, shadowSize: capture ? 4096 : maket.quality.shadowSize });
+  // fov kecil (mis. 1°) = gambar hampir ortografis untuk isometri dan tampak di laporan
+  const stage = createStage(stageEl, { theme, context: false, fov, shadowSize: capture ? 4096 : maket.quality.shadowSize });
+  maket.group.traverse((o) => { if (o.material?.isShadowMaterial) o.material.opacity *= shadow; });
   if (pixelRatio) { stage.renderer.setPixelRatio(pixelRatio); stage.resize(); }
   stage.setAO(maket.quality.ao);
   stage.scene.add(maket.group);
@@ -82,8 +84,9 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
 
   // Awan di atas puncak kubah, burung di ketinggian yang sama.
   const skyScale = Math.max(maket.scale, (R * 1.2) / 105);
-  const clouds = createClouds(stage, { dark: theme === 'dark', scale: skyScale, target: [b.center.x, b.center.y, b.center.z], count: 14, opacity: 0.55, shadow: 0.35, hole: [Math.max(b.radius, R * 0.6) * 1.2, Math.max(b.radius, R * 0.6) * 3] });
+  const clouds = createClouds(stage, { dark: theme === 'dark', scale: skyScale, target: [b.center.x, b.center.y, b.center.z], count: 14, opacity: 0.55, shadow: capture ? 0 : 0.35, hole: [Math.max(b.radius, R * 0.6) * 1.2, Math.max(b.radius, R * 0.6) * 3] });
   const birds = createBirds(stage, { dark: theme === 'dark', scale: skyScale });
+  clouds.group.visible = birds.group.visible = sky;
 
   // Heatmap per sisi: skala panas SNI (0 / 25 / 35 / 50+ W/m², warna skala terang aplikasi) di semua tema
   // supaya legenda konsisten. Bila ada warna sisi yang kontrasnya < 3:1 terhadap latar, slide heatmap
@@ -92,7 +95,11 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   const ottvByCode = Object.fromEntries(sideRows.map((r) => [r.code === 'TG' ? 'TGR' : r.code, r.ottv_orientation_wm2]));
   const HEAT_BG = '#7C7D82';
   const heatNeedsBg = sideRows.some((r) => contrast(heatColor(r.ottv_orientation_wm2), pal.bg) < 3);
-  const bgBase = new THREE.Color(pal.bg), bgHeat = new THREE.Color(HEAT_BG);
+  // background: warna latar paksa untuk gambar laporan (mis. putih), berlaku juga di slide heatmap
+  const bgBase = new THREE.Color(background || pal.bg), bgHeat = new THREE.Color(background || HEAT_BG);
+  // Latar putih paksa di tema terang: tone mapping Neutral menekan putih jadi abu muda, jadi latarnya diberi
+  // nilai di atas 1 supaya keluar sebagai putih penuh. Warna model tidak disentuh.
+  if (background && theme === 'light' && stage.renderer.toneMapping !== THREE.NoToneMapping) { bgBase.multiplyScalar(window.__bgk || 3); bgHeat.copy(bgBase); }
   const bgFade = { from: 0, to: 0, t0: 0 };
   // Label nilai di tiap sisi model.
   const sideLabels = [];
@@ -104,7 +111,7 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
     const el = document.createElement('span');
     el.className = 'lxp-sidelabel';
     el.innerHTML = `<i style="background:${heatColor(r.ottv_orientation_wm2)}"></i>${sideName(r.code)} <b>${f1(r.ottv_orientation_wm2)}</b>`;
-    sideLabels.push({ p, el, v: r.ottv_orientation_wm2 });
+    sideLabels.push({ p, el, v: r.ottv_orientation_wm2, code: r.code });
     marks.appendChild(el);
   }
   sideLabels.sort((x, y) => y.v - x.v); // yang terpanas ditaruh lebih dulu bila label berdesakan
@@ -122,7 +129,7 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
 
   function computePoses() {
     const w = stageEl.clientWidth, h = stageEl.clientHeight;
-    poses = posesFor({ bounds: b, dome: R, breakdown: analysis?.orientation_breakdown, north, aspect: w / Math.max(1, h) });
+    poses = posesFor({ bounds: b, dome: R, breakdown: analysis?.orientation_breakdown, north, aspect: w / Math.max(1, h), fov });
     // Slide lebar: geser azimut sedikit bila bola matahari menutupi model di layar.
     for (const s of slides) if (s.wide) poses[s.id] = clearOfSun(poses[s.id]);
   }
@@ -370,22 +377,57 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   if (!capture) frame();
 
   /** Gambar satu slide (mode capture): JPEG data URL dengan awan dan burung pada waktu tetap. */
-  function shot(id, { time = 20000, quality = 0.92, zoom = 1 } = {}) {
+  function shot(id, { time = 20000, quality = 0.92, zoom = 1, labels = false, heat = null, shiftLeft = 0, shiftRight = 0, shiftUp = 0, fit = null, pose = null, project = null, dome: domeOn = null } = {}) {
     const i = slides.findIndex((x) => x.id === id);
     if (i < 0) return null;
     go(i, { instant: true });
+    if (pose) { Object.assign(cam, { az: pose.az ?? cam.az, el: pose.el ?? cam.el }); applyCam(); } // sudut tetap (isometri, tampak)
+    if (domeOn !== null) Object.assign(domeFade, { from: domeOn ? 1 : 0, to: domeOn ? 1 : 0 });
     if (zoom !== 1) { cam.dist *= zoom; applyCam(); }
+    if (fit) {
+      // jarak dari ukuran model saja: bola pembungkus model mengisi fit.h tinggi bingkai dan paling banyak fit.w lebarnya
+      const w = stageEl.clientWidth, h = stageEl.clientHeight, v = (stage.camera.fov / 2) * Math.PI / 180;
+      const hh = Math.atan(Math.tan(v) * (w / h));
+      cam.dist = Math.max(b.radius / (Math.sin(v) * fit.h), b.radius / (Math.sin(hh) * fit.w));
+      applyCam();
+    }
+    if (shiftRight > 0 || shiftLeft > 0 || shiftUp > 0) {
+      // geser model di bingkai: kanan / kiri / atas (ruang untuk teks dan pita laporan)
+      const w = stageEl.clientWidth, h = stageEl.clientHeight;
+      const px = Math.round(w * Math.max(shiftRight, shiftLeft) * 2), py = Math.round(h * shiftUp * 2);
+      stage.camera.aspect = (w + px) / (h + py);
+      stage.camera.setViewOffset(w + px, h + py, shiftLeft > 0 ? px : 0, py, w, h);
+      stage.camera.updateProjectionMatrix();
+    }
+    if (typeof heat === 'function') maket.setHeat(heat); // warna per sisi bebas (mis. hanya satu sisi disorot)
+    else if (heat !== null) maket.setHeat(heat ? (code) => heatColor(ottvByCode[code] ?? 0) : null); // paksa heatmap / warna material
     dome.setOpacity(domeK(time));
     stage.scene.background.lerpColors(bgBase, bgHeat, bgK(time));
-    clouds.tick(stage.camera, time / 1000, cam.dist, false);
-    birds.tick(time / 1000, cam.dist, false);
+    if (sky) {
+      clouds.tick(stage.camera, time / 1000, cam.dist, false);
+      birds.tick(time / 1000, cam.dist, false);
+    }
     stage.render();
-    return stage.renderer.domElement.toDataURL('image/jpeg', quality);
+    const img = stage.renderer.domElement.toDataURL('image/jpeg', quality);
+    // proyeksi titik dunia ke layar (persen) untuk garis ukur, level, panah utara di laporan
+    const proj = project ? project.map((pt) => { const v3 = new THREE.Vector3(...pt).project(stage.camera); return [((v3.x + 1) / 2) * 100, ((1 - v3.y) / 2) * 100]; }) : null;
+    if (!labels && !project) return img;
+    if (!labels) return { img, proj, mPerPx: (2 * cam.dist * Math.tan((stage.camera.fov / 2) * Math.PI / 180)) / stageEl.clientHeight };
+    // posisi titik tengah tiap sisi di gambar (persen), untuk label penunjuk di laporan
+    const q = new THREE.Vector3();
+    const cpos = stage.camera.position;
+    const pts = sideLabels.map((l) => {
+      const nx = l.p.x - b.center.x, nz = l.p.z - b.center.z; // arah keluar sisi
+      const facing = nx * (cpos.x - l.p.x) + nz * (cpos.z - l.p.z) > 0; // sisi menghadap kamera
+      q.copy(l.p).project(stage.camera);
+      return { code: l.code, v: l.v, x: ((q.x + 1) / 2) * 100, y: ((1 - q.y) / 2) * 100, facing };
+    });
+    return { img, labels: pts, proj };
   }
 
   return {
     get index() { return index; },
-    slides, go, next, prev, destroy, toggleFull, shot, theme, heatNeedsBg,
+    slides, go, next, prev, destroy, toggleFull, shot, theme, heatNeedsBg, bounds: b, heatColor, maket, sun: dome.sun,
     _debug: { stage, maket, dome, pick, poses: () => poses, cam, skyScale },
   };
 }
