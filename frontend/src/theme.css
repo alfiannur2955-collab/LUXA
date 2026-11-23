@@ -74,23 +74,24 @@
 
 :root[data-theme="dark"],
 .app.dark {
-  --paper: #141412;
-  --surface: #1e1d1a;
-  --surface-sunken: #2a2925;
-  --ink: #f2efe8;
-  --ink-muted: #ada79b;
-  --line: #34322d;
-  --line-strong: #8f897d;
+  /* Nada arang dingin, sama dengan adegan 3D Beranda/Belajar */
+  --paper: #1f2024;
+  --surface: #27282d;
+  --surface-sunken: #303137;
+  --ink: #f1eee8;
+  --ink-muted: #a9a6a0;
+  --line: #393a40;
+  --line-strong: #8d8e94;
 
   --sun: #f5a94a;
-  --on-sun: #141412;
+  --on-sun: #1f2024;
 
-  --glass: rgba(30, 29, 26, 0.62);
-  --glass-card: rgba(36, 35, 31, 0.58);
-  --glass-thin: rgba(36, 35, 31, 0.42);
+  --glass: rgba(39, 40, 45, 0.62);
+  --glass-card: rgba(43, 44, 50, 0.58);
+  --glass-thin: rgba(43, 44, 50, 0.42);
   --glass-edge: rgba(255, 255, 255, 0.10);
 
-  --glow-warm: rgba(245, 169, 74, 0.16);
+  --glow-warm: rgba(245, 169, 74, 0.10);
   --glow-cool: rgba(94, 196, 186, 0.10);
 
   --ok: #5ec4ba;
@@ -98,11 +99,11 @@
   --fail: #f2867e;
 
   --data-glazing: #7fb0db;
-  --data-wall: #6f6a60;
+  --data-wall: #6b6d74;
   --data-shading: #5ec4ba;
   --data-unknown: #e8c14a;
-  --data-frame: #46433e;
-  --data-roof: #5b574f;
+  --data-frame: #44464c;
+  --data-roof: #5a5c63;
 
   --heat-0: #3a3122;
   --heat-1: #a8642c;

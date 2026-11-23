@@ -212,7 +212,7 @@ function screenNorthAngle() {
 // ---------------------------------------------------------------------------
 
 function makeDrawer(ctx, k, tokens, isDark) {
-  const panelFill = isDark ? 'rgba(30, 29, 26, 0.86)' : 'rgba(255, 255, 255, 0.88)';
+  const panelFill = isDark ? 'rgba(39, 40, 45, 0.86)' : 'rgba(255, 255, 255, 0.88)';
   const panelStroke = isDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(27, 26, 23, 0.12)';
   const font = (w, px) => `${w} ${Math.round(px * k)}px ${FONT}`;
   const text = (s, x, y, { w = 600, px = 12, color = tokens.ink, align = 'left' } = {}) => {
@@ -236,7 +236,7 @@ function makeDrawer(ctx, k, tokens, isDark) {
   const card = (x, y, w, h, r = 14 * k) => {
     ctx.save();
     roundRect(ctx, x, y, w, h, r);
-    ctx.fillStyle = isDark ? 'rgba(20, 19, 17, 0.35)' : 'rgba(255, 255, 255, 0.35)';
+    ctx.fillStyle = isDark ? 'rgba(31, 32, 36, 0.35)' : 'rgba(255, 255, 255, 0.35)';
     ctx.shadowColor = isDark ? 'rgba(0,0,0,0.35)' : 'rgba(40,30,20,0.14)';
     ctx.shadowBlur = 28 * k;
     ctx.shadowOffsetY = 8 * k;
@@ -254,7 +254,7 @@ function makeDrawer(ctx, k, tokens, isDark) {
       }
       ctx.filter = 'none';
     }
-    ctx.fillStyle = backdrop ? (isDark ? 'rgba(30, 29, 26, 0.62)' : 'rgba(255, 255, 255, 0.62)') : panelFill;
+    ctx.fillStyle = backdrop ? (isDark ? 'rgba(39, 40, 45, 0.62)' : 'rgba(255, 255, 255, 0.62)') : panelFill;
     ctx.fillRect(x, y, w, h);
     const sheen = ctx.createLinearGradient(0, y, 0, y + h);
     sheen.addColorStop(0, isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.35)');

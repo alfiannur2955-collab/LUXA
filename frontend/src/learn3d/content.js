@@ -1,4 +1,5 @@
-// Isi teks Beranda + Belajar OTTV: judul bagian, pita rumus, isi kartu, kamus simbol, dan kalimat Lux.
+// Isi teks Beranda + Belajar OTTV: judul bagian, isi kartu, kamus simbol, pita rumus, dan kalimat Lux.
+// Ditulis untuk pembaca awam: satu gagasan per kalimat, istilah dijelaskan saat pertama muncul.
 // Angka dan definisi mengikuti SNI 6389:2020 (Pasal 3, 4.1–4.4, Tabel 1, 2, 7, 8, 9) dan katalog material LUXA.
 import { SNI } from '../learn/sniData.js';
 import { icon } from '../ui/icons.js';
@@ -12,49 +13,64 @@ export const PRESETS = {
   hemat: { label: 'Hemat', wwr: 0.3, glass: 'glz_kaca_lowe_single_8', wall: 'wal_bata_ringan_aac_cat_putih', R: 0.8 },
 };
 
+// Nama jalur panas dipakai sama di kartu dan di label 3D.
+export const PATH_NAMES = { wall: 'Merambat lewat dinding', glass: 'Merambat lewat kaca', solar: 'Sinar matahari lewat kaca' };
+
 // ---------- Simbol rumus ----------
+const K = 'K (kelvin). Beda 1 K sama dengan beda 1 °C';
 export const SYMS = {
-  a: { sym: 'α', name: 'Absorptansi', unit: 'tanpa satuan, 0 sampai 1', target: 'wall', goto: 'bab-6',
-    text: 'Seberapa banyak sinar matahari yang diserap permukaan luar dinding. Ditentukan bahan dan warnanya: makin terang warnanya, makin kecil α.',
+  a: { sym: 'α', name: 'Penyerapan sinar (absorptansi)', unit: 'angka 0 sampai 1', target: 'wall', goto: 'bab-6',
+    text: 'Seberapa banyak sinar matahari diserap permukaan luar dinding. Warna terang menyerap lebih sedikit, jadi α-nya lebih kecil.',
     from: 'Katalog material (Tabel 1 dan 2 SNI)' },
-  uw: { sym: 'Uw', name: 'Transmitan termal dinding', unit: 'W/m²K', target: 'wall', goto: 'bab-6',
-    text: 'Seberapa mudah panas merambat menembus dinding yang tidak tembus cahaya, untuk tiap 1 K beda suhu. Makin kecil nilainya, makin rapat dindingnya.',
+  uw: { sym: 'Uw', name: 'Nilai U dinding', unit: 'W/m²K', target: 'wall', goto: 'bab-6',
+    text: 'Seberapa mudah panas menembus dinding. Makin kecil angkanya, makin sedikit panas yang lolos.',
     from: 'Katalog material' },
-  wwr: { sym: 'WWR', name: 'Rasio jendela terhadap dinding', unit: '0 sampai 1', target: 'glass', goto: 'bab-3',
-    text: 'Luas jendela (kaca dan kusennya) dibagi luas kotor dinding pada satu arah. Muncul tiga kali di rumus, jadi pengaruhnya besar.',
+  one: { sym: '1 − WWR', name: 'Bagian yang berupa dinding', unit: 'angka 0 sampai 1', target: 'wall', goto: 'bab-3',
+    text: 'Angka 1 berarti satu sisi bangunan utuh (100%). Dikurangi porsi kaca (WWR), sisanya adalah bagian dinding. Contoh: kaca 40%, maka 1 − 0,40 = 0,60, artinya 60% dinding.',
+    from: 'Dihitung dari WWR' },
+  wwr: { sym: 'WWR', name: 'Porsi kaca', unit: 'angka 0 sampai 1', target: 'glass', goto: 'bab-3',
+    text: 'Berapa bagian dari satu sisi bangunan yang berupa jendela, termasuk kusennya. WWR 0,40 artinya 40% kaca. Muncul tiga kali di rumus, jadi pengaruhnya besar.',
     from: 'Model 3D-mu' },
-  td: { sym: 'TDek', name: 'Beda temperatur ekuivalen', unit: 'K', target: 'wall', goto: 'bab-6',
-    text: 'Beda suhu antara ruangan dan dinding luar yang sudah dipanasi matahari. SNI menyederhanakannya menjadi tiga kelas menurut berat dinding.',
+  td: { sym: 'TDek', name: 'Beda suhu dinding', unit: K, target: 'wall', goto: 'bab-6',
+    text: 'Selisih suhu antara dinding luar yang sudah dipanasi matahari dan ruangan di dalam. SNI menyederhanakannya dari berat dinding: makin berat, makin kecil.',
     from: 'Tabel 7 SNI (berat dinding)' },
-  uf: { sym: 'Uf', name: 'Transmitan termal fenestrasi', unit: 'W/m²K', target: 'glass', goto: 'bab-5',
-    text: 'Seberapa mudah panas merambat lewat jendela, gabungan kaca dan kusennya.',
+  uf: { sym: 'Uf', name: 'Nilai U jendela', unit: 'W/m²K', target: 'glass', goto: 'bab-5',
+    text: 'Seberapa mudah panas menembus jendela, yaitu kaca bersama kusennya. Makin kecil, makin sedikit panas yang lolos.',
     from: 'Katalog kaca' },
-  dt: { sym: 'ΔT', name: 'Beda suhu luar dan dalam', unit: 'K', target: 'glass', goto: 'bab-2',
-    text: 'Selisih suhu rencana antara udara luar dan ruangan. SNI menetapkannya tetap 5 K, jadi kamu tidak perlu mencarinya.',
+  dt: { sym: 'ΔT', name: 'Beda suhu luar dan dalam', unit: K, target: 'glass', goto: 'bab-2',
+    text: 'Selisih suhu udara luar dan ruangan. SNI sudah menetapkannya 5 K, jadi tinggal dipakai.',
     from: 'Ketetapan SNI (5 K)' },
-  sc: { sym: 'SC', name: 'Koefisien peneduh', unit: '0 sampai 1', target: 'glass', goto: 'bab-5',
-    text: 'Perbandingan panas matahari yang masuk lewat jendelamu dibanding lewat kaca bening 3 mm tanpa peneduh. SC = SC kaca × SC efektif peneduh.',
+  sc: { sym: 'SC', name: 'Peredam sinar (koefisien peneduh)', unit: 'angka 0 sampai 1', target: 'glass', goto: 'bab-5',
+    text: 'Seberapa banyak sinar matahari yang tetap lolos lewat jendelamu, dibanding kaca bening biasa tanpa peneduh. Makin kecil, makin teduh. SC = SC kaca × SC peneduh.',
     from: 'Katalog kaca + tabel peneduh SNI' },
-  sf: { sym: 'SF', name: 'Faktor radiasi matahari', unit: 'W/m²', target: 'glass', goto: 'bab-4',
-    text: 'Radiasi matahari rata-rata per jam yang masuk lewat kaca bening 3 mm. Nilainya berbeda untuk tiap kota dan tiap arah fasad.',
+  sf: { sym: 'SF', name: 'Kekuatan sinar per arah', unit: 'W/m²', target: 'glass', goto: 'bab-4',
+    text: 'Rata-rata kekuatan sinar matahari yang masuk lewat kaca bening, untuk tiap arah dan tiap kota. Sisi yang paling lama kena matahari, angkanya paling besar.',
     from: 'Tabel 8 SNI (kota dan arah)' },
 };
 
-const s = (k, on) => `<b data-s="${k}"${on.includes(k) ? ' class="on"' : ''}>${SYMS[k].sym}</b>`;
-// Pita rumus kecil di atas kartu: simbol yang sedang dibahas menyala.
+// Pita rumus kecil di bawah kartu: simbol yang sedang dibahas menyala, sisanya pudar.
+const sy = (k, on) => `<b${on.includes(k) ? ' class="on"' : ''}>${k === 'one' ? '1' : SYMS[k].sym}</b>`;
 export function strip(kind, on = []) {
-  if (kind === 'ottv') return `<p class="l3d-strip" aria-label="Rumus OTTV">OTTV = ${s('a', on)}·[${s('uw', on)}·(1−${s('wwr', on)})·${s('td', on)}] + ${s('uf', on)}·${s('wwr', on)}·${s('dt', on)} + ${s('sc', on)}·${s('wwr', on)}·${s('sf', on)}</p>`;
-  if (kind === 'total') return '<p class="l3d-strip" aria-label="Rumus OTTV total">OTTV total = Σ(<b class="on">luas fasad</b> × <b class="on">OTTV fasad</b>) ÷ Σ luas fasad</p>';
-  if (kind === 'rttv') return '<p class="l3d-strip" aria-label="Rumus RTTV">RTTV = [α·Ar·Ur·TDek + As·Us·ΔT + As·SC·SF] ÷ Ao</p>';
+  const head = '<span class="l3d-strip-h">Di rumus</span>';
+  if (kind === 'ottv') return `<p class="l3d-strip">${head}OTTV = ${sy('a', on)}·[${sy('uw', on)}·(${sy('one', on)}−${sy('wwr', on)})·${sy('td', on)}] + ${sy('uf', on)}·${sy('wwr', on)}·${sy('dt', on)} + ${sy('sc', on)}·${sy('wwr', on)}·${sy('sf', on)}</p>`;
+  if (kind === 'total') return `<p class="l3d-strip">${head}OTTV total = Σ(<b class="on">luas sisi</b> × <b class="on">OTTV sisi</b>) ÷ Σ luas sisi</p>`;
+  if (kind === 'rttv') return `<p class="l3d-strip">${head}RTTV = [α·Ar·Ur·TDek + As·Us·ΔT + As·SC·SF] ÷ Ao<span class="l3d-strip-k">Ar luas atap tertutup · As luas skylight · Ao luas seluruh atap</span></p>`;
   return '';
 }
 
-// Rumus besar di Bedah rumus: tiap simbol tombol.
-const sb = (k) => `<button type="button" data-sym="${k}" aria-label="${SYMS[k].name}">${SYMS[k].sym}</button>`;
-const BIG = `OTTV = ${sb('a')} · [ ${sb('uw')} · (1 − ${sb('wwr')}) · ${sb('td')} ] + ${sb('uf')} · ${sb('wwr')} · ${sb('dt')} + ${sb('sc')} · ${sb('wwr')} · ${sb('sf')}`;
+// Rumus besar di Bedah rumus: satu baris per jalur panas, tiap simbol tombol.
+const sb = (k, label) => `<button type="button" data-sym="${k}" aria-label="${SYMS[k].name}">${label || SYMS[k].sym}</button>`;
+const dot = (k) => `<i class="l3d-big-dot" style="background:${HEAT_COLORS[k]}" title="${PATH_NAMES[k]}"></i>`;
+const BIG = `
+  <div class="l3d-big-head">OTTV =</div>
+  <div class="l3d-big-row"><span class="l3d-big-l"></span><span class="l3d-big-t">${sb('a')}·[${sb('uw')}·(${sb('one', '1')}−${sb('wwr')})·${sb('td')}]</span>${dot('wall')}</div>
+  <div class="l3d-big-row"><span class="l3d-big-l">+</span><span class="l3d-big-t">${sb('uf')}·${sb('wwr')}·${sb('dt')}</span>${dot('glass')}</div>
+  <div class="l3d-big-row"><span class="l3d-big-l">+</span><span class="l3d-big-t">${sb('sc')}·${sb('wwr')}·${sb('sf')}</span>${dot('solar')}</div>`;
 
 // Nama kaca pendek untuk tombol: "Kaca warna (tinted) 8 mm" → "Warna (tinted)".
 const shortGlass = (n) => { const t = n.replace(/^Kaca\s*/, '').replace(/\s*8 mm$/, ''); return t.charAt(0).toUpperCase() + t.slice(1); };
+const seg = (cols, label, items) => `<div class="l3d-seg" style="--cols:${cols}" role="group" aria-label="${label}">${items}</div>`;
+const gauge = (id, label) => `<div class="l3d-gauge"><div class="l3d-gauge-num"><b data-id="${id}">–</b><span>${label}</span></div><div class="l3d-gauge-bar"><i data-id="${id}-bar"></i><em style="left:${(LIMIT / 80) * 100}%"><span>batas ${fmt(LIMIT)}</span></em></div><p data-id="${id}-verdict" class="l3d-verdict"></p></div>`;
 
 // ---------- Bagian ----------
 export function chapters({ gl }) {
@@ -63,92 +79,96 @@ export function chapters({ gl }) {
     { id: 'bab-1', shot: 'bab1', nav: 'OTTV', title: 'OTTV itu apa?', html: `
       <p class="l3d-kicker">Belajar OTTV</p>
       <h2>OTTV itu apa?</h2>
-      <p>OTTV (Overall Thermal Transfer Value) adalah rata-rata panas yang masuk lewat dinding dan kaca bangunan, dalam W/m². Makin besar angkanya, makin berat kerja AC untuk mendinginkan ruangan.</p>
-      <p>SNI 6389:2020 membatasinya paling tinggi ${fmt(LIMIT)} W/m², untuk bangunan gedung yang memakai sistem tata udara.</p>
-      <p>Bandingkan tiga versi tower ini. Makin pekat oranye di fasad, makin besar panas yang masuk lewat fasad itu.</p>
-      <div class="l3d-seg" role="group" aria-label="Versi tower">${Object.entries(PRESETS).map(([k, p]) => `<button type="button" data-preset="${k}">${p.label}</button>`).join('')}</div>
+      <p>Matahari memanaskan dinding dan kaca bangunan, lalu sebagian panasnya masuk ke ruangan. OTTV mengukur rata-rata panas yang masuk itu, dalam W/m² (watt per meter persegi).</p>
+      <p>Makin besar OTTV, makin keras AC harus bekerja. Karena itu SNI 6389:2020 membatasinya paling tinggi ${fmt(LIMIT)} W/m² untuk gedung ber-AC.</p>
+      <p>Coba bandingkan tiga versi tower ini. Makin oranye sisi bangunannya, makin banyak panas yang masuk lewat sisi itu.</p>
+      ${seg(3, 'Versi tower', Object.entries(PRESETS).map(([k, p]) => `<button type="button" data-preset="${k}">${p.label}</button>`).join(''))}
       <p class="l3d-muted" data-id="preset-desc"></p>
-      <div class="l3d-gauge"><div class="l3d-gauge-num"><b data-id="ottv-total">–</b><span>W/m²</span></div><div class="l3d-gauge-bar"><i data-id="ottv-bar"></i><em style="left:${(LIMIT / 80) * 100}%"><span>batas ${fmt(LIMIT)}</span></em></div><p data-id="ottv-verdict" class="l3d-verdict"></p></div>` },
+      ${gauge('ottv-total', 'W/m²')}` },
     { id: 'bab-2', shot: 'bab2', nav: 'Jalur panas', title: 'Panas masuk lewat mana?', html: `
-      ${strip('ottv', ['a', 'uw', 'wwr', 'td', 'uf', 'dt', 'sc', 'sf'])}
       <h2>Panas masuk lewat mana?</h2>
-      <p>Ada tiga jalur. Dua yang pertama adalah konduksi: panas merambat menembus bahan, seperti tanganmu yang ikut panas saat memegang gelas kopi. Jalur ketiga adalah radiasi: sinar matahari menembus kaca lalu memanaskan ruangan, seperti mobil yang diparkir di terik.</p>
-      <p>OTTV satu fasad adalah jumlah ketiganya. Arahkan kursor ke tiap suku untuk mengunci jalurnya di model.</p>
+      <p>Lewat tiga jalan. Dua di antaranya merambat menembus bahan, seperti gelas kopi panas yang ikut menghangatkan tanganmu. Satu lagi berupa sinar matahari yang menembus kaca, seperti mobil yang diparkir di bawah terik.</p>
+      <p>Panas dari ketiga jalan ini dijumlahkan, dan hasilnya adalah OTTV untuk satu sisi bangunan. Arahkan kursor ke salah satu jalan untuk melihatnya di model.</p>
       <div class="l3d-terms">
-        <button type="button" data-term="wall"><i style="background:${HEAT_COLORS.wall}"></i><span>Konduksi dinding</span><code>α · Uw · (1 − WWR) · TDek</code><b data-id="t-wall">–</b></button>
-        <button type="button" data-term="glass"><i style="background:${HEAT_COLORS.glass}"></i><span>Konduksi kaca</span><code>Uf · WWR · ΔT</code><b data-id="t-glass">–</b></button>
-        <button type="button" data-term="solar"><i style="background:${HEAT_COLORS.solar}"></i><span>Radiasi lewat kaca</span><code>SC · WWR · SF</code><b data-id="t-solar">–</b></button>
+        <button type="button" data-term="wall"><i style="background:${HEAT_COLORS.wall}"></i><span>${PATH_NAMES.wall}</span><code>α · Uw · (1 − WWR) · TDek</code><b data-id="t-wall">–</b></button>
+        <button type="button" data-term="glass"><i style="background:${HEAT_COLORS.glass}"></i><span>${PATH_NAMES.glass}</span><code>Uf · WWR · ΔT</code><b data-id="t-glass">–</b></button>
+        <button type="button" data-term="solar"><i style="background:${HEAT_COLORS.solar}"></i><span>${PATH_NAMES.solar}</span><code>SC · WWR · SF</code><b data-id="t-solar">–</b></button>
       </div>
-      <p class="l3d-sum">OTTV fasad Barat = <b data-id="t-total">–</b> W/m²</p>
-      <p class="l3d-note" data-id="t-note"></p>` },
+      <p class="l3d-sum">OTTV sisi Barat = <b data-id="t-total">–</b> W/m²</p>
+      <p class="l3d-note" data-id="t-note"></p>
+      ${strip('ottv', ['a', 'uw', 'one', 'wwr', 'td', 'uf', 'dt', 'sc', 'sf'])}` },
     { id: 'rumus', shot: 'rumus', nav: 'Rumus', title: 'Bedah rumus', html: `
       <p class="l3d-kicker">Bedah rumus</p>
-      <h2>Satu per satu simbolnya</h2>
-      <p>Klik simbol di rumus untuk melihat artinya, satuannya, dari mana nilainya, dan bagiannya di model.</p>
-      <div class="l3d-big" role="group" aria-label="Rumus OTTV satu fasad">${BIG}</div>
+      <h2>Kenalan dengan simbolnya</h2>
+      <p>Rumus OTTV terlihat rumit, padahal isinya hanya tiga jalan panas tadi, satu baris per jalan. Klik simbol mana saja untuk tahu artinya.</p>
+      <div class="l3d-big" role="group" aria-label="Rumus OTTV satu sisi bangunan">${BIG}</div>
       <div class="l3d-sym" data-id="sym-info" aria-live="polite"></div>
-      <p class="l3d-muted l3d-num-head">Dengan angka tower ini, fasad Barat:</p>
+      <p class="l3d-muted l3d-num-head">Kalau diisi angka tower ini (sisi Barat):</p>
       <p class="l3d-num" data-id="sym-num"></p>` },
     { id: 'bab-3', shot: 'bab3', nav: 'Kaca', title: 'Makin banyak kaca, makin panas', html: `
-      ${strip('ottv', ['wwr'])}
       <h2>Makin banyak kaca, makin panas</h2>
-      <p>WWR adalah perbandingan luas jendela (termasuk kusennya) terhadap luas fasad, dihitung per arah. Makin besar WWR, dua suku kaca membesar dan suku dinding mengecil. Karena radiasi lewat kaca jauh lebih besar, OTTV ikut naik.</p>
-      <label class="l3d-ctl">WWR fasad Barat <input data-id="wwr" type="range" min="0.1" max="0.85" step="0.05" value="0.4"><output data-id="wwr-out">40%</output></label>
+      <p>WWR adalah porsi kaca di satu sisi bangunan, termasuk kusennya. WWR 40% artinya 40% sisi itu kaca dan 60% dinding.</p>
+      <p>Kaca meloloskan panas jauh lebih banyak daripada dinding, terutama lewat sinar matahari. Jadi makin besar WWR, makin besar OTTV.</p>
+      <label class="l3d-ctl">Porsi kaca sisi Barat (WWR) <input data-id="wwr" type="range" min="0.1" max="0.85" step="0.05" value="0.4"><output data-id="wwr-out">40%</output></label>
       <div class="l3d-stack" aria-hidden="true"><i data-id="s-wall" style="background:${HEAT_COLORS.wall}"></i><i data-id="s-glass" style="background:${HEAT_COLORS.glass}"></i><i data-id="s-solar" style="background:${HEAT_COLORS.solar}"></i></div>
-      <dl class="l3d-stats"><div><dt>Konduksi dinding</dt><dd data-id="w-wall">–</dd></div><div><dt>Konduksi kaca</dt><dd data-id="w-glass">–</dd></div><div><dt>Radiasi lewat kaca</dt><dd data-id="w-solar">–</dd></div></dl>
-      <p class="l3d-sum">OTTV fasad Barat = <b data-id="w-total">–</b> W/m²</p>
-      <p class="l3d-muted"><b>Coba:</b> turunkan WWR ke 20%, lalu lihat berapa OTTV-nya turun.</p>` },
-    { id: 'bab-4', shot: 'bab4', nav: 'Arah', title: 'Arah fasad itu penting', html: `
-      ${strip('ottv', ['sf'])}
-      <h2>Arah fasad itu penting</h2>
-      <p>Tiap arah fasad menerima radiasi matahari yang berbeda. SNI merangkumnya dalam faktor radiasi matahari (SF): radiasi rata-rata per jam yang masuk lewat kaca bening 3 mm. Nilainya berbeda untuk tiap kota dan tiap arah. Makin pekat oranyenya, makin besar SF fasad itu.</p>
+      <dl class="l3d-stats"><div><dt>Lewat dinding</dt><dd data-id="w-wall">–</dd></div><div><dt>Lewat kaca</dt><dd data-id="w-glass">–</dd></div><div><dt>Sinar lewat kaca</dt><dd data-id="w-solar">–</dd></div></dl>
+      <p class="l3d-sum">OTTV sisi Barat = <b data-id="w-total">–</b> W/m²</p>
+      <p class="l3d-muted"><b>Coba:</b> turunkan WWR ke 20%, lalu lihat berapa OTTV-nya turun.</p>
+      ${strip('ottv', ['one', 'wwr'])}` },
+    { id: 'bab-4', shot: 'bab4', nav: 'Arah', title: 'Sisi mana yang paling kepanasan?', html: `
+      <h2>Sisi mana yang paling kepanasan?</h2>
+      <p>Setiap sisi bangunan menerima sinar matahari dengan kekuatan berbeda. SNI mencatatnya sebagai SF, untuk tiap arah dan tiap kota. Makin oranye sisinya, makin besar SF-nya.</p>
       <div class="l3d-sf" aria-label="SF Jakarta per arah, W/m²">${['U', 'T', 'S', 'B'].map((d) => `<div class="l3d-sf-row"><span>${DIR_NAME[d]}</span><i style="--w:${(sf()[d] / 200) * 100}%"></i><b>${fmt(sf()[d])}</b></div>`).join('')}<p class="l3d-muted">SF Jakarta, W/m²</p></div>
-      <p><b>Coba:</b> seret matahari di lintasannya. Sore hari sinar menimpa fasad Barat secara langsung, itu sebabnya SF Barat paling tinggi.</p>
+      <p><b>Coba:</b> seret matahari di lintasannya. Sinar sore menyorot lurus ke sisi Barat, itu sebabnya angka Barat paling besar.</p>
       <p class="l3d-readout" data-id="sun-readout">Jam 15.00</p>
-      <p class="l3d-note">Bayangan bangunan sekitar hanya ilustrasi. Perhitungan OTTV di LUXA tidak memasukkan bayangan dari bangunan lain.</p>` },
+      <p class="l3d-note">Bayangan gedung sekitar hanya hiasan. LUXA tidak memasukkan bayangan gedung lain ke hitungan OTTV.</p>
+      ${strip('ottv', ['sf'])}` },
     { id: 'bab-5', shot: 'bab5', nav: 'Peneduh', title: 'Meneduhkan kaca', html: `
-      ${strip('ottv', ['sc'])}
       <h2>Meneduhkan kaca</h2>
-      <p>Panas matahari lewat kaca diredam koefisien peneduh: SC = SC kaca × SC efektif peneduh. Pilihan kaca saja sudah mengubah banyak:</p>
-      <div class="l3d-seg l3d-seg-wrap" role="group" aria-label="Jenis kaca">${SNI.glass.map((g) => `<button type="button" data-glass="${g.id}" title="${g.name}">${shortGlass(g.name)} <small>SC ${fmt(g.sc, 2)}</small></button>`).join('')}</div>
-      <p>Overhang menahan sinar langsung sebelum mengenai kaca. Pengaruhnya bergantung pada R = kedalaman overhang ÷ tinggi kaca.</p>
+      <p>Sinar yang masuk lewat kaca bisa diredam dengan dua cara: memilih kaca yang lebih teduh, dan memasang peneduh seperti overhang (atap kecil di atas jendela).</p>
+      <p>Keduanya digabung dalam SC = SC kaca × SC peneduh. Makin kecil SC, makin sedikit sinar yang lolos.</p>
+      ${seg(2, 'Jenis kaca', SNI.glass.map((g) => `<button type="button" data-glass="${g.id}" title="${g.name}">${shortGlass(g.name)}<small>SC ${fmt(g.sc, 2)}</small></button>`).join(''))}
+      <p>Overhang makin ampuh kalau makin dalam dibanding tinggi kacanya. Perbandingan ini disebut R.</p>
       <label class="l3d-ctl">Kedalaman overhang <input data-id="depth" type="range" min="0" max="1.5" step="0.05" value="0.7"><output data-id="depth-out">0,70 m</output></label>
       <label class="l3d-ctl">Jam <input data-id="hour5" type="range" min="6" max="18" step="0.25" value="15"><output data-id="hour5-out">15.00</output></label>
-      <dl class="l3d-stats l3d-stats-4"><div><dt>Rasio R</dt><dd data-id="r-out">–</dd></div><div><dt>SC efektif peneduh</dt><dd data-id="sc-out">–</dd></div><div><dt>SC total</dt><dd data-id="sct-out">–</dd></div><div><dt>Kaca terlindung jam ini</dt><dd data-id="shade-out">–</dd></div></dl>
-      <p class="l3d-note">SC efektif peneduh dari tabel SNI, berlaku sepanjang tahun. Persentase kaca terlindung hanya untuk jam yang dipilih.</p>` },
+      <dl class="l3d-stats l3d-stats-4"><div><dt>R (dalam ÷ tinggi)</dt><dd data-id="r-out">–</dd></div><div><dt>SC peneduh</dt><dd data-id="sc-out">–</dd></div><div><dt>SC total</dt><dd data-id="sct-out">–</dd></div><div><dt>Kaca teduh jam ini</dt><dd data-id="shade-out">–</dd></div></dl>
+      <p class="l3d-note">SC peneduh dari tabel SNI, berlaku sepanjang tahun. Persentase kaca teduh hanya untuk jam yang dipilih.</p>
+      ${strip('ottv', ['sc'])}` },
     { id: 'bab-6', shot: 'bab6', nav: 'Dinding', title: 'Warna dan berat dinding', html: `
-      ${strip('ottv', ['a', 'uw', 'td'])}
       <h2>Warna dan berat dinding</h2>
-      <p>Suku dinding ditentukan tiga hal: nilai U (seberapa mudah panas merambat), absorptansi α (seberapa banyak sinar diserap permukaan), dan berat dinding yang menentukan TDek.</p>
+      <p>Panas yang merambat lewat dinding dipengaruhi tiga hal:</p>
       <ul class="l3d-facts">
-        <li><b>Makin terang warnanya, makin kecil α</b>, makin sedikit sinar diserap. Putih semi kilap 0,30 · hijau medium 0,59 · hitam 0,95.</li>
-        <li><b>Makin berat dindingnya, makin kecil TDek.</b> Di bawah 125 kg/m² 15 K · 126–195 kg/m² 12 K · di atas 195 kg/m² 10 K.</li>
+        <li><b>Warna.</b> Makin terang, makin sedikit sinar diserap (α kecil). Putih 0,30 · hijau 0,59 · hitam 0,95.</li>
+        <li><b>Bahan.</b> Makin kecil nilai U, makin sulit panas menembus. Lapisan insulasi sangat membantu.</li>
+        <li><b>Berat.</b> Makin berat dinding, makin kecil TDek: di bawah 125 kg/m² 15 K · 126–195 kg/m² 12 K · di atas 195 kg/m² 10 K.</li>
       </ul>
-      <div class="l3d-seg l3d-seg-wrap" role="group" aria-label="Jenis dinding">${SNI.wall.map((w) => `<button type="button" data-wall="${w.id}">${w.name}</button>`).join('')}</div>
+      ${seg(2, 'Jenis dinding', SNI.wall.map((w) => `<button type="button" data-wall="${w.id}">${w.name}</button>`).join(''))}
       <label class="l3d-ctl">Warna permukaan luar (α) <input data-id="alpha" type="range" min="0.2" max="0.9" step="0.01"><output data-id="alpha-out">–</output></label>
-      <dl class="l3d-stats l3d-stats-4"><div><dt>Nilai U</dt><dd data-id="d-u">–</dd></div><div><dt>Berat</dt><dd data-id="d-m">–</dd></div><div><dt>TDek</dt><dd data-id="d-td">–</dd></div><div><dt>Suku dinding</dt><dd data-id="d-q">–</dd></div></dl>
-      <p class="l3d-sum">OTTV fasad Barat = <b data-id="d-total">–</b> W/m²</p>
-      <p class="l3d-note">Tebal lapisan di potongan dibesarkan supaya terbaca. Nilai U, α, dan berat dari katalog material LUXA; α contoh dari Tabel 2 SNI.</p>` },
+      <dl class="l3d-stats l3d-stats-4"><div><dt>Nilai U</dt><dd data-id="d-u">–</dd></div><div><dt>Berat</dt><dd data-id="d-m">–</dd></div><div><dt>TDek</dt><dd data-id="d-td">–</dd></div><div><dt>Lewat dinding</dt><dd data-id="d-q">–</dd></div></dl>
+      <p class="l3d-sum">OTTV sisi Barat = <b data-id="d-total">–</b> W/m²</p>
+      <p class="l3d-note">Tebal lapisan di potongan dibesarkan supaya terbaca. Nilai U, α, dan berat dari katalog material LUXA; contoh α dari Tabel 2 SNI.</p>
+      ${strip('ottv', ['a', 'uw', 'td'])}` },
     { id: 'bab-7', shot: 'bab7', nav: 'Total', title: 'Menghitung semua sisi', html: `
-      ${strip('total')}
       <h2>Menghitung semua sisi</h2>
-      <p>OTTV bangunan adalah rata-rata OTTV semua fasad, ditimbang dengan luasnya (luas dinding ditambah jendelanya). Fasad yang luas dan menghadap arah panas paling besar pengaruhnya. Yang dinilai lolos atau tidak adalah angka total ini.</p>
-      <div class="l3d-sides">${['U', 'T', 'S', 'B'].map((d) => `<div class="l3d-side"><span>${DIR_NAME[d]}</span><input type="range" min="0.1" max="0.85" step="0.05" data-side="${d}" aria-label="WWR ${DIR_NAME[d]}"><output data-side-out="${d}">–</output><b data-side-ottv="${d}">–</b></div>`).join('')}<p class="l3d-muted">Geser WWR tiap arah. Angka kanan = OTTV fasad itu (W/m²).</p></div>
-      <div class="l3d-gauge"><div class="l3d-gauge-num"><b data-id="ottv-total7">–</b><span>W/m² OTTV total</span></div><div class="l3d-gauge-bar"><i data-id="ottv-bar7"></i><em style="left:${(LIMIT / 80) * 100}%"><span>batas ${fmt(LIMIT)}</span></em></div><p data-id="ottv-verdict7" class="l3d-verdict"></p></div>` },
+      <p>Tiap sisi bangunan punya OTTV sendiri. Untuk OTTV seluruh bangunan, semua sisi dirata-rata dengan menimbang luasnya: sisi yang lebih luas lebih berpengaruh.</p>
+      <p>Angka total inilah yang dibandingkan dengan batas SNI.</p>
+      <div class="l3d-sides">${['U', 'T', 'S', 'B'].map((d) => `<div class="l3d-side"><span>${DIR_NAME[d]}</span><input type="range" min="0.1" max="0.85" step="0.05" data-side="${d}" aria-label="Porsi kaca sisi ${DIR_NAME[d]}"><output data-side-out="${d}">–</output><b data-side-ottv="${d}">–</b></div>`).join('')}<p class="l3d-muted">Geser porsi kaca tiap sisi. Angka kanan = OTTV sisi itu (W/m²).</p></div>
+      ${gauge('ottv-total7', 'W/m² OTTV total')}
+      ${strip('total')}` },
     { id: 'bab-8', shot: 'bab8', nav: 'Atap', title: 'Bonus: atap juga dihitung', html: `
-      ${strip('rttv')}
       <h2>Bonus: atap juga dihitung</h2>
-      <p>Atap punya ukuran sendiri, RTTV, dengan rumus yang mirip OTTV: Ar luas atap tak tembus cahaya, As luas skylight, Ao luas seluruh atap. Batasnya ${fmt(SNI.rttvLimitSky)} W/m² bila atap memakai skylight, dan ${fmt(SNI.rttvLimitOpaque)} W/m² bila atap tertutup penuh.</p>
-      <p>Atap juga punya TDek sendiri dari beratnya: di bawah 50 kg/m² 24 K, 50–230 kg/m² 20 K, di atas 230 kg/m² 16 K. Atap ringan cepat panas.</p>
-      <div class="l3d-seg" role="group" aria-label="Jenis atap">${SNI.roof.map((r) => `<button type="button" data-roof="${r.id}">${r.name}</button>`).join('')}</div>
+      <p>Atap punya ukuran sendiri, namanya RTTV. Cara hitungnya mirip OTTV, hanya jendelanya berupa skylight (kaca di atap).</p>
+      <p>Batasnya ${fmt(SNI.rttvLimitSky)} W/m² kalau atap punya skylight, dan ${fmt(SNI.rttvLimitOpaque)} W/m² kalau atap tertutup penuh. Atap ringan lebih cepat panas: di bawah 50 kg/m² TDek-nya 24 K, 50–230 kg/m² 20 K, di atas 230 kg/m² 16 K.</p>
+      ${seg(2, 'Jenis atap', SNI.roof.map((r) => `<button type="button" data-roof="${r.id}">${r.name}</button>`).join(''))}
       <label class="l3d-ctl">Luas skylight <input data-id="sky" type="range" min="0" max="${(SKY_MAX_AREA / PODIUM_ROOF_AREA).toFixed(3)}" step="0.005"><output data-id="sky-out">–</output></label>
-      <dl class="l3d-stats"><div><dt>Atap</dt><dd data-id="r-roof">–</dd></div><div><dt>Konduksi skylight</dt><dd data-id="r-cond">–</dd></div><div><dt>Radiasi skylight</dt><dd data-id="r-solar">–</dd></div></dl>
+      <dl class="l3d-stats"><div><dt>Lewat atap</dt><dd data-id="r-roof">–</dd></div><div><dt>Merambat lewat skylight</dt><dd data-id="r-cond">–</dd></div><div><dt>Sinar lewat skylight</dt><dd data-id="r-solar">–</dd></div></dl>
       <div class="l3d-gauge"><div class="l3d-gauge-num"><b data-id="rttv-total">–</b><span>W/m² RTTV</span></div><div class="l3d-gauge-bar"><i data-id="rttv-bar"></i><em data-id="rttv-limit"><span></span></em></div><p data-id="rttv-verdict" class="l3d-verdict"></p></div>
-      <p class="l3d-note">Contoh: atap podium ${fmt(PODIUM_ROOF_AREA)} m² di luar tapak tower, skylight dari ${glassById('glz_kaca_tinted_8').name.toLowerCase()}, SF atap Jakarta ${fmt(sf().ROOF)} W/m².</p>` },
+      <p class="l3d-note">Contoh: atap podium ${fmt(PODIUM_ROOF_AREA)} m² di luar tapak tower, skylight dari ${glassById('glz_kaca_tinted_8').name.toLowerCase()}, SF atap Jakarta ${fmt(sf().ROOF)} W/m².</p>
+      ${strip('rttv')}` },
     { id: 'selesai', shot: 'akhir', nav: 'Selesai', title: 'Giliran desainmu', html: `
       <p class="l3d-kicker">Selesai</p>
       <h2>Giliran desainmu</h2>
-      <p>Kamu sudah melihat semua yang membentuk OTTV dan RTTV: WWR, arah hadap, kaca, peneduh, dinding, dan atap. LUXA menghitung semuanya langsung dari model 3D-mu, per fasad dan per arah.</p>
+      <p>Sekarang kamu sudah kenal semua yang membentuk OTTV dan RTTV: porsi kaca, arah, jenis kaca, peneduh, dinding, dan atap. LUXA menghitung semuanya langsung dari model 3D-mu, untuk tiap sisi bangunan.</p>
       <div class="l3d-actions">
         <button type="button" class="l3d-cta" data-act="start">${icon('upload', 16)}<span>Hitung modelmu</span></button>
         <button type="button" class="l3d-ghost" data-act="example">${icon('play', 16)}<span>Coba model contoh</span></button>
@@ -160,15 +180,15 @@ export function chapters({ gl }) {
 
 // Lux: pemandu kecil di tiap kartu, membawa analogi ringan.
 export const LUX = {
-  beranda: ['wave', 'Aku Lux. Ayo cek seberapa panas fasad desainmu hari ini.'],
-  'bab-1': ['guide', 'Bayangkan bangunan itu cooler box. OTTV = seberapa bocor dindingnya. Coba pilih Hemat.'],
-  'bab-2': ['think', 'Radiasi lewat kaca hampir selalu jadi suku terbesar. Perhatikan panah yang paling tebal.'],
-  rumus: ['guide', 'Mulai dari α. WWR muncul tiga kali, makanya kaca berpengaruh besar.'],
+  beranda: ['wave', 'Aku Lux. Ayo cek seberapa panas sisi-sisi bangunanmu hari ini.'],
+  'bab-1': ['guide', 'Bayangkan bangunan itu cooler box. OTTV menunjukkan seberapa bocor dindingnya. Coba pilih Hemat.'],
+  'bab-2': ['think', 'Sinar lewat kaca hampir selalu jadi penyumbang terbesar. Lihat panah yang paling tebal.'],
+  rumus: ['guide', 'Mulai dari α. Perhatikan WWR muncul tiga kali, makanya porsi kaca berpengaruh besar.'],
   'bab-3': ['guide', 'Jendela lebar itu pintu masuk panas yang lebar juga.'],
-  'bab-4': ['guide', 'Matahari sore itu pilih kasih: sisi barat yang paling kena.'],
+  'bab-4': ['guide', 'Matahari sore itu pilih kasih: sisi Barat yang paling kena.'],
   'bab-5': ['think', 'Overhang itu topi, kaca Low-E itu kacamata hitam. Paling ampuh dipakai dua-duanya.'],
   'bab-6': ['guide', 'Kaos putih vs kaos hitam di siang bolong. Dinding juga begitu.'],
   'bab-7': ['think', 'Mirip nilai rapor: pelajaran dengan SKS besar paling menentukan.'],
   'bab-8': ['report', 'Atap itu topi bangunan, bagian yang paling lama menghadap matahari.'],
-  selesai: ['happy', 'Mantap, semua bagian beres. Yuk cek fasad desainmu sendiri.'],
+  selesai: ['happy', 'Mantap, semua bagian beres. Yuk cek desainmu sendiri.'],
 };

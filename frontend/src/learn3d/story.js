@@ -10,7 +10,8 @@ import { createStage, dirFrom } from './stage.js';
 import { SHOTS } from './shots.js';
 import { setGlazing, setOverhangDepth, setSkylightArea, sillFor, PODIUM_H, TOWER_TOP, PODIUM_ROOF_AREA, SKY_MAX_AREA } from './tower.js';
 import { createFacadeOverlay, createSunMarker, createHeatArrows, createWallSection, createFacadeBands, SOLAR_DIR } from './highlights.js';
-import { PRESETS, SYMS, chapters, LUX } from './content.js';
+import { PRESETS, SYMS, PATH_NAMES, chapters, LUX } from './content.js';
+import { createClouds } from './clouds.js';
 import { sim, sf, facade, total, glassH, effWwr, glassById, wallById, roofById, LIMIT, fmt, pct } from './sim.js';
 import { sceffHorizontal, rttv, tdekWall } from '../learn/ottvCalc.js';
 import { SNI } from '../learn/sniData.js';
@@ -84,21 +85,29 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     const saved = h.savedAutosave;
     const resume = saved ? escapeHtml(saved.filename || 'proyek terakhir') : '';
     slot.innerHTML = `
+      <div class="l3d-home">
       <p class="l3d-kicker">LUXA · SNI 6389:2020</p>
       <h1>${greetingWord()}${name ? `, ${escapeHtml(name)}` : ''}</h1>
-      <p>LUXA menghitung OTTV langsung dari model 3D-mu dan menunjukkan sisi fasad mana yang paling panas.</p>
-      <div class="l3d-actions">
-        <button type="button" class="l3d-cta" data-act="start">${icon('upload', 16)}<span>Mulai proyek baru</span></button>
+      <p class="l3d-home-lead">LUXA menghitung seberapa banyak panas matahari masuk lewat dinding dan kaca bangunanmu, langsung dari model 3D. Kamu bisa lihat sisi mana yang paling panas.</p>
+      <div class="l3d-actions l3d-actions-home">
+        <button type="button" class="l3d-cta l3d-wide" data-act="start">${icon('upload', 17)}<span>Mulai proyek baru</span></button>
         ${saved ? `<button type="button" class="l3d-ghost" data-act="resume" title="Lanjutkan ${resume}">${icon('undo', 16)}<span>Lanjutkan ${resume}</span></button>` : ''}
-        <button type="button" class="l3d-ghost" data-act="example">${icon('play', 16)}<span>Coba model contoh</span></button>
+        <button type="button" class="l3d-ghost${saved ? '' : ' l3d-wide'}" data-act="example">${icon('play', 16)}<span>Coba model contoh</span></button>
       </div>
-      <ul class="l3d-points"><li>Baca .3dm, .ifc, .obj, .glb</li><li>Rumus dan tabel SNI 6389:2020</li><li>Berjalan di browser, model tidak dikirim ke server</li></ul>
+      <ul class="l3d-tiles">
+        <li>${icon('cube', 18)}<span>Baca .3dm, .ifc, .obj, .glb</span></li>
+        <li>${icon('doc', 18)}<span>Rumus dan tabel SNI 6389:2020</span></li>
+        <li>${icon('check', 18)}<span>Model tetap di perangkatmu</span></li>
+      </ul>
       <div class="l3d-learn">
-        <h2>Belajar OTTV</h2>
-        ${gl
-          ? `<p>Sembilan bagian singkat di kota ini. Scroll ke bawah, kamera ikut pindah ke bagian yang dibahas dan kamu bisa mencobanya langsung.</p>
-        <button type="button" class="l3d-ghost l3d-ghost-on" data-act="learn">Mulai belajar</button>`
-          : '<p class="l3d-muted">Belajar OTTV memakai tampilan 3D yang butuh WebGL, dan browser atau perangkat ini tidak mendukungnya. Coba buka LUXA di browser lain yang lebih baru.</p>'}
+        <div>
+          <h2>Belajar OTTV</h2>
+          ${gl
+            ? '<p>Sembilan bagian singkat. Scroll ke bawah, kamera membawamu ke bagian bangunan yang dibahas, dan kamu bisa langsung mencobanya.</p>'
+            : '<p class="l3d-muted">Belajar OTTV butuh tampilan 3D (WebGL), dan browser atau perangkat ini belum mendukungnya. Coba buka LUXA di browser lain yang lebih baru.</p>'}
+        </div>
+        ${gl ? '<button type="button" class="l3d-cta l3d-cta-soft" data-act="learn">Mulai belajar</button>' : ''}
+      </div>
       </div>`;
   }
   root.addEventListener('click', (e) => {
@@ -173,6 +182,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   // ---------- Adegan + sorotan ----------
   const stage = createStage(root.querySelector('.l3d-stage'), { theme });
   const overlay = createFacadeOverlay(stage);
+  const clouds = createClouds(stage, { dark: theme === 'dark' });
   const sun = createSunMarker(stage, { radius: 170 });
   const arrows = createHeatArrows(stage);
   // Potongan dinding Bab 6: dinding asli fasad Barat di bawah jendela lantai 10 dipotong di z = −9.
@@ -186,9 +196,9 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     ],
     total: stage.addLabel([4, TOWER_TOP + 3, -4], 'OTTV', { tag: true, lift: 30 }),
     heat: {
-      wall: stage.addLabel(V0, 'Konduksi dinding', { lift: 20, maxDist: 260 }),
-      glass: stage.addLabel(V0, 'Konduksi kaca', { lift: 20, maxDist: 260 }),
-      solar: stage.addLabel(V0, 'Radiasi matahari', { tag: true, lift: 26, maxDist: 260 }),
+      wall: stage.addLabel(V0, PATH_NAMES.wall, { lift: 20, maxDist: 260 }),
+      glass: stage.addLabel(V0, PATH_NAMES.glass, { lift: 20, maxDist: 260 }),
+      solar: stage.addLabel(V0, PATH_NAMES.solar, { tag: true, lift: 26, maxDist: 260 }),
     },
     wwr: stage.addLabel([-14.2, 70, -6], 'WWR 40%', { tag: true, lift: 40, maxDist: 900 }),
     overhang: stage.addLabel(V0, 'Overhang', { tag: true, lift: 40, maxDist: 160 }),
@@ -250,10 +260,10 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     const w = facade('B');
     // Bab 1
     $('ottv-total').textContent = fmt(t.ottv, 1);
-    $('ottv-bar').style.width = `${Math.min(100, (t.ottv / 80) * 100)}%`;
-    $('ottv-bar').classList.toggle('is-over', t.ottv > LIMIT);
-    $('ottv-verdict').textContent = verdict(t.ottv);
-    $('preset-desc').textContent = `WWR ${pct(effWwr('B'))} · ${glassById(sim.glass).name} · ${wallById(sim.wall).name} · ${sim.depth > 0.02 ? `overhang ${fmt(sim.depth, 2)} m di fasad Barat` : 'tanpa peneduh'}`;
+    $('ottv-total-bar').style.width = `${Math.min(100, (t.ottv / 80) * 100)}%`;
+    $('ottv-total-bar').classList.toggle('is-over', t.ottv > LIMIT);
+    $('ottv-total-verdict').textContent = verdict(t.ottv);
+    $('preset-desc').textContent = `Kaca ${pct(effWwr('B'))} · ${glassById(sim.glass).name} · ${wallById(sim.wall).name} · ${sim.depth > 0.02 ? `overhang ${fmt(sim.depth, 2)} m di sisi Barat` : 'tanpa peneduh'}`;
     L.total.setText(`OTTV ${fmt(t.ottv, 1)} W/m²`);
     ottvWeights = Object.fromEntries(Object.entries(t.per).map(([d, f]) => [d, clamp01((f.total - 15) / 50)]));
     // Bab 2
@@ -261,7 +271,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     $('t-glass').textContent = fmt(w.qGlass, 1);
     $('t-solar').textContent = fmt(w.qSolar, 1);
     $('t-total').textContent = fmt(w.total, 1);
-    $('t-note').textContent = `Contoh: fasad Barat Jakarta, WWR ${pct(effWwr('B'))}, ${glassById(sim.glass).name}, ${wallById(sim.wall).name}, TDek ${w.tdek} K, SC efektif ${fmt(w.scEff, 2)}.`;
+    $('t-note').textContent = `Contoh: sisi Barat di Jakarta, kaca ${pct(effWwr('B'))}, ${glassById(sim.glass).name.toLowerCase()}, ${wallById(sim.wall).name.toLowerCase()}.`;
     // Bab 3
     $('wwr').value = sim.wwr.B;
     $('wwr-out').textContent = pct(effWwr('B'));
@@ -300,9 +310,9 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
       root.querySelector(`[data-side-ottv="${d}"]`).textContent = fmt(t.per[d].total, 1);
     }
     $('ottv-total7').textContent = fmt(t.ottv, 1);
-    $('ottv-bar7').style.width = `${Math.min(100, (t.ottv / 80) * 100)}%`;
-    $('ottv-bar7').classList.toggle('is-over', t.ottv > LIMIT);
-    $('ottv-verdict7').textContent = verdict(t.ottv);
+    $('ottv-total7-bar').style.width = `${Math.min(100, (t.ottv / 80) * 100)}%`;
+    $('ottv-total7-bar').classList.toggle('is-over', t.ottv > LIMIT);
+    $('ottv-total7-verdict').textContent = verdict(t.ottv);
     L.side.B.setText(`Barat · ${fmt(t.per.B.total, 1)}`);
     L.side.S.setText(`Selatan · ${fmt(t.per.S.total, 1)}`);
     setLux('bab-7', t.ottv <= LIMIT ? 'happy' : 'think', t.ottv <= LIMIT ? 'Memenuhi! Tetap ingat: yang dinilai angka total, bukan satu fasad.' : LUX['bab-7'][1]);
@@ -340,19 +350,20 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     const w = facade('B'), wall = wallById(sim.wall), g = glassById(sim.glass);
     return {
       w,
-      v: { a: fmt(sim.alpha ?? wall.alpha, 2), uw: fmt(wall.u_value, 2), wwr: fmt(effWwr('B'), 2), td: fmt(w.tdek), uf: fmt(g.u_value, 2), dt: fmt(SNI.deltaT), sc: fmt(w.scEff, 2), sf: fmt(sf().B) },
+      v: { one: fmt(1 - effWwr('B'), 2), a: fmt(sim.alpha ?? wall.alpha, 2), uw: fmt(wall.u_value, 2), wwr: fmt(effWwr('B'), 2), td: fmt(w.tdek), uf: fmt(g.u_value, 2), dt: fmt(SNI.deltaT), sc: fmt(w.scEff, 2), sf: fmt(sf().B) },
     };
   }
   function renderSym() {
     const d = SYMS[sym];
     const { w, v } = symValues();
     $$('[data-sym]').forEach((b) => b.classList.toggle('is-on', b.dataset.sym === sym));
-    const unit = /^(W|K)/.test(d.unit) ? ` ${d.unit}` : '';
+    const unit = /^W/.test(d.unit) ? ` ${d.unit}` : /^K/.test(d.unit) ? ' K' : '';
     $('sym-info').innerHTML = `<p class="l3d-sym-head"><b>${d.sym}</b><span>${d.name}</span></p><p>${d.text}</p>
       <dl><div><dt>Satuan</dt><dd>${d.unit}</dd></div><div><dt>Nilainya dari</dt><dd>${d.from}</dd></div><div><dt>Tower ini</dt><dd>${v[sym]}${unit}</dd></div></dl>
       <button type="button" class="l3d-link" data-goto="${d.goto}">Dibahas di: ${titleOf(d.goto)}</button>`;
     const n = (k) => `<i data-n="${k}"${k === sym ? ' class="on"' : ''}>${v[k]}</i>`;
-    $('sym-num').innerHTML = `${n('a')} · [${n('uw')} · (1 − ${n('wwr')}) · ${n('td')}] + ${n('uf')} · ${n('wwr')} · ${n('dt')} + ${n('sc')} · ${n('wwr')} · ${n('sf')}<br>= ${fmt(w.qWall, 1)} + ${fmt(w.qGlass, 1)} + ${fmt(w.qSolar, 1)} = <b>${fmt(w.total, 1)} W/m²</b>`;
+    const oneN = `<i data-n="one"${sym === 'one' ? ' class="on"' : ''}>1 − ${n('wwr')}</i>`;
+    $('sym-num').innerHTML = `${n('a')} · [${n('uw')} · (${oneN}) · ${n('td')}] + ${n('uf')} · ${n('wwr')} · ${n('dt')} + ${n('sc')} · ${n('wwr')} · ${n('sf')}<br>= ${fmt(w.qWall, 1)} + ${fmt(w.qGlass, 1)} + ${fmt(w.qSolar, 1)} = <b>${fmt(w.total, 1)} W/m²</b>`;
     bands.setKind(d.target);
     L.sym.setText(`${d.sym} = ${v[sym]}${unit}`);
   }
@@ -614,6 +625,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
       applyParams(cur);
       controls.target.copy(cur.target);
     }
+    clouds.tick(stage.camera, now / 1000, stage.camera.position.distanceTo(controls.target), reduceMotion);
 
     // Sorotan per bab: Bab 1 dan 7 = OTTV per arah, Bab 4 = SF per arah.
     const w1 = Math.max(near(c, idx['bab-1']), near(c, idx['bab-7'])), w4 = near(c, idx['bab-4']);
