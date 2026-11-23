@@ -379,3 +379,29 @@ html[data-theme='dark'] .l3d-big-l { color: #A9A49B; }
 html[data-theme='dark'] .l3d-big-head { color: #A9A49B; }
 .l3d-big-t { flex-wrap: nowrap; }
 .l3d-big button { padding: 0 5px; min-width: 26px; }
+
+/* Rumus besar v3: rata di tanda = / +, tiap baris diberi garis warna jalurnya */
+.l3d-big { display: grid; gap: 6px; padding: 12px; text-align: left; }
+.l3d-big-head { display: none; }
+.l3d-big-row { display: grid; grid-template-columns: 58px minmax(0, 1fr); align-items: center; gap: 8px; }
+.l3d-big-l { text-align: right; font-size: 13px; font-weight: 700; color: #7A7266; white-space: nowrap; }
+.l3d-big-t {
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 1px; padding: 5px 8px; border-radius: 10px;
+  background: color-mix(in srgb, var(--c) 10%, transparent); box-shadow: inset 3px 0 0 var(--c);
+}
+.l3d-big button {
+  min-width: 0; height: 28px; padding: 0 6px; border: 0; border-radius: 7px; font-size: 13.5px; font-weight: 700;
+  background: transparent; color: inherit; cursor: pointer; transition: background 0.2s, color 0.2s;
+}
+.l3d-big button:hover { background: rgba(255, 255, 255, 0.85); }
+.l3d-big button.is-on { background: #F49B1A; color: #fff; }
+.l3d-op { padding: 0 1px; color: #8A8276; font-weight: 500; font-size: 13.5px; }
+html[data-theme='dark'] .l3d-big-l, html[data-theme='dark'] .l3d-op { color: #A9A49B; }
+html[data-theme='dark'] .l3d-big button:hover { background: rgba(255, 255, 255, 0.1); }
+html[data-theme='dark'] .l3d-big button.is-on { color: #1E1F24; }
+.l3d-big button { padding: 0 4px; font-size: 13px; }
+.l3d-op { padding: 0; font-size: 13px; }
+.l3d-big-t { padding: 5px 6px; }
+html[data-theme='dark'] .l3d-big button { background: transparent; border: 0; }
+html[data-theme='dark'] .l3d-big button:hover { background: rgba(255, 255, 255, 0.1); }
+html[data-theme='dark'] .l3d-big button.is-on { background: #F49B1A; color: #1E1F24; }

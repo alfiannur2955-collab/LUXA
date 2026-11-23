@@ -58,14 +58,15 @@ export function strip(kind, on = []) {
   return '';
 }
 
-// Rumus besar di Bedah rumus: satu baris per jalur panas, tiap simbol tombol.
+// Rumus besar di Bedah rumus: satu baris per jalur panas, rata di tanda = / +, tiap simbol tombol.
 const sb = (k, label) => `<button type="button" data-sym="${k}" aria-label="${SYMS[k].name}">${label || SYMS[k].sym}</button>`;
-const dot = (k) => `<i class="l3d-big-dot" style="background:${HEAT_COLORS[k]}" title="${PATH_NAMES[k]}"></i>`;
-const BIG = `
-  <div class="l3d-big-head">OTTV =</div>
-  <div class="l3d-big-row"><span class="l3d-big-l"></span><span class="l3d-big-t">${sb('a')}·[${sb('uw')}·(${sb('one', '1')}−${sb('wwr')})·${sb('td')}]</span>${dot('wall')}</div>
-  <div class="l3d-big-row"><span class="l3d-big-l">+</span><span class="l3d-big-t">${sb('uf')}·${sb('wwr')}·${sb('dt')}</span>${dot('glass')}</div>
-  <div class="l3d-big-row"><span class="l3d-big-l">+</span><span class="l3d-big-t">${sb('sc')}·${sb('wwr')}·${sb('sf')}</span>${dot('solar')}</div>`;
+const op = (t) => `<span class="l3d-op">${t}</span>`;
+const row = (k, sign, terms) => `<div class="l3d-big-row" style="--c:${HEAT_COLORS[k]}" title="${PATH_NAMES[k]}"><span class="l3d-big-l">${sign}</span><span class="l3d-big-t">${terms}</span></div>`;
+const BIG = [
+  row('wall', 'OTTV =', `${sb('a')}${op('·')}${op('[')}${sb('uw')}${op('·')}${op('(')}${sb('one', '1')}${op('−')}${sb('wwr')}${op(')')}${op('·')}${sb('td')}${op(']')}`),
+  row('glass', '+', `${sb('uf')}${op('·')}${sb('wwr')}${op('·')}${sb('dt')}`),
+  row('solar', '+', `${sb('sc')}${op('·')}${sb('wwr')}${op('·')}${sb('sf')}`),
+].join('');
 
 // Nama kaca pendek untuk tombol: "Kaca warna (tinted) 8 mm" → "Warna (tinted)".
 const shortGlass = (n) => { const t = n.replace(/^Kaca\s*/, '').replace(/\s*8 mm$/, ''); return t.charAt(0).toUpperCase() + t.slice(1); };
@@ -155,8 +156,8 @@ export function chapters({ gl }) {
       <div class="l3d-sides">${['U', 'T', 'S', 'B'].map((d) => `<div class="l3d-side"><span>${DIR_NAME[d]}</span><input type="range" min="0.1" max="0.85" step="0.05" data-side="${d}" aria-label="Porsi kaca sisi ${DIR_NAME[d]}"><output data-side-out="${d}">–</output><b data-side-ottv="${d}">–</b></div>`).join('')}<p class="l3d-muted">Geser porsi kaca tiap sisi. Angka kanan = OTTV sisi itu (W/m²).</p></div>
       ${gauge('ottv-total7', 'W/m² OTTV total')}
       ${strip('total')}` },
-    { id: 'bab-8', shot: 'bab8', nav: 'Atap', title: 'Bonus: atap juga dihitung', html: `
-      <h2>Bonus: atap juga dihitung</h2>
+    { id: 'bab-8', shot: 'bab8', nav: 'Atap', title: 'Atap juga dihitung', html: `
+      <h2>Atap juga dihitung</h2>
       <p>Atap punya ukuran sendiri, namanya RTTV. Cara hitungnya mirip OTTV, hanya jendelanya berupa skylight (kaca di atap).</p>
       <p>Batasnya ${fmt(SNI.rttvLimitSky)} W/m² kalau atap punya skylight, dan ${fmt(SNI.rttvLimitOpaque)} W/m² kalau atap tertutup penuh. Atap ringan lebih cepat panas: di bawah 50 kg/m² TDek-nya 24 K, 50–230 kg/m² 20 K, di atas 230 kg/m² 16 K.</p>
       ${seg(2, 'Jenis atap', SNI.roof.map((r) => `<button type="button" data-roof="${r.id}">${r.name}</button>`).join(''))}
