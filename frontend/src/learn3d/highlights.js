@@ -134,66 +134,128 @@ function ribbonGeometry({ L, w0, amp, wave, phase, head, color0, color1 }) {
   return g;
 }
 
-// Tiga jalur panas di fasad Barat (Bab 2): tiap jalur beberapa helai pita, tebal mengikuti nilainya.
+// Tiga jalur panas di fasad Barat (Bab 2): satu panah per jalur, tampil bergantian.
+// Tiap giliran: panah melaju dari arah datangnya, membentur bidang (kepala memipih, riak di bidang),
+// lalu bidang yang dibentur (dinding atau kaca) menyala sebentar. Urutan: dinding → kaca → radiasi → ulang.
 export const SOLAR_DIR = new THREE.Vector3(-0.35, 0.85, -0.4).normalize();
 export const HEAT_COLORS = { wall: '#C27A3E', glass: '#E7B04B', solar: '#F49B1A' };
 const TAIL_COLORS = { wall: '#E8B98C', glass: '#F6DCA0', solar: '#FAD199' };
+const ORDER = ['wall', 'glass', 'solar'];
+const SLOT = 2.9; // detik per giliran
+const T_HIT = 1.25; // detik sampai kepala membentur bidang
+const easeIn = (t) => t * t * t;
+const bump = (t, d) => (t > 0 && t < d ? Math.sin((t / d) * Math.PI) : 0);
 export function createHeatArrows(stage) {
   const group = new THREE.Group();
   group.visible = false;
   stage.scene.add(group);
-  const paths = {}; // k → { a, b, strands: [{ mesh, off, phase, len }] }
-  let amount = 0, focus = null, w0 = { wall: 0.1, glass: 0.1, solar: 0.1 };
-  const mat = () => new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide, toneMapped: false });
-  const STRANDS = { wall: 2, glass: 2, solar: 3 };
-  for (const k of ['wall', 'glass', 'solar']) {
-    paths[k] = { a: new THREE.Vector3(), b: new THREE.Vector3(), strands: [] };
-    for (let i = 0; i < STRANDS[k]; i++) {
-      const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat());
-      mesh.renderOrder = 5;
-      group.add(mesh);
-      paths[k].strands.push({ mesh, off: (i - (STRANDS[k] - 1) / 2), phase: i * 1.9, len: 1 - 0.18 * Math.abs(i - (STRANDS[k] - 1) / 2) });
+  let amount = 0, focus = null, active = 'wall', w0 = { wall: 0.1, glass: 0.1, solar: 0.1 };
+  const P = {};
+  for (const k of ORDER) {
+    const mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide, toneMapped: false }));
+    mesh.renderOrder = 6;
+    group.add(mesh);
+    // Bidang yang dibentur: lembar tipis di depan fasad + garis tepinya.
+    const glowMat = new THREE.MeshBasicMaterial({ color: HEAT_COLORS[k], transparent: true, opacity: 0, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), glowMat);
+    glow.rotation.y = Math.PI / 2; // bidang YZ, menghadap ±x
+    glow.renderOrder = 4;
+    const rim = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(1, 1)), new THREE.LineBasicMaterial({ color: HEAT_COLORS[k], transparent: true, opacity: 0, toneMapped: false }));
+    glow.add(rim);
+    group.add(glow);
+    // Riak di titik benturan.
+    const ripple = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 48), new THREE.MeshBasicMaterial({ color: HEAT_COLORS[k], transparent: true, opacity: 0, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+    ripple.rotation.y = Math.PI / 2;
+    ripple.renderOrder = 5;
+    group.add(ripple);
+    P[k] = { mesh, glow, rim, ripple, a: new THREE.Vector3(), b: new THREE.Vector3() };
+  }
+  const tmpX = new THREE.Vector3(), tmpY = new THREE.Vector3(), tmpZ = new THREE.Vector3(), nrm = new THREE.Vector3(), m4 = new THREE.Matrix4();
+  const headOf = (k) => Math.min(0.9, 0.35 + w0[k] * 2.2);
+  function drawArrow(k, camera, from, len, alpha, squash) {
+    const p = P[k];
+    const dir = tmpX.copy(p.b).sub(p.a).normalize();
+    const toCam = tmpZ.copy(camera.position).sub(p.a).normalize();
+    const side = tmpY.crossVectors(toCam, dir).normalize();
+    nrm.crossVectors(dir, side).normalize();
+    m4.makeBasis(dir, side, nrm);
+    p.mesh.geometry.dispose();
+    const head = headOf(k);
+    p.mesh.geometry = ribbonGeometry({ L: Math.max(0.3, len), w0: w0[k] * (1 + 0.45 * squash), amp: 0.12 + w0[k] * 0.6, wave: 3.6, phase: 0.6, head: head * (1 - 0.35 * squash), color0: TAIL_COLORS[k], color1: HEAT_COLORS[k] });
+    p.mesh.quaternion.setFromRotationMatrix(m4);
+    p.mesh.position.copy(from);
+    p.mesh.material.opacity = alpha;
+  }
+  function hitFx(k, t, base) {
+    const p = P[k];
+    const since = t - T_HIT;
+    const flash = since >= 0 ? Math.exp(-since * 2.4) : 0;
+    p.glow.material.opacity = (0.55 * flash + base) * amount;
+    p.rim.material.opacity = Math.min(1, 0.9 * flash + base * 3) * amount;
+    const r = since >= 0 && since < 0.95 ? since / 0.95 : -1;
+    p.ripple.visible = r >= 0;
+    if (r >= 0) {
+      const sc = 0.2 + 0.85 * (1 - (1 - r) ** 2);
+      p.ripple.scale.set(sc, sc, sc);
+      p.ripple.material.opacity = (1 - r) * 0.85 * amount;
     }
   }
-  const tmpX = new THREE.Vector3(), tmpY = new THREE.Vector3(), tmpZ = new THREE.Vector3(), m4 = new THREE.Matrix4();
-  const paint = () => {
-    group.visible = amount > 0.01;
-    for (const [k, p] of Object.entries(paths)) for (const s of p.strands) s.mesh.material.opacity = amount * (focus && focus !== k ? 0.18 : 1);
-  };
+  const paint = () => { group.visible = amount > 0.01; };
   return {
-    // q: { qWall, qGlass, qSolar } (W/m²); anchors: titik tujuan di fasad.
+    get active() { return active; },
+    // q: { qWall, qGlass, qSolar } (W/m²); anchors: titik benturan + ukuran bidang (wallH, glassH) di fasad.
     update({ q, anchors }) {
       const out = new THREE.Vector3(-1, 0, 0);
       const wOf = (x) => 0.07 + 0.036 * Math.sqrt(Math.max(0, x));
       w0 = { wall: wOf(q.qWall), glass: wOf(q.qGlass), solar: wOf(q.qSolar) };
-      paths.wall.b.copy(anchors.wall).addScaledVector(out, 0.1); paths.wall.a.copy(paths.wall.b).addScaledVector(out, 5.2);
-      paths.glass.b.copy(anchors.glass).addScaledVector(out, 0.1); paths.glass.a.copy(paths.glass.b).addScaledVector(out, 5.2);
-      paths.solar.b.copy(anchors.solar).addScaledVector(out, 0.1); paths.solar.a.copy(paths.solar.b).addScaledVector(SOLAR_DIR, 5.4);
+      const hit = { wall: anchors.wall, glass: anchors.glass, solar: anchors.solar };
+      for (const k of ORDER) {
+        const p = P[k];
+        p.b.copy(hit[k]).addScaledVector(out, 0.12);
+        p.a.copy(p.b).addScaledVector(k === 'solar' ? SOLAR_DIR : out, k === 'solar' ? 5.6 : 5.2);
+        // bidang yang menyala: pita dinding padat (di bawah ambang) atau pita kaca lantai contoh
+        const h = k === 'wall' ? anchors.wallH : anchors.glassH;
+        p.glow.position.set(-14.14, hit[k].y, hit[k].z);
+        p.glow.scale.set(3.4, h, 1);
+        p.ripple.position.set(-14.16, hit[k].y, hit[k].z);
+      }
     },
-    // Dipanggil tiap frame: hadapkan pita ke kamera dan gerakkan liukannya.
+    // Dipanggil tiap frame.
     tick(camera, timeSec, still) {
       if (!group.visible) return;
-      for (const [k, p] of Object.entries(paths)) {
-        const dir = tmpX.copy(p.b).sub(p.a);
-        const L = dir.length();
-        dir.normalize();
-        const toCam = tmpZ.copy(camera.position).sub(p.a).normalize();
-        const side = tmpY.crossVectors(toCam, dir).normalize(); // lebar pita tegak lurus arah alir dan arah pandang
-        const normal = new THREE.Vector3().crossVectors(dir, side).normalize();
-        m4.makeBasis(dir, side, normal);
-        for (const s of p.strands) {
-          const len = L * s.len;
-          const ph = s.phase + (still ? 0 : timeSec * 1.6);
-          s.mesh.geometry.dispose();
-          s.mesh.geometry = ribbonGeometry({ L: len, w0: w0[k] * (s.off === 0 ? 1 : 0.7), amp: 0.18 + w0[k] * 0.9, wave: 3.2 + 0.5 * Math.abs(s.off), phase: ph, head: Math.min(0.9, 0.35 + w0[k] * 2.2), color0: TAIL_COLORS[k], color1: HEAT_COLORS[k] });
-          s.mesh.quaternion.setFromRotationMatrix(m4);
-          // geser helai sejajar lebar pita, ujung kepala tetap di dekat fasad
-          s.mesh.position.copy(p.b).addScaledVector(dir, -len - Math.min(0.9, 0.35 + w0[k] * 2.2) * 0.55).addScaledVector(side, s.off * (w0[k] * 5 + 0.25));
+      if (still) {
+        // Gerak dikurangi: tiga panah diam di posisi benturan, bidang menyala tipis.
+        for (const k of ORDER) {
+          const p = P[k], L = p.a.distanceTo(p.b);
+          drawArrow(k, camera, p.a, L - headOf(k) * 0.55, amount, 0);
+          hitFx(k, -1, focus && focus !== k ? 0.04 : 0.16);
+          p.ripple.visible = false;
         }
+        return;
+      }
+      const slot = Math.floor(timeSec / SLOT);
+      const t = timeSec - slot * SLOT;
+      active = focus || ORDER[slot % 3];
+      for (const k of ORDER) {
+        const p = P[k];
+        if (k !== active) { p.mesh.material.opacity = 0; p.glow.material.opacity = 0; p.rim.material.opacity = 0; p.ripple.visible = false; continue; }
+        const L = p.a.distanceTo(p.b), head = headOf(k);
+        const full = L - head * 0.55; // panjang badan sampai ujung kepala tepat di bidang
+        // Kepala melaju (makin cepat) dari arah datang sampai membentur bidang, ekor menyusul.
+        const prog = Math.min(1, t / T_HIT);
+        const tipDist = 0.35 * full + 0.65 * full * easeIn(prog);
+        const len = Math.min(full * 0.82, tipDist);
+        const dir = tmpX.copy(p.b).sub(p.a).normalize();
+        const from = new THREE.Vector3().copy(p.a).addScaledVector(dir, tipDist - len);
+        const fadeIn = Math.min(1, t / 0.25);
+        const fadeOut = 1 - Math.min(1, Math.max(0, (t - T_HIT - 0.35) / 0.5));
+        const squash = bump(t - T_HIT, 0.32);
+        drawArrow(k, camera, from, len, amount * fadeIn * fadeOut, squash);
+        hitFx(k, t, t > T_HIT ? 0.1 : 0);
       }
     },
     setAmount(a) { amount = a; paint(); },
-    setFocus(k) { focus = k; paint(); },
+    setFocus(k) { focus = k; },
   };
 }
 

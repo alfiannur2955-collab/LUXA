@@ -272,3 +272,7 @@ body.l3d-on .l3d-card { top: max(12vh, 88px); }
 .l3d-link { font: inherit; font-size: 13px; color: inherit; background: none; border: 0; padding: 4px 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; opacity: 0.75; }
 .l3d-link:hover { opacity: 1; }
 .l3d-link:focus-visible { outline: 2px solid #138E86; outline-offset: 2px; border-radius: 4px; }
+
+/* Bab 2: suku yang panahnya sedang tampil di model */
+.l3d-terms button { transition: background 0.25s, border-color 0.25s, box-shadow 0.25s; }
+.l3d-terms button.is-live { border-color: rgba(244, 155, 26, 0.75); box-shadow: 0 0 0 3px rgba(244, 155, 26, 0.16); }

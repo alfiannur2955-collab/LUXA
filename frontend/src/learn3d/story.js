@@ -313,6 +313,8 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
       solar: new THREE.Vector3(-14, base + sill + gh * 0.4, -1.5),
       overhang: new THREE.Vector3(-14.6, base + sill + gh + 0.18, -10),
       glassMid: new THREE.Vector3(-14.05, base + sill + gh * 0.6, -1.5),
+      wallH: sill,
+      glassH: gh,
     };
   }
 
@@ -461,10 +463,19 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   }
   const clearPreset = () => markPreset(null);
   $$('[data-preset]').forEach((b) => b.addEventListener('click', () => applyPreset(b.dataset.preset)));
-  $$('[data-term]').forEach((b) => {
+  // Panah tampil bergantian; kartu dan label mengikuti panah yang sedang aktif. Arahkan kursor = kunci satu jalur.
+  const termBtns = [...$$('[data-term]')];
+  let shownTerm = null;
+  function syncTerm(k) {
+    if (k === shownTerm) return;
+    shownTerm = k;
+    termBtns.forEach((x) => x.classList.toggle('is-live', x.dataset.term === k));
+    for (const [n, l] of Object.entries(L.heat)) l.el.classList.toggle('is-dim', n !== k);
+  }
+  termBtns.forEach((b) => {
     const k = b.dataset.term;
-    const on = () => { arrows.setFocus(k); b.classList.add('is-on'); for (const [n, l] of Object.entries(L.heat)) l.el.classList.toggle('is-dim', n !== k); };
-    const off = () => { arrows.setFocus(null); b.classList.remove('is-on'); for (const l of Object.values(L.heat)) l.el.classList.remove('is-dim'); };
+    const on = () => { arrows.setFocus(k); b.classList.add('is-on'); };
+    const off = () => { arrows.setFocus(null); b.classList.remove('is-on'); };
     b.addEventListener('mouseenter', on); b.addEventListener('focus', on);
     b.addEventListener('mouseleave', off); b.addEventListener('blur', off);
   });
@@ -653,7 +664,8 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     if (w1 >= w4) { overlay.setWeights(ottvWeights); overlay.setAmount(w1); } else { overlay.setWeights(sfWeights); overlay.setAmount(w4); }
     wallSample.setAmount(near(c, idx['bab-6'], 2));
     arrows.setAmount(near(c, idx['bab-2'], 2.2));
-    arrows.tick(stage.camera, now / 1000, reduceMotion);
+    arrows.tick(stage.camera, window.__l3dT ?? now / 1000, reduceMotion); // __l3dT: jam beku untuk uji otomatis
+    if (!reduceMotion) syncTerm(arrows.active);
     sun.setVisible(c > idx['bab-4'] - 0.45 && c < idx['bab-4'] + 0.55);
     L.total.on = at(c, 'bab-1');
     L.sf.forEach((l) => { l.on = at(c, 'bab-4'); });
