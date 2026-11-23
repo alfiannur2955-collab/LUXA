@@ -43,8 +43,8 @@ def _analyze(case):
 def test_structure_no_errors_no_whole_column_refs_and_materials(case):
     a = _analyze(case)
     wb = openpyxl.load_workbook(io.BytesIO(generate_luxa_report(a)))
-    assert wb.sheetnames[:2] == ["Ringkasan", "Material"]
-    assert wb.sheetnames[2:10] == [t for _, _, t in ORIENTATIONS]
+    assert wb.sheetnames[:3] == ["Dasbor", "Ringkasan", "Material"]
+    assert wb.sheetnames[3:11] == [t for _, _, t in ORIENTATIONS]
     assert wb.sheetnames[-3:] == ["Atap RTTV", "Per lantai", "Referensi"]
     for ws in wb.worksheets:
         for row in ws.iter_rows():

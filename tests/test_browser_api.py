@@ -120,7 +120,7 @@ def test_old_template_prodi_format_returns_luxa_report(both):
     assert old["filename"].startswith("Laporan_OTTV_LUXA_") and old["filename"].endswith(".xlsx")
     assert old["warnings"] == []
     import openpyxl, io
-    assert openpyxl.load_workbook(io.BytesIO(old["bytes"])).sheetnames[0] == "Ringkasan"
+    assert openpyxl.load_workbook(io.BytesIO(old["bytes"])).sheetnames[:2] == ["Dasbor", "Ringkasan"]
 
 
 

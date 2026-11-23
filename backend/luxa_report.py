@@ -586,6 +586,10 @@ def build_luxa_workbook(analysis: Dict[str, Any]) -> Workbook:
     _sheet_summary(summary, analysis, refs, roof_ref)
     order = ["Ringkasan", "Material"] + [t for _, _, t in ORIENTATIONS] + (["Atap RTTV"] if rttv_on else []) + ["Per lantai", "Referensi"]
     wb._sheets = [wb[n] for n in order]  # noqa: SLF001 - openpyxl has no public reorder API
+    # Gaya LUXA: lembar Dasbor di depan + penyeragaman tampilan (rumus tidak diubah)
+    from luxa_report_style import build_dashboard, restyle_sheets
+    restyle_sheets(wb)
+    build_dashboard(wb, analysis)
     wb.active = 0
     wb.properties.creator = "LUXA by Alf Studio"
     wb.properties.title = f"Laporan OTTV {analysis.get('filename', '')}"

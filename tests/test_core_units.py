@@ -70,7 +70,7 @@ def test_public_sample_fasad_tower_twisted_and_reports():
     assert "sunlit_mask" in res["panels"][0]
     assert len(generate_csv_report(res)) > 10000
     wb = openpyxl.load_workbook(io.BytesIO(generate_excel_report(res)))
-    assert wb.sheetnames[0] == "Ringkasan"
+    assert wb.sheetnames[:2] == ["Dasbor", "Ringkasan"]
     pytest.importorskip("reportlab")
     from report_exporter import generate_pdf_report
 
