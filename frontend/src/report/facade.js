@@ -15,12 +15,31 @@ export function renderFacades(analysis, roles, { theme = 'light', width = 2400, 
   let rSum = 0, rN = 0, z0 = Infinity, z1 = -Infinity;
   for (const p of panels) for (const v of p.vertices) { rSum += Math.hypot(v[0] - cx, v[1] - cy); rN++; z0 = Math.min(z0, v[2]); z1 = Math.max(z1, v[2]); }
   const rAvg = rSum / rN || 1;
+  // Garis sambung bukaan diletakkan di azimut yang paling sedikit memotong panel (biasanya sudut gedung),
+  // supaya tidak ada sisi yang terbelah ke ujung kiri dan kanan.
+  const spans = panels.map((p) => { const ce = p.centroid || p.vertices[0]; const a0 = azOf(ce[0], ce[1]); let lo = 0, hi = 0; for (const v of p.vertices) { let d = azOf(v[0], v[1]) - a0; if (d > 180) d -= 360; if (d < -180) d += 360; lo = Math.min(lo, d); hi = Math.max(hi, d); } return [a0 + lo, a0 + hi]; });
+  // kandidat: titik pergantian arah sisi (sudut gedung), diurutkan menurut azimut titik tengah panel
+  const order = panels.map((p, i) => { const ce = p.centroid || p.vertices[0]; return { i, a: azOf(ce[0], ce[1]), code: p.orientation_code }; }).sort((x, y) => x.a - y.a);
+  const cands = [];
+  for (let k = 0; k < order.length; k++) {
+    const p = order[k], q = order[(k + 1) % order.length];
+    if (p.code !== q.code) cands.push(spans[p.i][1] + 0.05);
+  }
+  if (!cands.length) for (let s = 0; s < 360; s += 5) cands.push(s);
+  let seam = 0, best = Infinity;
+  for (const s0 of cands) {
+    const s = ((s0 % 360) + 360) % 360;
+    let n = 0;
+    for (const [lo, hi] of spans) { const d = ((s - lo) % 360 + 360) % 360; if (d > 0.01 && d < hi - lo - 0.01) n++; }
+    if (n < best) { best = n; seam = s; }
+  }
+  const rel = (a) => ((a - seam) % 360 + 360) % 360;
   const circ = 2 * Math.PI * rAvg;
   const polys = panels.map((p) => {
     const ce = p.centroid || p.vertices[0];
-    const a0 = azOf(ce[0], ce[1]);
+    const a0 = rel(azOf(ce[0], ce[1]));
     const pts = p.vertices.map((v) => {
-      let a = azOf(v[0], v[1]);
+      let a = rel(azOf(v[0], v[1]));
       if (a - a0 > 180) a -= 360; else if (a0 - a > 180) a += 360; // panel di garis sambung tidak terbelah
       return [(a / 360) * circ, v[2]];
     });
@@ -41,6 +60,6 @@ export function renderFacades(analysis, roles, { theme = 'light', width = 2400, 
     }
   }
   const breakdown = (analysis.orientation_breakdown || []).filter((r) => Number(r.total_area_m2) > 1e-6);
-  const labels = breakdown.map((r) => ({ code: r.code === 'TG' ? 'TGR' : r.code, x: ((pad + (Number(r.azimuth_center_deg) / 360) * circ * scale) / cv.width) * 100, v: r.ottv_orientation_wm2 }));
+  const labels = breakdown.map((r) => ({ code: r.code === 'TG' ? 'TGR' : r.code, x: ((pad + (rel(Number(r.azimuth_center_deg)) / 360) * circ * scale) / cv.width) * 100, v: r.ottv_orientation_wm2 }));
   return { img: cv.toDataURL('image/png'), labels, aspect: cv.width / cv.height };
 }

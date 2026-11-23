@@ -370,10 +370,11 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   if (!capture) frame();
 
   /** Gambar satu slide (mode capture): JPEG data URL dengan awan dan burung pada waktu tetap. */
-  function shot(id, { time = 20000, quality = 0.92 } = {}) {
+  function shot(id, { time = 20000, quality = 0.92, zoom = 1 } = {}) {
     const i = slides.findIndex((x) => x.id === id);
     if (i < 0) return null;
     go(i, { instant: true });
+    if (zoom !== 1) { cam.dist *= zoom; applyCam(); }
     dome.setOpacity(domeK(time));
     stage.scene.background.lerpColors(bgBase, bgHeat, bgK(time));
     clouds.tick(stage.camera, time / 1000, cam.dist, false);

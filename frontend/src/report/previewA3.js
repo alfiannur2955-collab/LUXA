@@ -16,8 +16,8 @@ const sides = sidesOf(analysisData);
 const hotCode = [...sides].sort((x, y) => y.ottv_orientation_wm2 - x.ottv_orientation_wm2)[0]?.code;
 const assets = {
   ...shots,
-  compass: renderCompass3d(sides, Number(analysisData.sni_limit_wm2 || 35), { theme, width: orient === 'landscape' ? 2200 : 2000, height: orient === 'landscape' ? 640 : 820 }),
-  facades: renderFacades(analysisData, roles, { theme, width: 2600, height: 520 }),
+  compass: renderCompass3d(sides, Number(analysisData.sni_limit_wm2 || 35), { theme, width: orient === 'landscape' ? 1600 : 1800, height: orient === 'landscape' ? 1300 : 1100 }),
+  facades: renderFacades(analysisData, roles, { theme, width: 3000, height: 420 }),
   hotCode,
 };
 let { html } = buildReportA3(state, { theme, orient, userName: 'Alfian', assets, logoUrl: theme === 'dark' ? './brand/luxa-logo-dark.svg' : './brand/luxa-logo.svg', version: '1.0.0', date: new Date('2026-11-23') });

@@ -33,7 +33,7 @@ export function ringChart(summary, total, T, { size = 220 } = {}) {
       <path d="${arc(c, c, r, 0, end)}" stroke="${p.color(T)}" stroke-width="${w}" fill="none" stroke-linecap="round"/>`;
   }).join('');
   return `<svg viewBox="0 0 ${size} ${size}" class="ring">${rings}
-    <text x="${c}" y="${c - 2}" text-anchor="middle" class="ring-n" fill="${T.ink}">${f1(total)}</text>
+    <text x="${c}" y="${c - 2}" text-anchor="middle" class="ring-n" fill="${T.ink}">${f2(total)}</text>
     <text x="${c}" y="${c + 16}" text-anchor="middle" class="ring-u" fill="${T.muted}">W/m²</text></svg>`;
 }
 
@@ -163,4 +163,58 @@ export function floorStack(floors, limit, T, { w = 300, h = 300 } = {}) {
   return `<svg viewBox="0 0 ${w} ${h}" class="floors">${bars}
     <line x1="${lx}" y1="4" x2="${lx}" y2="${h - 18}" stroke="${T.ink}" stroke-width="1" stroke-dasharray="3 3"/>
     <text x="${lx}" y="${h - 4}" text-anchor="middle" class="tiny" fill="${T.muted}">batas ${f0(limit)}</text></svg>`;
+}
+
+/**
+ * Penggaris batas (pengganti meteran): lajur skala panas 0–maks, garis batas SNI, penanda nilai,
+ * dan kurung selisih ke batas. Hemat tempat dan langsung menjawab "seberapa jauh dari batas".
+ */
+export function limitRuler(value, limit, T, { w = 520, h = 74 } = {}) {
+  const max = Math.max(60, limit * 1.6, value * 1.1), x0 = 8, x1 = w - 8, y = 34, th = 10;
+  const X = (v) => x0 + (Math.min(v, max) / max) * (x1 - x0);
+  const grad = [0, 0.25, 0.5, 0.75, 1].map((t) => `<stop offset="${t}" stop-color="${heatColor(t * max)}"/>`).join('');
+  const xv = X(value), xl = X(limit), okV = value <= limit;
+  const lo = Math.min(xv, xl), hi = Math.max(xv, xl);
+  return `<svg viewBox="0 0 ${w} ${h}" class="ruler"><defs><linearGradient id="rg" x1="0" x2="1">${grad}</linearGradient></defs>
+    <rect x="${x0}" y="${y}" width="${x1 - x0}" height="${th}" rx="${th / 2}" fill="url(#rg)"/>
+    <line x1="${xl}" y1="${y - 8}" x2="${xl}" y2="${y + th + 8}" stroke="${T.ink}" stroke-width="1.6" stroke-dasharray="3 2"/>
+    <text x="${xl}" y="${y - 12}" text-anchor="middle" class="tiny b" fill="${T.ink}">batas ${f0(limit)}</text>
+    <path d="M${lo} ${y + th + 14} V${y + th + 18} H${hi} V${y + th + 14}" fill="none" stroke="${okV ? T.ok : T.fail}" stroke-width="1.2"/>
+    <text x="${(lo + hi) / 2}" y="${y + th + 30}" text-anchor="middle" class="tiny b" fill="${okV ? T.ok : T.fail}">${okV ? `${f1(limit - value)} di bawah batas` : `${f1(value - limit)} di atas batas`}</text>
+    <circle cx="${xv}" cy="${y + th / 2}" r="8" fill="${T.surface}" stroke="${T.ink}" stroke-width="2.4"/>
+    <text x="${x0}" y="${y - 12}" class="tiny" fill="${T.muted}">0</text><text x="${x1}" y="${y - 12}" text-anchor="end" class="tiny" fill="${T.muted}">${f0(max)} W/m²</text></svg>`;
+}
+
+/**
+ * Skema 1 m² fasad (pengganti potongan dinding): petak dibagi kaca dan dinding menurut WWR sisi itu, dengan
+ * panah tiga jalur panas sebesar nilainya. Hanya memakai angka yang selalu ada untuk model apa pun
+ * (WWR dan tiga suku OTTV), jadi tidak menebak tinggi lantai, letak jendela, atau bentuk peneduh.
+ */
+export function facadeTile(side, T, { w = 420, h = 250 } = {}) {
+  const wwr = Math.min(1, Math.max(0, Number(side.wwr) || 0));
+  const S = Math.min(h - 40, w * 0.52), tx = w - S - 12, ty = 20;
+  const gH = S * wwr, oH = S - gH;
+  const qs = [Number(side.q_wall_conduction_wm2 || 0), Number(side.q_glass_conduction_wm2 || 0), Number(side.q_solar_radiation_wm2 || 0)];
+  const qmax = Math.max(...qs, 1), sw = (q) => 2 + (q / qmax) * 10;
+  const arrow = (x1, y1, x2, y2, col, q, label) => {
+    const ang = Math.atan2(y2 - y1, x2 - x1), s = sw(q);
+    const hx = x2 - Math.cos(ang) * s * 1.6, hy = y2 - Math.sin(ang) * s * 1.6;
+    const a = [hx + Math.sin(ang) * s * 1.3, hy - Math.cos(ang) * s * 1.3], b = [hx - Math.sin(ang) * s * 1.3, hy + Math.cos(ang) * s * 1.3];
+    return `<line x1="${x1}" y1="${y1}" x2="${hx}" y2="${hy}" stroke="${col}" stroke-width="${s}" stroke-linecap="round"/>
+      <polygon points="${x2},${y2} ${a.join(',')} ${b.join(',')}" fill="${col}"/>
+      <text x="${x1}" y="${y1 - s / 2 - 6}" class="sm b" fill="${T.ink}">${f2(q)} <tspan class="tiny" font-weight="400" fill="${T.muted}">${label}</tspan></text>`;
+  };
+  // titik sasaran selalu di dalam bagiannya; pangkal panah diberi jarak minimum supaya label tidak bertumpuk
+  const ySun = ty + gH * 0.3, yGc = ty + gH * 0.75, yW = ty + gH + oH * 0.5;
+  const sGc = Math.max(yGc, ty + 62), sW = Math.max(yW, sGc + 46);
+  return `<svg viewBox="0 0 ${w} ${h}" class="tile">
+    <rect x="${tx}" y="${ty}" width="${S}" height="${gH}" fill="${T.pGlass}" opacity="0.32"/>
+    <rect x="${tx}" y="${ty + gH}" width="${S}" height="${oH}" fill="${T.pWall}" opacity="0.32"/>
+    <rect x="${tx}" y="${ty}" width="${S}" height="${S}" fill="none" stroke="${T.ink}" stroke-width="1.2"/>
+    ${gH > 26 ? `<text x="${tx + S - 8}" y="${ty + 18}" text-anchor="end" class="sm b" fill="${T.ink}">Kaca ${f0(wwr * 100)}%</text>` : ''}
+    ${oH > 26 ? `<text x="${tx + S - 8}" y="${ty + S - 10}" text-anchor="end" class="sm b" fill="${T.ink}">Dinding ${f0((1 - wwr) * 100)}%</text>` : ''}
+    <text x="${tx + S / 2}" y="${ty + S + 16}" text-anchor="middle" class="tiny" fill="${T.muted}">1 m² fasad · 1 m</text>
+    ${wwr > 0 ? arrow(8, ty + 12, tx - 4, ySun, T.pSun, qs[2], 'sinar matahari') : ''}
+    ${wwr > 0 ? arrow(8, sGc, tx - 4, yGc, T.pGlass, qs[1], 'kaca (suhu)') : ''}
+    ${wwr < 1 ? arrow(8, sW, tx - 4, yW, T.pWall, qs[0], 'dinding') : ''}</svg>`;
 }
