@@ -1,6 +1,7 @@
 // Maket model pengguna untuk Mode Presentasi: dinding putih, kaca teal, peneduh/atap, alas maket.
 // Hanya tampilan: membaca hasil engine (analysisData) apa adanya, tidak menghitung ulang apa pun.
 import * as THREE from 'three';
+import { colorResolver } from './colors.js';
 
 const REF_H = 93.5; // tinggi tower Belajar; awan dan burung diskalakan terhadap angka ini
 
@@ -31,42 +32,59 @@ export function qualityFor(tris) {
   return { tier: 'light', ao: false, shadowSize: 2048, edges: 'none' };
 }
 
+/** Ringkasan warna per luas (untuk memilih latar) tanpa membangun geometri. */
+export function swatchesOf(analysis, roles, colors) {
+  const disabled = new Set(roles?.disabled_groups || []);
+  const acc = new Map();
+  for (const p of analysis?.panels || []) {
+    if (!p.active || disabled.has(p.group_name)) continue;
+    const { hex } = colors.panel(p);
+    acc.set(hex, (acc.get(hex) || 0) + (Number(p.area_m2) || 0));
+  }
+  return [...acc].map(([hex, area]) => ({ hex, area }));
+}
+
 /**
- * analysis = state.analysisData, roles = state.config.roles.
+ * analysis = state.analysisData, roles = state.config.roles, colors = colorResolver(katalog, settings).
  * Hasil: { group, bounds, tris, quality, scale, dispose() }. Model digeser supaya pusat tapaknya di (0, 0)
  * dan lantai terbawahnya di y = 0.
  */
-export function buildMaket(analysis, roles, pal) {
+export function buildMaket(analysis, roles, pal, colors = colorResolver([], {})) {
   const disabled = new Set(roles?.disabled_groups || []);
   const bb = analysis?.summary?.bounding_box;
   const o = bb ? [bb.center[0], bb.center[1], bb.min[2]] : [0, 0, 0];
 
-  const opaque = [], glass = [], context = [], outlines = [];
+  // Satu mesh per warna material (biasanya hanya 2–4 mesh).
+  const buckets = new Map();
+  const bucket = (hex, glass) => {
+    const k = hex + (glass ? 'g' : 'o');
+    if (!buckets.has(k)) buckets.set(k, { hex, glass, coords: [] });
+    return buckets.get(k).coords;
+  };
+  const outlines = [];
   for (const p of analysis?.panels || []) {
     if (!p.active || disabled.has(p.group_name) || !Array.isArray(p.vertices) || p.vertices.length < 3) continue;
-    const isGlass = p.element_type === 'glazing' || p.element_type === 'composite_cw';
-    triangulate(isGlass ? glass : opaque, p.vertices, o);
+    const c = colors.panel(p);
+    triangulate(bucket(c.hex, c.glass), p.vertices, o);
     const n = p.vertices.length;
     for (let i = 0; i < n; i++) { pushV(outlines, p.vertices[i], o); pushV(outlines, p.vertices[(i + 1) % n], o); }
   }
+  const ctxHex = { shading_elements: colors.shading(), frame_elements: colors.frame(), roof_elements: colors.roof() };
   for (const key of ['shading_elements', 'frame_elements', 'roof_elements']) {
     for (const el of analysis?.[key] || []) {
       if (!el?.vertices?.length || !el?.faces?.length || disabled.has(el.group_name)) continue;
+      const context = bucket(ctxHex[key], false);
       for (const f of el.faces) triangulate(context, f.filter((idx, i) => i < 3 || idx !== f[2]).map((idx) => el.vertices[idx]).filter(Boolean), o);
     }
   }
-  const tris = (opaque.length + glass.length + context.length) / 9;
+  const tris = [...buckets.values()].reduce((s, b) => s + b.coords.length, 0) / 9;
   const quality = qualityFor(tris);
 
-  const mats = {
-    wall: new THREE.MeshStandardMaterial({ color: pal.tower, roughness: 0.92, metalness: 0, side: THREE.DoubleSide }),
-    glass: new THREE.MeshStandardMaterial({ color: pal.glass, roughness: 0.3, metalness: 0.05, side: THREE.DoubleSide }),
-    ctx: new THREE.MeshStandardMaterial({ color: pal.mullion, roughness: 0.9, side: THREE.DoubleSide }),
-    edge: new THREE.LineBasicMaterial({ color: pal.edge, transparent: true, opacity: pal.edgeOpacity * 0.55 }),
-  };
+  const mats = { edge: new THREE.LineBasicMaterial({ color: pal.edge, transparent: true, opacity: pal.edgeOpacity * 0.55 }) };
+  const meshMat = (b) => new THREE.MeshStandardMaterial({ color: b.hex, roughness: b.glass ? 0.3 : 0.92, metalness: b.glass ? 0.05 : 0, side: THREE.DoubleSide });
   const group = new THREE.Group();
   group.name = 'maket';
-  const meshes = [meshOf(opaque, mats.wall), meshOf(glass, mats.glass), meshOf(context, mats.ctx)].filter(Boolean);
+  const meshes = [...buckets.values()].map((b) => meshOf(b.coords, (mats[b.hex + b.glass] = meshMat(b)))).filter(Boolean);
   group.add(...meshes);
 
   // Garis maket: tepi tiap panel untuk model ringan, tepi lipatan saja untuk model sedang, tanpa garis untuk model berat.
