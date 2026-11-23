@@ -9,7 +9,7 @@ export const SLIDE_DEFS = [
   { id: 'sampul', name: 'Sampul', wide: true },
   { id: 'ottv', name: 'Nilai OTTV', wide: true },
   { id: 'sisi', name: 'Panas per sisi', wide: true, heat: true },
-  { id: 'terpanas', name: 'Sisi terpanas', wide: false },
+  { id: 'terpanas', name: 'Sisi terpanas', wide: false, heat: true },
   { id: 'kaca', name: 'Kaca dan peneduh', wide: false },
   { id: 'atap', name: 'Atap (RTTV)', wide: false },
   { id: 'penutup', name: 'Penutup', wide: true },
@@ -40,9 +40,10 @@ export function posesFor({ bounds, dome, breakdown, north = 0, aspect = 16 / 9, 
   return {
     sampul: { az: heroAz, el: 24, dist: fit(wideR, 1.55), target: wideT },
     ottv: { az: wrap(heroAz + 18), el: 30, dist: fit(Math.max(bounds.fit, dome * 0.8), 1.6), target: wideT },
-    sisi: { az: heroAz, el: 58, dist: fit(Math.max(bounds.fit, dome * 0.95), 1.45), target: [center.x, center.y * 0.5, center.z] },
+    // tiga perempat dari arah sisi terpanas: sisi yang dibahas menghadap kamera, tetangganya ikut terlihat
+    sisi: { az: wrap(hotAz + (wrap(heroAz - hotAz) > 180 ? -38 : 38)), el: 24, dist: fit(bounds.fit, 1.75), target: midT },
     terpanas: { az: hotAz, el: 10, dist: fit(Math.hypot(faceW, size.y) / 2, 1.7), target: midT },
-    kaca: { az: wrap(hotAz + 32), el: 14, dist: fit(Math.max(bounds.radius * 0.7, 4), 1.7), target: midT },
+    kaca: { az: wrap(hotAz + 22), el: 8, dist: fit(Math.max(bounds.radius * 0.62, 4), 1.6), target: midT },
     atap: { az: heroAz, el: 62, dist: fit(bounds.fit * 0.9, 1.6), target: [center.x, size.y, center.z] },
     penutup: { az: wrap(heroAz - 50), el: 22, dist: fit(wideR, 1.7), target: wideT },
   };

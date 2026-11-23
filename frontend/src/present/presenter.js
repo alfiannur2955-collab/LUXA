@@ -122,7 +122,8 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   const sideRows = sidesOf(analysis);
   const ottvByCode = Object.fromEntries(sideRows.map((r) => [r.code === 'TG' ? 'TGR' : r.code, r.ottv_orientation_wm2]));
   const HEAT_BG = '#7C7D82';
-  const heatNeedsBg = sideRows.some((r) => contrast(heatColor(r.ottv_orientation_wm2), pal.bg) < 3);
+  // Latar tidak lagi berganti saat slide heatmap (pengguna: perubahan latar mengganggu); warna sisi tetap terbaca lewat garis tepi
+  const heatNeedsBg = false && sideRows.some((r) => contrast(heatColor(r.ottv_orientation_wm2), pal.bg) < 3);
   // background: warna latar paksa untuk gambar laporan (mis. putih), berlaku juga di slide heatmap
   const bgBase = new THREE.Color(background || pal.bg), bgHeat = new THREE.Color(background || HEAT_BG);
   // Latar putih paksa di tema terang: tone mapping Neutral menekan putih jadi abu muda, jadi latarnya diberi
@@ -300,7 +301,7 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
 
   // Penanda matahari di tepi layar saat bola matahari di luar bingkai (mis. kamera membelakangi matahari).
   const sunMark = $('.lxp-sunmark');
-  const hourText = `${String(Math.floor(Number(state.sunHour ?? 15))).padStart(2, '0')}.${String(Math.round((Number(state.sunHour ?? 15) % 1) * 60)).padStart(2, '0')}`;
+  const hourText = () => { const hh = Number(dome.sun.hour ?? state.sunHour ?? 15); const m = Math.round((hh % 1) * 60); return `${String(Math.floor(hh) + (m === 60 ? 1 : 0)).padStart(2, '0')}.${String(m % 60).padStart(2, '0')}`; };
   const v = new THREE.Vector3();
   function placeMarks() {
     const w = stageEl.clientWidth, h = stageEl.clientHeight;
@@ -346,9 +347,34 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
       const flip = x > 0.3;
       sunMark.classList.toggle('is-flip', flip);
       sunMark.style.transform = `translate(${((x + 1) / 2) * w}px, ${((1 - y) / 2) * h}px) translate(${flip ? 'calc(-100% + 10px)' : '-10px'}, -50%)`;
-      sunMark.querySelector('b').textContent = behind ? `Matahari ${hourText} · di belakang kamera` : `Matahari ${hourText}`;
+      sunMark.querySelector('b').textContent = behind ? `Matahari ${hourText()} · di belakang kamera` : `Matahari ${hourText()}`;
     }
   }
+
+  // Matahari bisa diseret di sepanjang lintasannya (seperti di Belajar): bayangan ikut, angka OTTV tetap.
+  let dragSun = false;
+  const glCanvas = stage.renderer.domElement;
+  const nearSun = (e) => {
+    if (capture || domeFade.to < 0.5) return false;
+    const r = glCanvas.getBoundingClientRect();
+    const [sx, sy, sz] = dome.sunScreen(r.width, r.height);
+    return sz < 1 && Math.hypot(e.clientX - r.left - sx, e.clientY - r.top - sy) < 34;
+  };
+  glCanvas.style.pointerEvents = 'auto';
+  glCanvas.addEventListener('pointerdown', (e) => {
+    if (!nearSun(e)) return;
+    dragSun = true; glCanvas.setPointerCapture(e.pointerId); glCanvas.style.cursor = 'grabbing'; e.preventDefault(); e.stopPropagation();
+  });
+  glCanvas.addEventListener('pointermove', (e) => {
+    const r = glCanvas.getBoundingClientRect();
+    if (dragSun) {
+      const hr = dome.hourAtScreen(e.clientX - r.left, e.clientY - r.top, r.width, r.height);
+      if (hr != null && hr !== dome.sun.hour) dome.setHour(hr);
+    } else glCanvas.style.cursor = nearSun(e) ? 'grab' : '';
+  });
+  const endDrag = () => { if (dragSun) { dragSun = false; glCanvas.style.cursor = ''; } };
+  glCanvas.addEventListener('pointerup', endDrag);
+  glCanvas.addEventListener('pointercancel', endDrag);
 
   const now = () => (window.__lxpT ?? performance.now());
   let raf = 0, alive = true;

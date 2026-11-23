@@ -631,7 +631,11 @@ export async function captureViewerPng(state, { scale = 2, layout = 'panel', inc
 
   if (isCompare && compareAlt) {
     const splitX = Math.round(width / 2); // Versus: dua panel sama lebar (lihat viewer._renderVersus)
-    drawCompareOverlays(ctx, d, k, state, tokens, 0, 0, width, splitX, layout === 'panel', height);
+    // garis tengah berhenti di atas kartu bawah (kartu panel atau tabel selisih), tidak menembus kartu kaca
+    const lineH = layout === 'panel'
+      ? Math.max(0, height + extraH - margin - cardH - 12 * k)
+      : Math.max(0, height - margin - drawDiffTable(d, k, tokens, diffRows, 0, 0, true).h - 12 * k);
+    drawCompareOverlays(ctx, d, k, state, tokens, 0, 0, width, splitX, layout === 'panel', Math.min(height, lineH));
   }
 
   const northAngle = screenNorthAngle(state);
