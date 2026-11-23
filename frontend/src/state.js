@@ -122,7 +122,7 @@ export function createInitialConfirm() {
 
 const initialState = {
   step: 'home', // 'home' | 'learn' | 'upload' | 'confirm' | 'inspect' | 'results' | 'compare' | 'loading' | 'error'
-  learnChapter: 0, // bab aktif di Belajar OTTV
+  learnChapter: 0, // bab aktif di adegan 3D: 0 = Beranda, 1..8 = Bab Belajar OTTV
   mascotOn: (() => {
     try {
       return window.localStorage.getItem('luxa.mascot.v1') !== 'off';

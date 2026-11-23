@@ -187,6 +187,23 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
   resize();
 
   setSun(...DEFAULT_SUN);
-  const api = { renderer, scene, camera, sun, city, tower, ao, composer, palette: pal, raw: false, setShot, poseOf, applyCamera, applyShadowArea, setSun, addLabel, resize, render, setFrameInset };
+  // Lepas semua sumber daya GPU (dipakai saat tema berganti: adegan dibangun ulang dengan palet lain).
+  function dispose() {
+    scene.traverse((o) => {
+      o.geometry?.dispose?.();
+      const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+      for (const m of mats) {
+        for (const v of Object.values(m)) if (v && v.isTexture) v.dispose();
+        m.dispose();
+      }
+    });
+    composer.dispose?.();
+    renderer.dispose();
+    renderer.forceContextLoss();
+    renderer.domElement.remove();
+    labelLayer.remove();
+  }
+
+  const api = { renderer, scene, camera, sun, city, tower, ao, composer, palette: pal, raw: false, setShot, poseOf, applyCamera, applyShadowArea, setSun, addLabel, resize, render, setFrameInset, dispose };
   return api;
 }

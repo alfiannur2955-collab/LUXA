@@ -1,7 +1,11 @@
-html, body { margin: 0; height: 100%; background: #E7E5E0; font-family: 'Inter', system-ui, sans-serif; }
-html[data-theme='dark'], html[data-theme='dark'] body { background: #1F2024; }
-#stage { position: fixed; inset: 0; overflow: hidden; }
-#stage canvas { display: block; }
+/* Wadah adegan: kanvas tetap di belakang, kartu bab mengalir di atasnya (scroll milik halaman). */
+body.l3d-on { margin: 0; background: #F1EFEB; }
+html[data-theme='dark'] body.l3d-on { background: #1F2024; }
+.l3d-root { position: relative; font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; color: #2A2620; }
+.l3d-root[hidden] { display: none; }
+.l3d-stage { position: fixed; inset: 0; overflow: hidden; }
+.l3d-stage canvas { display: block; }
+.l3d-root.l3d-no-lux .l3d-lux, .l3d-root.l3d-no-lux .l3d-gate-lux { display: none; }
 
 /* Label gaya diagram arsitek dengan kartu kaca (glassmorphism), mengikuti tema LUXA. */
 .l3d-labels { position: absolute; inset: 0; pointer-events: none; }
@@ -191,3 +195,66 @@ html[data-theme='dark'] .l3d-lux p { background: rgba(255, 255, 255, 0.06); bord
 .l3d-cta:focus-visible { outline: 2px solid #138E86; outline-offset: 2px; }
 html[data-theme='dark'] .l3d-side output { color: #CFCAC0; }
 html[data-theme='dark'] .l3d-cta { color: #1E1F24; }
+
+/* ---------- Beranda (kartu pertama) ---------- */
+.l3d-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 12px; }
+.l3d-actions .l3d-cta, .l3d-actions .l3d-ghost { margin: 0; }
+.l3d-cta, .l3d-ghost { display: inline-flex; align-items: center; gap: 7px; font: inherit; cursor: pointer; border: 0; }
+.l3d-cta svg, .l3d-ghost svg { flex: none; }
+.l3d-ghost {
+  padding: 8px 14px; border-radius: 999px; font-size: 13.5px; color: inherit; max-width: 100%;
+  background: rgba(255, 255, 255, 0.5); border: 1px solid rgba(42, 38, 32, 0.14);
+}
+.l3d-ghost span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.l3d-ghost:hover { background: rgba(255, 255, 255, 0.85); }
+.l3d-ghost:focus-visible { outline: 2px solid #138E86; outline-offset: 2px; }
+.l3d-ghost-on { border-color: rgba(244, 155, 26, 0.7); font-weight: 600; }
+.l3d-points { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: #7A7266; }
+.l3d-points li::before { content: ''; display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: #138E86; margin-right: 6px; vertical-align: 2px; }
+.l3d-learn { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(42, 38, 32, 0.1); }
+.l3d-learn h2 { font-size: 17px !important; margin: 0 0 6px !important; }
+.l3d-learn p { font-size: 13.5px; }
+html[data-theme='dark'] .l3d-root { color: #F1EEE8; }
+html[data-theme='dark'] .l3d-ghost { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.16); }
+html[data-theme='dark'] .l3d-ghost:hover { background: rgba(255, 255, 255, 0.14); }
+html[data-theme='dark'] .l3d-points { color: #A9A49B; }
+html[data-theme='dark'] .l3d-learn { border-color: rgba(255, 255, 255, 0.1); }
+.l3d-root.is-flat .l3d-sec { min-height: 100vh; }
+
+/* ---------- Layar sambutan (nama wajib, kunjungan pertama) ---------- */
+.l3d-gate {
+  position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 20px;
+  background: rgba(241, 239, 235, 0.28); transition: opacity 0.45s ease;
+}
+.l3d-gate.is-out { opacity: 0; pointer-events: none; }
+.l3d-gate-card {
+  width: min(400px, 100%); padding: 26px 26px 22px; border-radius: 22px; text-align: left;
+  background: rgba(255, 255, 255, 0.66); border: 1px solid rgba(255, 255, 255, 0.9);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5); backdrop-filter: blur(22px) saturate(1.5);
+  box-shadow: 0 20px 50px rgba(40, 30, 20, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  font-size: 14.5px; line-height: 1.55;
+}
+.l3d-gate-card h1 { font-size: 22px; line-height: 1.25; margin: 4px 0 8px; }
+.l3d-gate-card p { margin: 0 0 10px; }
+.l3d-gate-lux { margin: -4px 0 6px -6px; }
+.l3d-gate-field { display: grid; gap: 6px; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+.l3d-gate-field input {
+  font: inherit; font-weight: 400; font-size: 15px; padding: 10px 12px; border-radius: 12px; color: inherit;
+  background: rgba(255, 255, 255, 0.75); border: 1px solid rgba(42, 38, 32, 0.18);
+}
+.l3d-gate-field input:focus { outline: 2px solid #138E86; outline-offset: 1px; }
+.l3d-gate-err { min-height: 18px; font-size: 12.5px; color: #B4441F; margin: 0 0 8px !important; }
+.l3d-gate-card .l3d-cta { width: 100%; justify-content: center; padding: 11px 16px; font-size: 14.5px; }
+.l3d-root.is-gated .l3d-story, .l3d-root.is-gated .l3d-dots { visibility: hidden; }
+/* Sebelum nama diisi, menu aplikasi belum bisa dipakai. */
+body.l3d-gated .app.is-scene { visibility: hidden; }
+html[data-theme='dark'] .l3d-gate { background: rgba(20, 21, 24, 0.35); }
+html[data-theme='dark'] .l3d-gate-card {
+  background: rgba(36, 37, 42, 0.66); border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+html[data-theme='dark'] .l3d-gate-field input { background: rgba(255, 255, 255, 0.07); border-color: rgba(255, 255, 255, 0.18); }
+html[data-theme='dark'] .l3d-gate-err { color: #F08A64; }
+
+/* Di dalam aplikasi, kartu turun sedikit supaya tidak tertutup topbar (gaya .app.is-scene ada di theme.css). */
+body.l3d-on .l3d-card { top: max(12vh, 88px); }

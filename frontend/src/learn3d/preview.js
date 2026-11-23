@@ -12,7 +12,9 @@ const theme = q.get('theme') === 'dark' ? 'dark' : 'light';
 let shot = q.get('shot') || 'beranda';
 document.documentElement.dataset.theme = theme;
 
-const host = document.getElementById('stage');
+document.body.classList.add('l3d-on');
+const host = Object.assign(document.createElement('div'), { className: 'l3d-stage' });
+document.body.appendChild(host);
 const stage = createStage(host, { theme });
 if (q.get('pp') === '0') stage.raw = true;
 

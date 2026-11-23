@@ -54,8 +54,6 @@ import { renderResultsScreen } from './steps/results.js';
 import { renderCompareScreen } from './steps/compare.js';
 import { renderErrorScreen, renderLoadingScreen } from './steps/status.js';
 import { renderUploadScreen } from './steps/upload.js';
-import { renderHomeScreen } from './steps/home.js';
-import { renderLearnScreen } from './learn/learn.js';
 import { renderCommandPalette } from './ui/commandPalette.js';
 import { fmtFileSize } from './ui/escapeHtml.js';
 import { installShortcuts } from './ui/shortcuts.js';
@@ -1525,34 +1523,8 @@ function renderApp(state) {
     }),
   );
 
-  if (state.step === 'home') {
-    frag.appendChild(
-      renderHomeScreen(state, {
-        savedAutosave: cachedAutosave,
-        onStartNew: () => setState({ step: 'upload', activeRailCard: null }),
-        onResume: (saved) => {
-          runInspectAndOpenConfirm(saved.modelId, saved.filename || saved.modelId, {
-            config: saved.config,
-            confirm: saved.confirm,
-            targetStep: 'confirm',
-          });
-        },
-        onTryExample: () => handleLoadExample('fasad_tower_twisted', 'Fasad tower twisted'),
-        onOpenLearn: (i) => setState({ step: 'learn', learnChapter: Number(i) || 0, activeRailCard: null }),
-        onRerender: () => setState({}),
-      }),
-    );
-  } else if (state.step === 'learn') {
-    frag.appendChild(
-      renderLearnScreen(state, {
-        onSetChapter: (i) => {
-          setState({ learnChapter: i });
-          window.requestAnimationFrame(() => document.querySelector('.learn-main')?.scrollTo({ top: 0 }));
-        },
-        onGoHome: () => setState({ step: 'home' }),
-        onTryExample: () => handleLoadExample('fasad_tower_twisted', 'Fasad tower twisted'),
-      }),
-    );
+  if (state.step === 'home' || state.step === 'learn') {
+    // Beranda dan Belajar OTTV hidup di adegan 3D bersama (lihat syncScene), di luar #app.
   } else if (state.step === 'loading') {
     frag.appendChild(renderLoadingScreen(state));
   } else if (state.step === 'error') {
@@ -1973,6 +1945,69 @@ function renderApp(state) {
 
   rootEl.innerHTML = '';
   rootEl.appendChild(frag);
+  syncScene(state);
+}
+
+// ---------------- Adegan 3D Beranda + Belajar OTTV ----------------
+// Satu adegan untuk dua langkah: Beranda = bab 0, Belajar = bab 1..8. Adegan dibuat sekali dan tetap hidup
+// di #l3d-host (di luar #app) supaya render ulang aplikasi tidak menghapus kanvas WebGL-nya.
+let scene = null;
+let sceneTheme = null;
+let sceneLoading = null;
+function sceneHandlers() {
+  return {
+    savedAutosave: cachedAutosave,
+    mascotOn: getState().mascotOn !== false,
+    onStartNew: () => setState({ step: 'upload', activeRailCard: null }),
+    onResume: (saved) => {
+      if (!saved) return;
+      runInspectAndOpenConfirm(saved.modelId, saved.filename || saved.modelId, {
+        config: saved.config,
+        confirm: saved.confirm,
+        targetStep: 'confirm',
+      });
+    },
+    onTryExample: () => handleLoadExample('fasad_tower_twisted', 'Fasad tower twisted'),
+    onChapter: (i) => {
+      const s = getState();
+      if (s.step !== 'home' && s.step !== 'learn') return;
+      const step = i === 0 ? 'home' : 'learn';
+      if (s.step !== step || (step === 'learn' && s.learnChapter !== i)) setState({ step, learnChapter: i });
+    },
+  };
+}
+function syncScene(state) {
+  const want = state.step === 'home' || state.step === 'learn';
+  rootEl.classList.toggle('is-scene', want);
+  if (!want) {
+    scene?.hide();
+    return;
+  }
+  const theme = state.theme === 'dark' ? 'dark' : 'light';
+  if (scene && sceneTheme !== theme) {
+    scene.destroy();
+    scene = null;
+  }
+  if (!scene) {
+    if (!sceneLoading) {
+      sceneLoading = import('./learn3d/story.js').then(({ createStory }) => {
+        sceneLoading = null;
+        let host = document.getElementById('l3d-host');
+        if (!host) {
+          host = document.createElement('div');
+          host.id = 'l3d-host';
+          document.body.insertBefore(host, rootEl);
+        }
+        const st = getState();
+        sceneTheme = st.theme === 'dark' ? 'dark' : 'light';
+        scene = createStory({ host, theme: sceneTheme, embedded: true, handlers: sceneHandlers() });
+        syncScene(getState());
+      });
+    }
+    return;
+  }
+  scene.setHandlers(sceneHandlers());
+  scene.show({ chapter: state.step === 'home' ? 0 : Math.max(1, Number(state.learnChapter) || 1) });
 }
 
 installShortcuts({
@@ -2068,6 +2103,8 @@ async function bootstrap() {
   });
 
   setState({ engineMode });
+  const babHash = /^#bab-([1-8])$/.exec(window.location.hash || '');
+  if (babHash) setState({ step: 'learn', learnChapter: Number(babHash[1]) });
   onEngineStatus((st) => setState({ engineStatus: { ...st } }));
 
   // Mode rekam video demo (tersembunyi): ?rekam=1 membuka akses untuk skrip perekam.
