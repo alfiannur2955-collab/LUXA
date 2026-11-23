@@ -7,6 +7,7 @@ import { listSavedProjects } from '../project.js';
 import { computeInitialSunDomeRadiusM, parseDecimalInput } from '../state.js';
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
+import { luxSvg } from '../ui/mascot.js';
 import { SNI_GLOSSARY } from '../ui/tooltips.js';
 import { ORIENTATION_CODES, ORIENTATION_NAMES_ID } from '../viewer/modes.js';
 import { computeSolarPosition } from '../viewer/sundome.js';
@@ -596,7 +597,20 @@ export function createRailPanelBuilders(handlers) {
         layoutSec.append(posLbl, posSeg, custBtn);
         container.appendChild(layoutSec);
 
-        // 3) Pintasan
+        // 3) Maskot
+        const luxSec = mkSec('sun', 'Maskot Lux');
+        const luxLbl = document.createElement('label');
+        luxLbl.className = 'legend-smooth-lbl';
+        const luxCb = document.createElement('input');
+        luxCb.type = 'checkbox';
+        luxCb.setAttribute('role', 'switch');
+        luxCb.checked = state.mascotOn !== false;
+        luxCb.addEventListener('change', () => handlers.onToggleMascot?.(luxCb.checked));
+        luxLbl.append(luxCb, document.createTextNode(' Tampilkan Lux di Beranda, Belajar, dan saat menghitung'));
+        luxSec.appendChild(luxLbl);
+        container.appendChild(luxSec);
+
+        // 4) Pintasan
         const keySec = mkSec('keyboard', 'Pintasan keyboard');
         const list = document.createElement('ul');
         list.className = 'display-keys';
@@ -654,7 +668,15 @@ export function createRailPanelBuilders(handlers) {
           p.className = 'muted';
           p.style.margin = '0';
           p.textContent = 'Hitung OTTV terlebih dahulu untuk mengunduh laporan hasil.';
-          container.appendChild(p);
+          if (state.mascotOn !== false) {
+            const row = document.createElement('div');
+            row.className = 'empty-lux';
+            row.innerHTML = luxSvg('report', { size: 52 });
+            row.appendChild(p);
+            container.appendChild(row);
+          } else {
+            container.appendChild(p);
+          }
         } else {
           const ottv = Number(state.analysisData.ottv_total_wm2 ?? 0);
           const limit = Number(state.analysisData.sni_limit_wm2 ?? 35);

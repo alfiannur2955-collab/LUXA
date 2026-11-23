@@ -2,6 +2,7 @@
  * Accessible toast notification stack (`aria-live="polite"`),
  * with 8-second Undo (`Urungkan`) action support (`docs/RENCANA.md` Fase 4d D4).
  */
+import { luxSvg } from './mascot.js';
 
 let stackEl = null;
 
@@ -44,12 +45,20 @@ function positionStack() {
   st.bottom = `${Math.max(16, window.innerHeight - floorY + 10)}px`;
 }
 
-export function showToast(message, tone = 'ok', durationMs = 4200) {
+export function showToast(message, tone = 'ok', durationMs = 4200, { lux = null } = {}) {
   const host = ensureStack();
   const item = document.createElement('div');
-  item.className = `toast glass is-${tone}`;
+  item.className = `toast glass is-${tone}${lux ? ' has-lux' : ''}`;
   item.setAttribute('role', 'status');
-  item.textContent = String(message || '');
+  if (lux) {
+    // Maskot Lux kecil di samping pesan (dekoratif).
+    item.innerHTML = luxSvg(lux, { size: 34 });
+    const t = document.createElement('span');
+    t.textContent = String(message || '');
+    item.appendChild(t);
+  } else {
+    item.textContent = String(message || '');
+  }
   host.appendChild(item);
 
   window.setTimeout(() => {
