@@ -9,6 +9,9 @@ import { buildMaket, swatchesOf } from './maket.js';
 import { colorResolver, pickStageTheme } from './colors.js';
 import { createDome, domeRadius } from './sundome.js';
 import { slidesFor, posesFor } from './slides.js';
+import { renderCard as defaultCard, sidesOf, sideName, f1 } from './content.js';
+import { contrast } from './colors.js';
+import { ottvToThreeColor } from '../viewer/modes.js';
 import './present.css';
 
 const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
@@ -26,7 +29,7 @@ const ICON = {
  * appTheme: 'light' | 'dark'; onExit(): dipanggil saat pengguna keluar (Esc / tombol Keluar).
  * renderCard(slide, ctx) -> HTML isi kartu (diisi di P3).
  */
-export function createPresenter({ host, state, appTheme = 'light', onExit = () => {}, renderCard = null, startAt = 0 }) {
+export function createPresenter({ host, state, appTheme = 'light', userName = '', onExit = () => {}, renderCard = defaultCard, startAt = 0 }) {
   const analysis = state.analysisData;
   const roles = state.config?.roles;
   const settings = state.config?.settings || {};
@@ -80,6 +83,32 @@ export function createPresenter({ host, state, appTheme = 'light', onExit = () =
   const clouds = createClouds(stage, { dark: theme === 'dark', scale: skyScale, target: [b.center.x, b.center.y, b.center.z], count: 14, opacity: 0.55, shadow: 0.35, hole: [Math.max(b.radius, R * 0.6) * 1.2, Math.max(b.radius, R * 0.6) * 3] });
   const birds = createBirds(stage, { dark: theme === 'dark', scale: skyScale });
 
+  // Heatmap per sisi: skala panas SNI (0 / 25 / 35 / 50+ W/m², warna skala terang aplikasi) di semua tema
+  // supaya legenda konsisten. Bila ada warna sisi yang kontrasnya < 3:1 terhadap latar, slide heatmap
+  // memakai latar abu netral yang kontras dengan ujung terang maupun gelap skala.
+  const HEAT_TOKENS = { heat0: '#f6e7c8', heat1: '#eeb066', heat2: '#cf5a1f', heat3: '#7d1d10' };
+  const heatColor = (v) => '#' + ottvToThreeColor(v, HEAT_TOKENS).getHexString();
+  const sideRows = sidesOf(analysis);
+  const ottvByCode = Object.fromEntries(sideRows.map((r) => [r.code === 'TG' ? 'TGR' : r.code, r.ottv_orientation_wm2]));
+  const HEAT_BG = '#7C7D82';
+  const heatNeedsBg = sideRows.some((r) => contrast(heatColor(r.ottv_orientation_wm2), pal.bg) < 3);
+  const bgBase = new THREE.Color(pal.bg), bgHeat = new THREE.Color(HEAT_BG);
+  const bgFade = { from: 0, to: 0, t0: 0 };
+  // Label nilai di tiap sisi model.
+  const sideLabels = [];
+  for (const r of sideRows) {
+    const h = maket.sides.get(r.code === 'TG' ? 'TGR' : r.code);
+    if (!h) continue;
+    const a = ((Number(r.azimuth_center_deg) || 0) + north) * Math.PI / 180;
+    const p = h.center.clone().add(new THREE.Vector3(Math.sin(a), 0, -Math.cos(a)).multiplyScalar(Math.max(1.5, b.footprint * 0.12)));
+    const el = document.createElement('span');
+    el.className = 'lxp-sidelabel';
+    el.innerHTML = `<i style="background:${heatColor(r.ottv_orientation_wm2)}"></i>${sideName(r.code)} <b>${f1(r.ottv_orientation_wm2)}</b>`;
+    sideLabels.push({ p, el, v: r.ottv_orientation_wm2 });
+    marks.appendChild(el);
+  }
+  sideLabels.sort((x, y) => y.v - x.v); // yang terpanas ditaruh lebih dulu bila label berdesakan
+
   const slides = slidesFor(analysis);
   let poses = {};
   let index = Math.min(Math.max(0, startAt), slides.length - 1);
@@ -87,6 +116,8 @@ export function createPresenter({ host, state, appTheme = 'light', onExit = () =
   let fly = null;
   const domeFade = { from: 1, to: 1, t0: 0 };
   domeFade.from = domeFade.to = slides[index].wide ? 1 : 0;
+  const bgK = (t) => bgFade.from + (bgFade.to - bgFade.from) * ease(Math.min(1, (t - bgFade.t0) / 700));
+  bgFade.from = bgFade.to = slides[index].heat && heatNeedsBg ? 1 : 0;
   const domeK = (t) => domeFade.from + (domeFade.to - domeFade.from) * ease(Math.min(1, (t - domeFade.t0) / 700));
 
   function computePoses() {
@@ -134,11 +165,12 @@ export function createPresenter({ host, state, appTheme = 'light', onExit = () =
     const s = slides[index];
     $('.lxp-count').textContent = `${index + 1} / ${slides.length}`;
     dotsEl.querySelectorAll('.lxp-dot').forEach((d, i) => { d.classList.toggle('is-on', i === index); d.setAttribute('aria-current', i === index ? 'step' : 'false'); });
-    const ctx = { index, total: slides.length, analysis, state, theme, pick, sun: dome.sun };
-    card.innerHTML = renderCard ? renderCard(s, ctx) : `
-      <p class="lxp-kicker">${index + 1} / ${slides.length} · ${s.name}</p>
-      <h2 class="lxp-title">${s.name}</h2>
-      <p class="lxp-note">Isi slide menyusul di tahap P3.</p>`;
+    const ctx = { index, total: slides.length, analysis, state, theme, pick, sun: dome.sun, userName, heatColor };
+    card.innerHTML = renderCard(s, ctx);
+    const heatOn = Boolean(s.heat);
+    maket.setHeat(heatOn ? (code) => heatColor(ottvByCode[code] ?? 0) : null);
+    root.dataset.theme = heatOn && heatNeedsBg ? 'dark' : theme;
+    sideLabels.forEach((l) => l.el.classList.toggle('is-on', heatOn));
     card.dataset.slide = s.id;
     layoutInset();
   }
@@ -154,6 +186,8 @@ export function createPresenter({ host, state, appTheme = 'light', onExit = () =
     renderUI();
     const p = poses[slides[index].id];
     const want = slides[index].wide ? 1 : 0;
+    const wantBg = slides[index].heat && heatNeedsBg ? 1 : 0;
+    if (wantBg !== bgFade.to) Object.assign(bgFade, { from: instant || reduceMotion ? wantBg : bgK(now()), to: wantBg, t0: now() });
     if (want !== domeFade.to) Object.assign(domeFade, { from: instant || reduceMotion ? want : domeK(now()), to: want, t0: now() });
     if (instant || reduceMotion) { snapTo(p); return changed; }
     fly = { t0: now(), from: { az: cam.az, el: cam.el, dist: cam.dist, target: cam.target.clone() }, to: { ...p, az: shortest(cam.az, p.az), target: new THREE.Vector3(...p.target) } };
@@ -202,6 +236,7 @@ export function createPresenter({ host, state, appTheme = 'light', onExit = () =
     if (t.classList.contains('lxp-dot')) go(Number(t.dataset.i));
     else if (t.dataset.act === 'full') toggleFull();
     else if (t.dataset.act === 'exit') exit();
+    else if (t.dataset.act === 'first') go(0);
   });
 
   function toggleFull() {
@@ -233,6 +268,19 @@ export function createPresenter({ host, state, appTheme = 'light', onExit = () =
       const vis = v.z < 1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1;
       l.el.style.display = vis ? '' : 'none';
       l.el.style.transform = `translate(${((v.x + 1) / 2) * w}px, ${((1 - v.y) / 2) * h}px) translate(-50%, -50%)`;
+    }
+    // Label sisi: yang bertumpuk dengan label lebih panas disembunyikan.
+    const placed = [];
+    for (const l of sideLabels) {
+      if (!l.el.classList.contains('is-on')) continue;
+      v.copy(l.p).project(stage.camera);
+      const px = ((v.x + 1) / 2) * w, py = ((1 - v.y) / 2) * h;
+      const lw = l.el.offsetWidth || 90, lh = l.el.offsetHeight || 28;
+      const box = [px - lw / 2 - 4, py - lh / 2 - 4, px + lw / 2 + 4, py + lh / 2 + 4];
+      const clash = placed.some((q) => box[0] < q[2] && box[2] > q[0] && box[1] < q[3] && box[3] > q[1]);
+      l.el.style.visibility = clash ? 'hidden' : '';
+      if (!clash) placed.push(box);
+      l.el.style.transform = `translate(${px}px, ${py}px) translate(-50%, -50%)`;
     }
     // Kubah tampil: penanda hanya bila bola matahari di luar bingkai. Kubah tersembunyi: penanda selalu tampil,
     // ditaruh searah sinar matahari (titik jauh di arah matahari), di tepi layar bila di luar bingkai.
@@ -277,6 +325,7 @@ export function createPresenter({ host, state, appTheme = 'light', onExit = () =
       if (k >= 1) fly = null;
     }
     dome.setOpacity(domeK(t));
+    stage.scene.background.lerpColors(bgBase, bgHeat, bgK(t));
     clouds.tick(stage.camera, t / 1000, cam.dist, reduceMotion);
     birds.tick(t / 1000, cam.dist, reduceMotion);
     stage.render();

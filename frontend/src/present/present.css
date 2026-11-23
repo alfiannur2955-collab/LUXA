@@ -5,6 +5,8 @@
   --glass: rgba(255, 255, 255, 0.6); --glass-line: rgba(255, 255, 255, 0.88);
   --glass-shadow: 0 16px 40px rgba(40, 30, 20, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.75);
   --chip: rgba(255, 255, 255, 0.55); --dot: rgba(42, 38, 32, 0.28); --sun: #E8890C;
+  --cell: rgba(255, 255, 255, 0.5); --cell-line: rgba(42, 38, 32, 0.08); --track: rgba(42, 38, 32, 0.08);
+  --ok: #0f766e; --fail: #b3261e; --p-w: #A79E90; --p-g: #6B9AB8; --p-s: #E8890C;
   position: fixed; inset: 0; z-index: 60; overflow: hidden; color: var(--ink);
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; background: #F1EFEB;
 }
@@ -13,6 +15,8 @@
   --glass: rgba(36, 37, 42, 0.6); --glass-line: rgba(255, 255, 255, 0.14);
   --glass-shadow: 0 16px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
   --chip: rgba(36, 37, 42, 0.6); --dot: rgba(255, 255, 255, 0.32); --sun: #F6B24A;
+  --cell: rgba(255, 255, 255, 0.05); --cell-line: rgba(255, 255, 255, 0.1); --track: rgba(255, 255, 255, 0.1);
+  --ok: #5ec4ba; --fail: #f2867e; --p-w: #A9A49B; --p-g: #7FB0CE; --p-s: #F6B24A;
   background: #1F2024;
 }
 .lxp-stage { position: absolute; inset: 0; }
@@ -32,6 +36,55 @@
 .lxp-kicker { margin: 0 0 8px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; color: var(--accent); }
 .lxp-title { margin: 0 0 16px; font-size: 28px; line-height: 1.2; font-weight: 700; }
 .lxp-note { margin: 16px 0 0; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+
+/* Zona kartu: judul > angka utama > rincian > catatan. */
+.lxp-title.is-cover { font-size: 32px; margin-bottom: 8px; }
+.lxp-by { margin: 0 0 16px; font-size: 14px; color: var(--muted); }
+.lxp-by b { color: var(--ink); font-weight: 600; }
+.lxp-ribbon { display: inline-block; margin: 0 0 12px; padding: 4px 8px; border-radius: 8px; font-size: 12px; font-weight: 600; color: var(--fail); background: color-mix(in srgb, var(--fail) 12%, transparent); }
+.lxp-big { display: flex; align-items: baseline; flex-wrap: wrap; column-gap: 8px; row-gap: 4px; margin: 0 0 8px; }
+.lxp-big strong { font-size: 52px; line-height: 1; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.lxp-unit { font-size: 14px; color: var(--muted); font-weight: 500; }
+.lxp-status { align-self: center; margin-left: auto; height: 28px; padding: 0 12px; border-radius: 12px; display: inline-flex; align-items: center; font-size: 12px; font-weight: 700; }
+.lxp-status.is-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.lxp-status.is-fail { color: var(--fail); background: color-mix(in srgb, var(--fail) 14%, transparent); }
+.lxp-sub { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
+
+.lxp-stats { display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: 8px; margin: 0 0 16px; }
+.lxp-stats div { padding: 12px; border-radius: 12px; background: var(--cell); border: 1px solid var(--cell-line); min-width: 0; }
+.lxp-stats dt { font-size: 12px; color: var(--muted); margin: 0 0 4px; }
+.lxp-stats dd { margin: 0; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.lxp-parts, .lxp-sides { display: grid; gap: 8px; margin: 0 0 4px; position: relative; }
+.lxp-part { display: grid; grid-template-columns: 1fr 96px 40px; align-items: center; gap: 12px; font-size: 13px; }
+.lxp-part i, .lxp-side i { display: block; height: 8px; border-radius: 4px; background: var(--track); position: relative; overflow: hidden; }
+.lxp-part i::after, .lxp-side i::after { content: ''; position: absolute; inset: 0 auto 0 0; width: var(--w); border-radius: 4px; }
+.lxp-part i.is-w::after { background: var(--p-w); }
+.lxp-part i.is-g::after { background: var(--p-g); }
+.lxp-part i.is-s::after { background: var(--p-s); }
+.lxp-part b, .lxp-side b { text-align: right; font-variant-numeric: tabular-nums; }
+.lxp-sides { padding-bottom: 20px; }
+.lxp-side { display: grid; grid-template-columns: 88px 1fr 40px; align-items: center; gap: 12px; font-size: 13px; }
+.lxp-side i::after { background: var(--c); }
+.lxp-side.is-hot span, .lxp-side.is-hot b { font-weight: 700; }
+/* garis batas SNI di atas batang sisi */
+.lxp-limit { position: absolute; top: 0; bottom: 0; left: calc(88px + 12px + (100% - 88px - 40px - 24px) * var(--x) / 100); width: 0; border-left: 1px dashed var(--muted); pointer-events: none; }
+.lxp-limit span { position: absolute; bottom: 0; left: 0; transform: translateX(-50%); font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+.lxp-mat { margin: 0; display: grid; grid-template-columns: 88px 1fr; gap: 12px; font-size: 13px; }
+.lxp-mat span { color: var(--muted); }
+.lxp-steps { margin: 0 0 16px; padding: 0; list-style: none; counter-reset: s; display: grid; gap: 8px; }
+.lxp-steps li { counter-increment: s; display: grid; grid-template-columns: 24px 1fr; gap: 12px; font-size: 14px; }
+.lxp-steps li::before { content: counter(s); width: 24px; height: 24px; border-radius: 12px; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--accent); background: var(--cell); border: 1px solid var(--cell-line); }
+.lxp-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+
+/* Label nilai di sisi model (slide heatmap). */
+.lxp-sidelabel { position: absolute; left: 0; top: 0; display: none; align-items: center; gap: 8px; height: 28px; padding: 0 12px; border-radius: 12px;
+  font-size: 12px; font-weight: 600; color: var(--ink); background: var(--glass); border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); white-space: nowrap; }
+.lxp-sidelabel.is-on { display: inline-flex; }
+.lxp-sidelabel i { width: 10px; height: 10px; border-radius: 3px; }
+.lxp-sidelabel b { font-variant-numeric: tabular-nums; }
 
 /* Alat kanan atas: dua tombol sama lebar, sejajar satu baris. */
 .lxp-tools { position: absolute; top: 24px; right: 24px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }

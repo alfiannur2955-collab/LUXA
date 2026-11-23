@@ -8,7 +8,7 @@ import { facesByHeat, fitDistance, heroPose } from './framing.js';
 export const SLIDE_DEFS = [
   { id: 'sampul', name: 'Sampul', wide: true },
   { id: 'ottv', name: 'Nilai OTTV', wide: true },
-  { id: 'sisi', name: 'Panas per sisi', wide: true },
+  { id: 'sisi', name: 'Panas per sisi', wide: true, heat: true },
   { id: 'terpanas', name: 'Sisi terpanas', wide: false },
   { id: 'kaca', name: 'Kaca dan peneduh', wide: false },
   { id: 'atap', name: 'Atap (RTTV)', wide: false },

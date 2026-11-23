@@ -56,24 +56,33 @@ export function buildMaket(analysis, roles, pal, colors = colorResolver([], {}))
 
   // Satu mesh per warna material (biasanya hanya 2–4 mesh).
   const buckets = new Map();
-  const bucket = (hex, glass) => {
-    const k = hex + (glass ? 'g' : 'o');
+  const bucket = (hex, glass, kind = 'p') => {
+    const k = kind + hex + (glass ? 'g' : 'o');
     if (!buckets.has(k)) buckets.set(k, { hex, glass, coords: [] });
     return buckets.get(k).coords;
   };
   const outlines = [];
+  // Geometri per sisi (kode arah) untuk tampilan heatmap.
+  const byCode = new Map();
   for (const p of analysis?.panels || []) {
     if (!p.active || disabled.has(p.group_name) || !Array.isArray(p.vertices) || p.vertices.length < 3) continue;
     const c = colors.panel(p);
     triangulate(bucket(c.hex, c.glass), p.vertices, o);
+    const code = p.orientation_code === 'TG' ? 'TGR' : p.orientation_code || 'U';
+    if (!byCode.has(code)) byCode.set(code, { coords: [], cx: 0, cy: 0, cz: 0, area: 0 });
+    const bc = byCode.get(code);
+    triangulate(bc.coords, p.vertices, o);
+    const ar = Number(p.area_m2) || 0, ce = p.centroid || p.vertices[0];
+    bc.cx += (ce[0] - o[0]) * ar; bc.cy += (ce[2] - o[2]) * ar; bc.cz += -(ce[1] - o[1]) * ar; bc.area += ar;
     const n = p.vertices.length;
     for (let i = 0; i < n; i++) { pushV(outlines, p.vertices[i], o); pushV(outlines, p.vertices[(i + 1) % n], o); }
   }
+  const panelKeys = new Set(buckets.keys());
   const ctxHex = { shading_elements: colors.shading(), frame_elements: colors.frame(), roof_elements: colors.roof() };
   for (const key of ['shading_elements', 'frame_elements', 'roof_elements']) {
     for (const el of analysis?.[key] || []) {
       if (!el?.vertices?.length || !el?.faces?.length || disabled.has(el.group_name)) continue;
-      const context = bucket(ctxHex[key], false);
+      const context = bucket(ctxHex[key], false, 'c');
       for (const f of el.faces) triangulate(context, f.filter((idx, i) => i < 3 || idx !== f[2]).map((idx) => el.vertices[idx]).filter(Boolean), o);
     }
   }
@@ -84,8 +93,24 @@ export function buildMaket(analysis, roles, pal, colors = colorResolver([], {}))
   const meshMat = (b) => new THREE.MeshStandardMaterial({ color: b.hex, roughness: b.glass ? 0.3 : 0.92, metalness: b.glass ? 0.05 : 0, side: THREE.DoubleSide });
   const group = new THREE.Group();
   group.name = 'maket';
-  const meshes = [...buckets.values()].map((b) => meshOf(b.coords, (mats[b.hex + b.glass] = meshMat(b)))).filter(Boolean);
+  const matMeshes = [];
+  const meshes = [...buckets.entries()].map(([k, b]) => {
+    const m = meshOf(b.coords, (mats[k] = meshMat(b)));
+    if (m && panelKeys.has(k)) matMeshes.push(m);
+    return m;
+  }).filter(Boolean);
   group.add(...meshes);
+
+  // Heatmap: satu mesh per sisi, disembunyikan sampai dipakai.
+  const heat = new Map();
+  for (const [code, bc] of byCode) {
+    const m = meshOf(bc.coords, new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.85, side: THREE.DoubleSide }));
+    if (!m) continue;
+    m.visible = false;
+    group.add(m);
+    const a = bc.area || 1;
+    heat.set(code, { mesh: m, center: new THREE.Vector3(bc.cx / a, bc.cy / a, bc.cz / a) });
+  }
 
   // Garis maket: tepi tiap panel untuk model ringan, tepi lipatan saja untuk model sedang, tanpa garis untuk model berat.
   if (quality.edges === 'panels' && outlines.length) {
@@ -122,7 +147,7 @@ export function buildMaket(analysis, roles, pal, colors = colorResolver([], {}))
   group.add(base);
 
   // Lantai tak berujung: hanya menerima bayangan, warnanya tetap latar.
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShadowMaterial({ color: pal.shadow, opacity: pal.shadowOpacity * 1.6 }));
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShadowMaterial({ color: '#000000', opacity: pal.shadowOpacity * 1.3 }));
   floor.rotation.x = -Math.PI / 2;
   floor.scale.setScalar(maxSpan * 40);
   floor.position.y = -th - 0.02;
@@ -136,7 +161,18 @@ export function buildMaket(analysis, roles, pal, colors = colorResolver([], {}))
     tris,
     quality,
     scale: Math.min(3, Math.max(0.2, Math.max(maxSpan, 20) / REF_H)),
+    sides: heat,
+    /** colorOf(code) -> warna css, atau null untuk kembali ke warna material. */
+    setHeat(colorOf) {
+      const on = Boolean(colorOf);
+      matMeshes.forEach((m) => { m.visible = !on; });
+      for (const [code, h] of heat) {
+        h.mesh.visible = on;
+        if (on) h.mesh.material.color.set(colorOf(code));
+      }
+    },
     dispose() {
+      heat.forEach((h) => h.mesh.material.dispose());
       group.traverse((n) => n.geometry?.dispose?.());
       Object.values(mats).forEach((m) => m.dispose());
       base.material.dispose();
