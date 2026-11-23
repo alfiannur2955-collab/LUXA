@@ -760,8 +760,9 @@ def build_staging_inspection_payload(
     wwr_map = dict(r_cfg.group_wwr_map or {})
     face_ov = dict(r_cfg.face_category_overrides or {})
 
-    # Global bounding box across all groups
-    all_v = np.vstack([rg.vertices for rg in raw_groups])
+    # Kotak pembatas gedung: konteks sekitar (jalan, blok kota) tidak ikut, supaya ukuran dan kamera fokus ke gedung
+    _bld = [rg for rg in raw_groups if cat_overrides.get(rg.group_name, rg.default_category) != "context"]
+    all_v = np.vstack([rg.vertices for rg in (_bld or raw_groups)])
     b_min = np.min(all_v, axis=0)
     b_max = np.max(all_v, axis=0)
     b_center = 0.5 * (b_min + b_max)
@@ -840,7 +841,7 @@ def build_staging_inspection_payload(
         if rg.group_name in cat_overrides:
             conf = "verified"
             conf_reason = "Dikonfirmasi manual oleh pengguna"
-        elif conf == "review" and is_enabled and eff_cat not in ("roof", "ignore"):
+        elif conf == "review" and is_enabled and eff_cat not in ("roof", "ignore", "context"):
             review_needed_count += 1
 
         if is_enabled and eff_cat in ("glazing", "spandrel", "wall", "composite_cw"):

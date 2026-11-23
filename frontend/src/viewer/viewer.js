@@ -212,7 +212,10 @@ class LuxaViewer {
     this.modelRoot = null;
     this.compareAltRoot = null;
     this.compareSplitRatio = null; // sisa API lama (tirai geser); tidak dipakai lagi oleh layar Bandingkan
-    this.compareVersus = false; // Bandingkan: dua panel berdampingan, kamera yang sama, gedung utuh di tiap panel
+    this.compareVersus = false;
+    // Gambar hanya saat ada perubahan: kamera bergerak, state berubah, atau penunjuk bergerak di kanvas.
+    this._dirtyUntil = 0;
+    this._lastFrame = 0; // Bandingkan: dua panel berdampingan, kamera yang sama, gedung utuh di tiap panel
     this._syncingCompare = false;
     this.lastCompareAltKey = null;
     this.selectionGroup = null;
@@ -250,6 +253,8 @@ class LuxaViewer {
     this.controls.dampingFactor = 0.08;
     this.controls.maxDistance = 1600;
     this.controls.minDistance = 2;
+    this.controls.addEventListener('change', () => this.invalidate());
+    for (const ev of ['pointermove', 'pointerdown', 'wheel']) this.renderer.domElement.addEventListener(ev, () => this.invalidate(), { passive: true });
     // Pengguna mulai memutar sendiri → hentikan putaran otomatis dari kompas.
     this.controls.addEventListener('start', () => {
       if (this.rig) this.rig.spin = null;
@@ -304,6 +309,10 @@ class LuxaViewer {
       if (this.container && this.container.isConnected) {
         this.rig.tick(now);
         this.controls.update();
+        // diam: tidak menggambar ulang (GPU istirahat); tetap segarkan pelan 2x per detik untuk jaga-jaga
+        const busy = now < this._dirtyUntil || this.rig.anim || this.rig.spin || now - this._lastFrame > 500;
+        if (!busy) return;
+        this._lastFrame = now;
         const cam = this.rig.getActiveCamera();
         if (this.compareVersus && this.compareAltRoot) {
           this._renderVersus(cam, Math.max(1, this.lastWidth), Math.max(1, this.lastHeight));
@@ -1444,6 +1453,37 @@ class LuxaViewer {
       xray,
       mode === 'orientation',
     );
+    this._renderSiteContext(analysis.context_elements, tokens, xray);
+  }
+
+  /** Minta beberapa frame berikutnya digambar (kamera atau isi adegan berubah). */
+  invalidate(ms = 700) {
+    const t = performance.now() + ms;
+    if (t > this._dirtyUntil) this._dirtyUntil = t;
+  }
+
+  /** Konteks sekitar (jalan, blok kota, taman): satu massa netral, tanpa garis tepi, tidak ikut hitungan. */
+  _renderSiteContext(elements, tokens, xray = false) {
+    const coords = [];
+    for (const el of elements || []) {
+      if (!el?.vertices?.length || !el?.faces?.length) continue;
+      for (const f of el.faces) {
+        const v0 = el.vertices[f[0]], v1 = el.vertices[f[1]], v2 = el.vertices[f[2]];
+        if (!v0 || !v1 || !v2) continue;
+        coords.push(..._coordsArr(v0[0], v0[1], v0[2]), ..._coordsArr(v1[0], v1[1], v1[2]), ..._coordsArr(v2[0], v2[1], v2[2]));
+      }
+    }
+    if (!coords.length) return;
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(coords, 3));
+    geom.computeVertexNormals();
+    // massa netral yang menyatu dengan latar (seperti kota di Beranda), bukan abu tua
+    const c = new THREE.Color(tokens.sunken || tokens.surface || '#e6e1d8').lerp(new THREE.Color(tokens.muted || '#8a8478'), 0.18);
+    const mat = new THREE.MeshStandardMaterial({ color: c, roughness: 1, metalness: 0, transparent: xray, opacity: xray ? 0.18 : 1, side: THREE.DoubleSide, depthWrite: !xray });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.userData = { category: 'context', siteContext: true };
+    mesh.raycast = () => {}; // tidak bisa dipilih
+    this.modelRoot.add(mesh);
   }
 
   _renderContextElements(elements, category, tokens, dimmed, xray = false, orientNeutral = false) {
@@ -1493,6 +1533,18 @@ class LuxaViewer {
       this._addEdgeLines(geom, tokens, { opacity: dimmed ? 0.14 : 0.34 });
     }
   }
+}
+
+// Setiap pemanggilan metode viewer dari luar (ganti mode, sinkron state, kamera, dll.) menandai adegan berubah.
+for (const k of Object.getOwnPropertyNames(LuxaViewer.prototype)) {
+  if (k === 'constructor' || k === 'invalidate') continue;
+  const d = Object.getOwnPropertyDescriptor(LuxaViewer.prototype, k);
+  if (!d || typeof d.value !== 'function') continue;
+  const fn = d.value;
+  LuxaViewer.prototype[k] = function wrapped(...args) {
+    if (this._dirtyUntil !== undefined) this.invalidate();
+    return fn.apply(this, args);
+  };
 }
 
 export const viewer = new LuxaViewer();

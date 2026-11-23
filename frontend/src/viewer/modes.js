@@ -421,6 +421,10 @@ export function makeClassificationMaterial(category, tokens, { highlighted = fal
     color = tokens.shading;
   } else if (category === 'frame') {
     color = tokens.frame;
+  } else if (category === 'context') {
+    color = tokens.roof;
+    transparent = true;
+    opacity = dimmed ? 0.12 : 0.5;
   } else if (category === 'roof' || category === 'ignore') {
     color = tokens.roof;
     transparent = true;
@@ -566,6 +570,7 @@ export const CATEGORY_LABELS = {
   shading: 'Peneduh',
   frame: 'Rangka',
   roof: 'Atap',
+  context: 'Konteks',
   ignore: 'Abaikan',
   unknown: 'Belum dikenali',
 };
@@ -580,6 +585,7 @@ export function categorySwatchStyle(category) {
     shading: 'var(--data-shading)',
     frame: 'var(--data-frame)',
     roof: 'var(--data-roof)',
+    context: 'var(--muted)',
     ignore: 'var(--line)',
   };
   return { className: 'swatch', bg: map[category] || 'var(--data-wall)' };

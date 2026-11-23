@@ -25,7 +25,7 @@ export function dirFrom(azDeg, elDeg) {
 export function createStage(container, { theme = 'light', fov = 14, shadowSize = 4096, context = true } = {}) {
   const pal = PALETTES[theme];
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   // Neutral menjaga putih maket tidak pecah di mode terang; di mode gelap kurvanya menekan warna gelap

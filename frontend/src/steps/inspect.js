@@ -29,6 +29,7 @@ const ROLE_OPTIONS = [
   ['shading', 'Peneduh'],
   ['frame', 'Rangka'],
   ['roof', 'Atap'],
+  ['context', 'Konteks'],
   ['ignore', 'Abaikan'],
 ];
 
@@ -239,7 +240,7 @@ export function renderInspectScreen(state, handlers) {
 
     const area = document.createElement('span');
     area.className = 'group-row-area num';
-    if (effCat === 'frame' || effCat === 'shading' || effCat === 'ignore') {
+    if (effCat === 'frame' || effCat === 'shading' || effCat === 'ignore' || effCat === 'context') {
       area.classList.add('muted');
       area.textContent = '–';
       area.title = 'Tidak dihitung sebagai luas selubung';

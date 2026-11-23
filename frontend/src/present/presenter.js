@@ -70,6 +70,34 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   const stage = createStage(stageEl, { theme, context: false, fov, shadowSize: capture ? 4096 : maket.quality.shadowSize });
   maket.group.traverse((o) => { if (o.material?.isShadowMaterial) o.material.opacity *= shadow; });
   if (pixelRatio) { stage.renderer.setPixelRatio(pixelRatio); stage.resize(); }
+  else if (!capture) { stage.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); stage.resize(); }
+  // Penjaga kualitas: bila frame lambat, turunkan efek bertahap (AO, resolusi, langit, bayangan) supaya tidak macet.
+  const gov = { n: 0, sum: 0, last: 0, level: 0 };
+  function governor(t) {
+    if (capture || gov.level >= 2) return;
+    const dt = gov.last ? t - gov.last : 0;
+    gov.last = t;
+    if (!dt || dt > 500) return; // tab tersembunyi atau jeda
+    gov.n += 1;
+    if (gov.n <= 30) return; // pemanasan
+    gov.sum += dt;
+    if (gov.n < 90) return;
+    const avg = gov.sum / (gov.n - 30);
+    gov.n = 0; gov.sum = 0;
+    if (avg < 24) { gov.level = 2; return; } // cukup cepat: berhenti memantau
+    gov.level += 1;
+    if (gov.level === 1) {
+      stage.setAO(false);
+      stage.renderer.setPixelRatio(Math.min(stage.renderer.getPixelRatio(), 1.25));
+      stage.resize();
+    } else {
+      stage.renderer.setPixelRatio(1);
+      stage.resize();
+      clouds.group.visible = birds.group.visible = false;
+      stage.sun.shadow.mapSize.set(1024, 1024);
+      stage.sun.shadow.map?.dispose(); stage.sun.shadow.map = null;
+    }
+  }
   stage.setAO(maket.quality.ao);
   stage.scene.add(maket.group);
   const b = maket.bounds;
@@ -342,6 +370,7 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
     clouds.tick(stage.camera, t / 1000, cam.dist, reduceMotion);
     birds.tick(t / 1000, cam.dist, reduceMotion);
     stage.render();
+    governor(t);
     placeMarks();
     raf = requestAnimationFrame(frame);
   }
@@ -377,8 +406,9 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   if (!capture) frame();
 
   /** Gambar satu slide (mode capture): JPEG data URL dengan awan dan burung pada waktu tetap. */
-  function shot(id, { time = 20000, quality = 0.92, zoom = 1, labels = false, heat = null, shiftLeft = 0, shiftRight = 0, shiftUp = 0, fit = null, pose = null, project = null, dome: domeOn = null } = {}) {
+  function shot(id, { time = 20000, quality = 0.92, zoom = 1, labels = false, heat = null, shiftLeft = 0, shiftRight = 0, shiftUp = 0, fit = null, pose = null, project = null, dome: domeOn = null, context = true } = {}) {
     const i = slides.findIndex((x) => x.id === id);
+    if (maket.site) maket.site.visible = context; // tampak: konteks di depan fasad disembunyikan
     if (i < 0) return null;
     go(i, { instant: true });
     if (pose) { Object.assign(cam, { az: pose.az ?? cam.az, el: pose.el ?? cam.el }); applyCam(); } // sudut tetap (isometri, tampak)
@@ -409,6 +439,7 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
     }
     stage.render();
     const img = stage.renderer.domElement.toDataURL('image/jpeg', quality);
+    if (maket.site) maket.site.visible = true;
     // proyeksi titik dunia ke layar (persen) untuk garis ukur, level, panah utara di laporan
     const proj = project ? project.map((pt) => { const v3 = new THREE.Vector3(...pt).project(stage.camera); return [((v3.x + 1) / 2) * 100, ((1 - v3.y) / 2) * 100]; }) : null;
     if (!labels && !project) return img;

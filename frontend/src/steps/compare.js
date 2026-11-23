@@ -25,6 +25,7 @@ const CATEGORY_ID = {
   shading: 'Peneduh',
   roof: 'Atap',
   composite_cw: 'Curtain wall',
+  context: 'Konteks',
   ignore: 'Diabaikan',
   unknown: 'Belum jelas',
 };
@@ -768,7 +769,7 @@ function buildSettingsForm(state, handlers) {
   grpList.className = 'compare-group-list';
   const alreadyOff = new Set(state.config?.roles?.disabled_groups || []);
   const groups = (state.analysisData?.groups || [])
-    .filter((g) => g.group_name && !alreadyOff.has(g.group_name) && g.category !== 'ignore')
+    .filter((g) => g.group_name && !alreadyOff.has(g.group_name) && g.category !== 'ignore' && g.category !== 'context')
     .sort((x, y) => (x.category === 'shading' ? -1 : 0) - (y.category === 'shading' ? -1 : 0));
   const checks = [];
   for (const g of groups) {

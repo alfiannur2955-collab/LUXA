@@ -213,7 +213,7 @@ def test_synthetic_case_against_analytical_expected(case_id: str, fmt: str, case
             f"13_konteks.{fmt}: Z0 harus 0 (alas kotak), bukan {audit.get('z_ground_offset_m')}"
         )
         grp_cats = {g["group_name"]: g["category"] for g in res["groups"]}
-        assert any("pohon" in k.lower() and v in ("unknown", "ignore") for k, v in grp_cats.items()), grp_cats
+        assert any("pohon" in k.lower() and v == "context" for k, v in grp_cats.items()), grp_cats
         assert any("tanah" in k.lower() and v == "ignore" for k, v in grp_cats.items()), grp_cats
     elif case_id == "17_kaca_tebal":
         assert float(act_rttv.get("skylight_area_m2", 0.0)) == 0.0

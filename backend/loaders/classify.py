@@ -64,6 +64,13 @@ _IGNORE_TOKENS_EN = frozenset({
     "railing", "balustrade", "column", "beam", "ifccolumn", "ifcbeam",
 })
 _IGNORE_TOKENS = _IGNORE_TOKENS_ID | _IGNORE_TOKENS_EN
+# Konteks: lingkungan sekitar (jalan, blok kota, taman, pohon). Ditampilkan, tidak dihitung, tidak meneduhi.
+_CONTEXT_TOKENS = frozenset({
+    "context", "konteks", "lingkungan", "surrounding", "surroundings", "neighbor", "neighbour", "neighbors",
+    "neighbours", "tetangga", "road", "roads", "street", "jalan", "jalanan", "asphalt", "aspal", "sidewalk",
+    "pavement", "trotoar", "parcel", "kavling", "park", "taman", "landscape", "lansekap", "lanskap",
+    "tree", "trees", "pohon", "trunk",
+})
 _WALL_HEAD_TOKENS = frozenset({"dinding", "wall", "tembok", "ifcwall", "ifcwallstandardcase"})
 _ENVELOPE_INTERIOR_HEAD_TOKENS = _WALL_HEAD_TOKENS | frozenset({"kaca", "glass", "glazing", "jendela", "window"})
 _ROOF_EXPLICIT_TOKENS = frozenset({"atap", "roof", "dak", "ifcroof"})
@@ -100,7 +107,7 @@ def classify_layer_or_material_with_confidence(
 ) -> Tuple[str, float, str]:
     """
     M7: Token-based role classifier returning `(role, confidence_0_to_1, reason)`.
-    Roles: 'shading' | 'spandrel' | 'glazing' | 'wall' | 'frame' | 'roof' | 'ignore' | 'unknown'.
+    Roles: 'shading' | 'spandrel' | 'glazing' | 'wall' | 'frame' | 'roof' | 'context' | 'ignore' | 'unknown'.
     Unrecognized labels return 'unknown' (NEVER silently defaulted to 'wall').
     """
     raw = (label or "").strip()
@@ -120,6 +127,11 @@ def classify_layer_or_material_with_confidence(
     layer_tokens = set(layer_tokens_seq)
     ctx_tokens = set(ctx_tokens_seq)
     all_tokens = mat_tokens | layer_tokens | ctx_tokens
+
+    # 0. Konteks sekitar (jalan, blok kota, taman, pohon): tampil di layar, tidak masuk hitungan
+    if all_tokens & _CONTEXT_TOKENS and not (all_tokens & _SHADING_TOKENS & (layer_tokens | mat_tokens) - {"canopy"}):
+        matched = sorted(all_tokens & _CONTEXT_TOKENS)
+        return "context", 0.9, f"Token konteks sekitar: {', '.join(matched)}"
 
     # 1. Explicit Ignore (Interior, Site, Terrain, Partition, Core, Railing/Balustrade/Pagar, Kolom/Balok)
     if all_tokens & _IGNORE_TOKENS:

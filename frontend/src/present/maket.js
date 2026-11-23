@@ -86,6 +86,12 @@ export function buildMaket(analysis, roles, pal, colors = colorResolver([], {}))
       for (const f of el.faces) triangulate(context, f.filter((idx, i) => i < 3 || idx !== f[2]).map((idx) => el.vertices[idx]).filter(Boolean), o);
     }
   }
+  // Konteks sekitar (jalan, blok kota, taman): massa netral terpisah, tidak ikut bingkai kamera atau kualitas
+  const siteCoords = [];
+  for (const el of analysis?.context_elements || []) {
+    if (!el?.vertices?.length || !el?.faces?.length || disabled.has(el.group_name)) continue;
+    for (const f of el.faces) triangulate(siteCoords, f.slice(0, 3).map((idx) => el.vertices[idx]).filter(Boolean), o);
+  }
   const tris = [...buckets.values()].reduce((s, b) => s + b.coords.length, 0) / 9;
   const quality = qualityFor(tris);
 
@@ -145,6 +151,18 @@ export function buildMaket(analysis, roles, pal, colors = colorResolver([], {}))
   base.receiveShadow = true;
   base.castShadow = true;
   group.add(base);
+  let site = null;
+  if (siteCoords.length) {
+    base.visible = false; // konteks sudah punya tanah sendiri
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(siteCoords, 3));
+    g.computeVertexNormals();
+    site = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ color: pal.walk, roughness: 1, side: THREE.DoubleSide }));
+    site.name = 'konteks';
+    site.receiveShadow = true;
+    site.castShadow = false;
+    group.add(site);
+  }
 
   // Lantai tak berujung: hanya menerima bayangan, warnanya tetap latar.
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.ShadowMaterial({ color: '#000000', opacity: pal.shadowOpacity * 1.3 }));
@@ -163,6 +181,7 @@ export function buildMaket(analysis, roles, pal, colors = colorResolver([], {}))
     scale: Math.min(3, Math.max(0.2, Math.max(maxSpan, 20) / REF_H)),
     sides: heat,
     /** colorOf(code) -> warna css, atau null untuk kembali ke warna material. */
+    site,
     setHeat(colorOf) {
       const on = Boolean(colorOf);
       matMeshes.forEach((m) => { m.visible = !on; });
@@ -176,6 +195,7 @@ export function buildMaket(analysis, roles, pal, colors = colorResolver([], {}))
       group.traverse((n) => n.geometry?.dispose?.());
       Object.values(mats).forEach((m) => m.dispose());
       base.material.dispose();
+      site?.material.dispose();
       floor.material.dispose();
     },
   };

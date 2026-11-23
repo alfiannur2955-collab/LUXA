@@ -1719,6 +1719,7 @@ def analyze_building_ottv(
     shading_groups: List[RawGroupMesh] = []
     roof_groups: List[RawGroupMesh] = []
     ignored_groups: List[RawGroupMesh] = []
+    context_groups: List[RawGroupMesh] = []  # konteks: hanya tampilan, tidak dihitung dan tidak meneduhi
     unknown_groups: List[RawGroupMesh] = []
     group_summaries: List[Dict[str, Any]] = []
 
@@ -1732,6 +1733,8 @@ def analyze_building_ottv(
             roof_groups.append(rg)
         elif eff_cat in ("ignore", "excluded"):
             ignored_groups.append(rg)
+        elif eff_cat == "context":
+            context_groups.append(rg)
         elif eff_cat == "unknown":
             # M7: Unclassified groups (e.g. landscape trees) are NOT silently treated as 'wall'!
             unknown_groups.append(rg)
@@ -2159,6 +2162,22 @@ def analyze_building_ottv(
             "outer_area_m2": 0.0,
             "material_id": None,
             "material_name": "Non-OTTV (Atap / Plat Lantai)",
+            "enabled": rg.group_name not in params.disabled_groups,
+        })
+    for rg in context_groups:
+        group_summaries.append({
+            "group_id": rg.group_id,
+            "group_name": rg.group_name,
+            "source_layer": rg.source_layer,
+            "source_material": rg.source_material,
+            "category": "context",
+            "role": "context",
+            "is_auto_split_child": rg.is_auto_split_child,
+            "total_faces": len(rg.faces),
+            "outer_faces": 0,
+            "outer_area_m2": 0.0,
+            "material_id": None,
+            "material_name": "Konteks (tampil saja, tidak dihitung)",
             "enabled": rg.group_name not in params.disabled_groups,
         })
     for rg in ignored_groups:
@@ -3439,4 +3458,5 @@ def analyze_building_ottv(
         "frame_elements": _serialize_raw_groups(frame_groups, max_faces=14000),
         "shading_elements": _serialize_raw_groups(shading_groups, max_faces=12000),
         "roof_elements": _serialize_raw_groups(roof_groups, max_faces=4000),
+        "context_elements": _serialize_raw_groups(context_groups, max_faces=40000),
     }
