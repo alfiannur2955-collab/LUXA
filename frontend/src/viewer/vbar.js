@@ -418,13 +418,15 @@ export function renderViewerBottomBar(state, handlers) {
 
   rightPill.append(viewsBtn, saveBtn, captureBtn);
   if (handlers.onTogglePresentation) {
-    const presOn = state.workspace?.preset === 'presentasi';
+    const presOn = Boolean(state.presentation);
+    const ready = Boolean(state.analysisData);
     const presBtn = document.createElement('button');
     presBtn.type = 'button';
     presBtn.className = `b b-icon${presOn ? ' on' : ''}`;
-    presBtn.title = presOn ? 'Keluar Presentasi (Esc)' : 'Presentasi: viewer layar penuh';
+    presBtn.disabled = !ready;
+    presBtn.title = ready ? 'Presentasi: cerita hasil OTTV dalam 7 slide' : 'Hitung dulu untuk membuat presentasi';
     presBtn.setAttribute('aria-pressed', presOn ? 'true' : 'false');
-    presBtn.setAttribute('aria-label', presOn ? 'Keluar Presentasi' : 'Presentasi, viewer layar penuh');
+    presBtn.setAttribute('aria-label', ready ? 'Mulai presentasi' : 'Presentasi, hitung dulu untuk membuat presentasi');
     presBtn.innerHTML = icon('present', 16);
     presBtn.addEventListener('click', () => handlers.onTogglePresentation());
     rightPill.insertBefore(presBtn, captureBtn);

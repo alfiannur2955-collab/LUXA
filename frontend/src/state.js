@@ -122,7 +122,7 @@ export function createInitialConfirm() {
 
 const initialState = {
   step: 'home', // 'home' | 'learn' | 'upload' | 'confirm' | 'inspect' | 'results' | 'compare' | 'loading' | 'error'
-  learnChapter: 0, // bab aktif di Belajar OTTV
+  learnChapter: 0, // bab aktif di adegan 3D: 0 = Beranda, 1..8 = Bab Belajar OTTV
   mascotOn: (() => {
     try {
       return window.localStorage.getItem('luxa.mascot.v1') !== 'off';
@@ -160,6 +160,7 @@ const initialState = {
   captureScale: 2, // 1 | 2 | 4
   openPopover: null, // null | 'direction' | 'views' | 'capture'
   commandPaletteOpen: false,
+  presentation: false, // Mode Presentasi terbuka (tidak disimpan)
   shortcutsModalOpen: false,
   materialCatalog: null, // null | { open: true, mode: 'browse'|'pick', tab: 'catalog'|'recommend', lockedCategory, targetField, targetOrientCode, targetLabel }
   selectedGroup: null,
@@ -197,7 +198,7 @@ const initialState = {
   compareBusy: false,
   designHistory: [], // [{ id, label, config, analysisData, savedAt }]
   workspace: {
-    preset: 'belajar', // 'belajar' | 'lanjut' | 'presentasi'
+    preset: 'belajar', // 'belajar' | 'lanjut'
     railOrder: ['model', 'material', 'location', 'display', 'compare', 'report'],
     hiddenRailItems: [],
     modeBarPosition: 'top', // 'top' | 'bottom'

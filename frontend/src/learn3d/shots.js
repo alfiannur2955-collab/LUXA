@@ -1,0 +1,15 @@
+// Sudut kamera (titik awal; disetel di Tahap 2). az dari utara searah jarum jam, el dari horizon, dist dalam meter.
+// Sumbu dunia: x = timur, z = selatan. Fasad Barat tower ada di x = -14, lantai k mulai di y = 13,5 + 4k.
+export const SHOTS = {
+  beranda: { target: [0, 22, 0], az: 200, el: 35, dist: 1100 },
+  bab1: { target: [0, 40, 0], az: 200, el: 32, dist: 860 },
+  bab2: { target: [-17.4, 56.8, -6], az: 215, el: 10, dist: 54, shadow: 26, shadowFocus: [-14, 55, -6] },
+  rumus: { target: [-14, 55, -6], az: 238, el: 11, dist: 150, shadow: 60, shadowFocus: [-14, 55, -6] },
+  bab3: { target: [-14, 52, -6], az: 270, el: 3, dist: 340, shadow: 90, shadowFocus: [-14, 52, -6] },
+  bab4: { target: [-40, 60, 10], az: 200, el: 40, dist: 1050 },
+  bab5: { target: [-14, 55.2, -6], az: 245, el: 14, dist: 46, shadow: 28, shadowFocus: [-14, 55, -6] },
+  bab6: { target: [-14, 53.6, -8.4], az: 226, el: 9, dist: 19, shadow: 14, shadowFocus: [-14, 53.5, -8.5] },
+  bab7: { target: [0, 48, 0], az: 200, el: 26, dist: 640 },
+  bab8: { target: [4, 14, 6], az: 160, el: 50, dist: 210, shadow: 70, shadowFocus: [0, 14, 0] },  // Penutup: kamera mundur ke kota, siap lanjut ke model sendiri.
+  akhir: { target: [0, 30, 0], az: 215, el: 30, dist: 980 },
+};

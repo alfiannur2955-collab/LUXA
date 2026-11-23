@@ -54,10 +54,8 @@ import { renderResultsScreen } from './steps/results.js';
 import { renderCompareScreen } from './steps/compare.js';
 import { renderErrorScreen, renderLoadingScreen } from './steps/status.js';
 import { renderUploadScreen } from './steps/upload.js';
-import { renderHomeScreen } from './steps/home.js';
-import { renderLearnScreen } from './learn/learn.js';
 import { renderCommandPalette } from './ui/commandPalette.js';
-import { fmtFileSize } from './ui/escapeHtml.js';
+import { fmtFileSize, fmtId } from './ui/escapeHtml.js';
 import { installShortcuts } from './ui/shortcuts.js';
 import { renderShortcutsModal } from './ui/shortcutsModal.js';
 import { showConfirmDeleteProjectDialog, showReplaceMaterialDialog } from './ui/dialogs.js';
@@ -78,6 +76,7 @@ import {
 import { captureViewerPng } from './viewer/capture.js';
 import { pieMenu } from './viewer/pieMenu.js';
 import { viewer } from './viewer/viewer.js';
+import { loadUserName } from './ui/userName.js';
 import { togglePanelSelection } from './viewer/selection.js';
 import { SunDomeController } from './viewer/sundome.js';
 import { NorthRingController } from './viewer/northRing.js';
@@ -421,7 +420,7 @@ async function handleCreateAlternative({ name, glazingMaterialId, wallMaterialId
       activeAlternativeId: altRec.id,
       compareBusy: false,
     });
-    showToast(`Alternatif ${codeChar} selesai dihitung (${result.ottv_total_wm2} W/m²).`, 'ok', 2800);
+    showToast(`Alternatif ${codeChar} selesai dihitung: ${fmtId(result.ottv_total_wm2, 2)} W/m².`, 'ok', 2800);
   } catch (err) {
     setState({ compareBusy: false });
     showToast(err.message || 'Gagal menghitung alternatif desain.', 'fail');
@@ -607,7 +606,7 @@ async function handleCreateModelAlternative({ unit, upAxis, scope, northAngleDeg
       compareBusy: false,
       compareModelDraft: null,
     });
-    showToast(`Alternatif ${codeChar} (${d.filename}) selesai dihitung: ${result.ottv_total_wm2} W/m².`, 'ok', 3200);
+    showToast(`Alternatif ${codeChar} (${d.filename}) selesai dihitung: ${fmtId(result.ottv_total_wm2, 2)} W/m².`, 'ok', 3200);
   } catch (err) {
     setState({ compareBusy: false, compareModelDraft: { ...d, busy: false, error: err.message || 'Gagal menghitung model ini.' } });
   }
@@ -641,7 +640,7 @@ const vbarHandlers = {
   onSunNow: handleSunNow,
   onChangeSunDate: handleChangeSunDate,
   onFitCamera: handleFitCamera,
-  onTogglePresentation: () => (getState().workspace?.preset === 'presentasi' ? handleExitPresentation() : handleSetWorkspacePreset('presentasi')),
+  onTogglePresentation: () => (getState().presentation ? handleExitPresentation() : handleOpenPresentation()),
   onSetProjection: handleSetProjection,
   onSelectDirection: handleSelectDirection,
   onTogglePopover: (pop) => setState({ openPopover: pop }),
@@ -1027,7 +1026,40 @@ async function handleCalculateOttv() {
   }
 }
 
+// Laporan PDF A3 bergaya LUXA: gambar dirender di peramban, lalu dicetak lewat dialog cetak (Simpan sebagai PDF).
+let reportBusy = false;
+async function handleReportPdf() {
+  const s0 = getState();
+  if (!s0.analysisData) {
+    showToast('Hitung OTTV terlebih dahulu sebelum mengunduh laporan.', 'warn');
+    return;
+  }
+  if (reportBusy) return;
+  const { askReportOptions, printHtml } = await import('./ui/reportDialog.js');
+  const opt = await askReportOptions(s0.theme);
+  if (!opt) return;
+  reportBusy = true;
+  const luxOn = getState().mascotOn !== false;
+  showToast('Menyiapkan laporan PDF...', 'ok', 3000, { lux: luxOn ? 'think' : null });
+  try {
+    await new Promise((r) => setTimeout(r, 60)); // beri waktu notifikasi tampil sebelum render berat
+    const { buildReportHtml } = await import('./report/assetsA3.js');
+    const st = getState();
+    const logo = new URL(opt.theme === 'dark' ? 'brand/luxa-logo-dark.svg' : 'brand/luxa-logo.svg', document.baseURI).href;
+    let html = await buildReportHtml(st, { theme: opt.theme, orient: opt.orient, logoUrl: logo, userName: loadUserName() || '' });
+    const fonts = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Newsreader:ital,wght@1,400;1,600&display=swap">';
+    html = html.replace('</head>', `${fonts}</head>`);
+    await printHtml(html);
+  } catch (err) {
+    console.error('[LUXA laporan PDF]', err);
+    showToast('Gagal menyiapkan laporan PDF.', 'fail');
+  } finally {
+    reportBusy = false;
+  }
+}
+
 async function handleExportFormat(fmt) {
+  if (fmt === 'pdf') return handleReportPdf();
   const s = getState();
   const aid = s.analysisData?.analysis_id;
   if (!aid) {
@@ -1061,23 +1093,58 @@ function applyWorkspaceChange(nextWs) {
   setState({
     workspace: nextWs,
     advancedMode: nextWs.preset === 'lanjut',
-    activeRailCard: nextWs.preset === 'presentasi' ? null : getState().activeRailCard,
+    activeRailCard: getState().activeRailCard,
   });
 }
 
-let presetBeforePresentation = 'belajar';
+// Mode Presentasi: lapisan layar penuh di atas aplikasi (present/presenter.js), dimuat saat dibuka.
+// Viewer dijeda selama presentasi dan tidak diubah, jadi setelah keluar kamera dan tampilannya tetap seperti semula.
+let presenter = null;
+let presenterOpening = false;
+async function handleOpenPresentation() {
+  const s = getState();
+  if (!s.analysisData) {
+    showToast('Hitung dulu untuk membuat presentasi.', 'warn', 2400);
+    return;
+  }
+  if (presenter || presenterOpening) return;
+  presenterOpening = true;
+  setState({ presentation: true, openPopover: null, commandPaletteOpen: false, shortcutsModalOpen: false });
+  try {
+    const { createPresenter } = await import('./present/presenter.js');
+    const st = getState();
+    if (!st.presentation) return; // dibatalkan saat memuat
+    viewer.paused = true;
+    presenter = createPresenter({
+      host: document.body,
+      state: st,
+      appTheme: st.theme,
+      userName: loadUserName() || '',
+      onExit: handleExitPresentation,
+    });
+  } catch (err) {
+    console.error(err);
+    viewer.paused = false;
+    presenter = null;
+    setState({ presentation: false });
+    showToast('Presentasi gagal dibuka di perangkat ini.', 'warn', 3000);
+  } finally {
+    presenterOpening = false;
+  }
+}
 
-/** Keluar Presentasi: kembali ke preset sebelumnya (Belajar atau Lanjut). */
 function handleExitPresentation() {
-  handleSetWorkspacePreset(presetBeforePresentation === 'lanjut' ? 'lanjut' : 'belajar');
+  if (presenter) presenter.destroy();
+  presenter = null;
+  viewer.paused = false;
+  setState({ presentation: false });
 }
 
 function handleSetWorkspacePreset(preset) {
   const cur = getState().workspace || createDefaultWorkspace();
-  if (preset === 'presentasi' && cur.preset !== 'presentasi') presetBeforePresentation = cur.preset || 'belajar';
   const next = { ...cur, preset };
   applyWorkspaceChange(next);
-  const labels = { belajar: 'Belajar', lanjut: 'Lanjut', presentasi: 'Presentasi' };
+  const labels = { belajar: 'Belajar', lanjut: 'Lanjut' };
   showToast(`Workspace: ${labels[preset] || preset}`, 'ok', 2000);
 }
 
@@ -1474,7 +1541,6 @@ const panelBuilders = createRailPanelBuilders({
 function renderApp(state) {
   if (!rootEl) return;
   applyThemeToDom(state.theme);
-  rootEl.classList.toggle('is-presentation', state.workspace?.preset === 'presentasi');
   // Kartu fitur kiri mendorong area kerja ke kanan (tidak menutupi viewer dan bar-nya).
   rootEl.classList.toggle('has-rail-card', Boolean(state.activeRailCard));
   updateDocumentTitle(state.step);
@@ -1525,34 +1591,8 @@ function renderApp(state) {
     }),
   );
 
-  if (state.step === 'home') {
-    frag.appendChild(
-      renderHomeScreen(state, {
-        savedAutosave: cachedAutosave,
-        onStartNew: () => setState({ step: 'upload', activeRailCard: null }),
-        onResume: (saved) => {
-          runInspectAndOpenConfirm(saved.modelId, saved.filename || saved.modelId, {
-            config: saved.config,
-            confirm: saved.confirm,
-            targetStep: 'confirm',
-          });
-        },
-        onTryExample: () => handleLoadExample('fasad_tower_twisted', 'Fasad tower twisted'),
-        onOpenLearn: (i) => setState({ step: 'learn', learnChapter: Number(i) || 0, activeRailCard: null }),
-        onRerender: () => setState({}),
-      }),
-    );
-  } else if (state.step === 'learn') {
-    frag.appendChild(
-      renderLearnScreen(state, {
-        onSetChapter: (i) => {
-          setState({ learnChapter: i });
-          window.requestAnimationFrame(() => document.querySelector('.learn-main')?.scrollTo({ top: 0 }));
-        },
-        onGoHome: () => setState({ step: 'home' }),
-        onTryExample: () => handleLoadExample('fasad_tower_twisted', 'Fasad tower twisted'),
-      }),
-    );
+  if (state.step === 'home' || state.step === 'learn') {
+    // Beranda dan Belajar OTTV hidup di adegan 3D bersama (lihat syncScene), di luar #app.
   } else if (state.step === 'loading') {
     frag.appendChild(renderLoadingScreen(state));
   } else if (state.step === 'error') {
@@ -1775,7 +1815,6 @@ function renderApp(state) {
     onSetSunView: handleSetSunView,
         onChangeNorth: handleChangeNorthAngle,
         onToggleFormulaPill: (open) => setState({ formulaPillExpanded: Boolean(open) }),
-        onExitPresentation: () => handleExitPresentation(),
         onChangeHeatmapGranularity: (gran) => setState({ heatmapGranularity: gran }),
         onToggleHeatmapSmooth: (enabled) => setState({ heatmapSmooth: Boolean(enabled) }),
         onToggleExposureShading: (enabled) => setState({ exposureShading: Boolean(enabled) }),
@@ -1917,6 +1956,7 @@ function renderApp(state) {
 
   const cmdEl = renderCommandPalette(state, {
     onClose: () => setState({ commandPaletteOpen: false }),
+    onOpenPresentation: () => handleOpenPresentation(),
     onSetProjection: (p) => {
       handleSetProjection(p);
       showToast(`Proyeksi: ${PROJECTION_LABELS[p] || p}`, 'ok', 1800);
@@ -1973,6 +2013,69 @@ function renderApp(state) {
 
   rootEl.innerHTML = '';
   rootEl.appendChild(frag);
+  syncScene(state);
+}
+
+// ---------------- Adegan 3D Beranda + Belajar OTTV ----------------
+// Satu adegan untuk dua langkah: Beranda = bab 0, Belajar = bab 1..8. Adegan dibuat sekali dan tetap hidup
+// di #l3d-host (di luar #app) supaya render ulang aplikasi tidak menghapus kanvas WebGL-nya.
+let scene = null;
+let sceneTheme = null;
+let sceneLoading = null;
+function sceneHandlers() {
+  return {
+    savedAutosave: cachedAutosave,
+    mascotOn: getState().mascotOn !== false,
+    onStartNew: () => setState({ step: 'upload', activeRailCard: null }),
+    onResume: (saved) => {
+      if (!saved) return;
+      runInspectAndOpenConfirm(saved.modelId, saved.filename || saved.modelId, {
+        config: saved.config,
+        confirm: saved.confirm,
+        targetStep: 'confirm',
+      });
+    },
+    onTryExample: () => handleLoadExample('fasad_tower_twisted', 'Fasad tower twisted'),
+    onChapter: (i) => {
+      const s = getState();
+      if (s.step !== 'home' && s.step !== 'learn') return;
+      const step = i === 0 ? 'home' : 'learn';
+      if (s.step !== step || (step === 'learn' && s.learnChapter !== i)) setState({ step, learnChapter: i });
+    },
+  };
+}
+function syncScene(state) {
+  const want = state.step === 'home' || state.step === 'learn';
+  rootEl.classList.toggle('is-scene', want);
+  if (!want) {
+    scene?.hide();
+    return;
+  }
+  const theme = state.theme === 'dark' ? 'dark' : 'light';
+  if (scene && sceneTheme !== theme) {
+    scene.destroy();
+    scene = null;
+  }
+  if (!scene) {
+    if (!sceneLoading) {
+      sceneLoading = import('./learn3d/story.js').then(({ createStory }) => {
+        sceneLoading = null;
+        let host = document.getElementById('l3d-host');
+        if (!host) {
+          host = document.createElement('div');
+          host.id = 'l3d-host';
+          document.body.insertBefore(host, rootEl);
+        }
+        const st = getState();
+        sceneTheme = st.theme === 'dark' ? 'dark' : 'light';
+        scene = createStory({ host, theme: sceneTheme, embedded: true, handlers: sceneHandlers() });
+        syncScene(getState());
+      });
+    }
+    return;
+  }
+  scene.setHandlers(sceneHandlers());
+  scene.show({ chapter: state.step === 'home' ? 0 : Math.max(1, Number(state.learnChapter) || 1) });
 }
 
 installShortcuts({
@@ -2002,8 +2105,6 @@ installShortcuts({
         setState({ dockCustomizerOpen: false });
       } else if (s.activeRailCard) {
         setState({ activeRailCard: null });
-      } else if (s.workspace?.preset === 'presentasi') {
-        handleExitPresentation();
       }
     },
     onSetProjection: (p) => {
@@ -2068,6 +2169,8 @@ async function bootstrap() {
   });
 
   setState({ engineMode });
+  // Tautan langsung ke bagian Belajar (#bab-N, #rumus, #selesai): adegan 3D yang memilih bagiannya.
+  if (/^#(bab-[1-8]|rumus|selesai)$/.test(window.location.hash || '')) setState({ step: 'learn', learnChapter: 1 });
   onEngineStatus((st) => setState({ engineStatus: { ...st } }));
 
   // Mode rekam video demo (tersembunyi): ?rekam=1 membuka akses untuk skrip perekam.

@@ -19,36 +19,37 @@ function ensureStack() {
 }
 
 /**
- * Toast diletakkan di pojok kanan bawah area 3D, tepat di atas bar bawah viewer, supaya hanya
- * menutupi model dan tidak pernah menutupi tombol, kartu, atau kolom kanan. Tanpa viewer
- * (mis. halaman Unggah), toast ada di pojok kanan atas di bawah topbar.
+ * Toast ditengahkan di bagian bawah area 3D, tepat di atas elemen bawah viewer (bar bawah, kartu selisih
+ * Bandingkan), supaya hanya menutupi model dan tidak menutupi tombol, kartu, atau kolom kanan. Tanpa viewer
+ * (mis. halaman Unggah), toast ditengahkan di bawah layar.
  */
 function positionStack() {
   if (!stackEl) return;
   const viewerEl = [...document.querySelectorAll('.viewer')].find((v) => v.offsetParent);
   const st = stackEl.style;
+  st.top = 'auto';
+  st.right = 'auto';
   if (!viewerEl) {
-    st.top = '72px';
-    st.right = '16px';
-    st.bottom = 'auto';
+    st.left = '50%';
+    st.bottom = '24px';
+    st.width = '';
     return;
   }
   const vr = viewerEl.getBoundingClientRect();
-  // Lantai toast = elemen bawah viewer yang paling tinggi (bar bawah, kartu selisih Bandingkan).
   let floorY = vr.bottom - 16;
   for (const el of viewerEl.querySelectorAll('.viewer-bottom-stack, .compare-diff-strip')) {
     const r = el.getBoundingClientRect();
     if (r.height > 0) floorY = Math.min(floorY, r.top);
   }
-  st.top = 'auto';
-  st.right = `${Math.max(16, window.innerWidth - vr.right + 16)}px`;
-  st.bottom = `${Math.max(16, window.innerHeight - floorY + 10)}px`;
+  st.left = `${Math.round(vr.left + vr.width / 2)}px`;
+  st.width = `${Math.round(Math.min(460, vr.width - 32))}px`;
+  st.bottom = `${Math.max(16, Math.round(window.innerHeight - floorY + 10))}px`;
 }
 
 export function showToast(message, tone = 'ok', durationMs = 4200, { lux = null } = {}) {
   const host = ensureStack();
   const item = document.createElement('div');
-  item.className = `toast glass is-${tone}${lux ? ' has-lux' : ''}`;
+  item.className = `toast is-${tone}${lux ? ' has-lux' : ''}`;
   item.setAttribute('role', 'status');
   if (lux) {
     // Maskot Lux kecil di samping pesan (dekoratif).
@@ -73,7 +74,7 @@ export function showToast(message, tone = 'ok', durationMs = 4200, { lux = null 
 export function showUndoToast(message, onUndo, durationMs = 8000) {
   const host = ensureStack();
   const item = document.createElement('div');
-  item.className = 'toast glass is-warn toast-with-undo';
+  item.className = 'toast is-warn toast-with-undo';
   item.setAttribute('role', 'status');
 
   const msg = document.createElement('span');

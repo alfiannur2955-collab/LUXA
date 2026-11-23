@@ -1,7 +1,7 @@
 /**
  * Screen 6: Bandingkan (`docs/FASE4_UI_SPEC.md` §3.6 + mockup 8-bandingkan.html):
- * - Synchronized split 3D viewer (`Sekarang` left, `Alternatif X` right) with
- *   pointer- & keyboard-draggable vertical divider (`cursor: ew-resize`, `ArrowLeft`/`ArrowRight`).
+ * - Versus: dua panel 3D berdampingan (`Sekarang` kiri, `Alternatif X` kanan), masing-masing gedung utuh,
+ *   satu kamera bersama (putar/zoom satu panel, keduanya ikut). Berlaku untuk alternatif material dan model.
  * - Floating header cards for both designs + bottom-center "Selisih per arah (W/m²)" card.
  * - Right side column: delta summary, "Yang diubah di Alternatif X" (with catalog note e.g. electrochromic),
  *   alternative list + inline "+ Tambah alternatif" builder (runs real `engine.analyze`),
@@ -164,91 +164,17 @@ export function renderCompareScreen(state, handlers) {
   }
   viewerStage.appendChild(headsLayer);
 
-  // Draggable vertical divider line + 40px round glass handle (mouse + keyboard arrows)
+  // Versus: dua panel sama lebar dengan garis tengah tipis dan lencana VS. Kamera sama, jadi skala gedung setara.
   if (activeAlt) {
-    const pct = (splitRatio * 100).toFixed(2);
-    const dividerLine = document.createElement('div');
-    dividerLine.className = 'compare-divider-line';
-    dividerLine.style.left = `${pct}%`;
-    dividerLine.setAttribute('aria-hidden', 'true');
-
-    const handleBtn = document.createElement('button');
-    handleBtn.type = 'button';
-    handleBtn.className = 'glass compare-divider-handle';
-    handleBtn.style.left = `${pct}%`;
-    handleBtn.setAttribute('role', 'separator');
-    handleBtn.setAttribute('aria-orientation', 'vertical');
-    handleBtn.setAttribute('aria-label', 'Geser pembatas perbandingan (panah kiri/kanan atau seret)');
-    handleBtn.setAttribute('aria-valuemin', '10');
-    handleBtn.setAttribute('aria-valuemax', '90');
-    handleBtn.setAttribute('aria-valuenow', String(Math.round(splitRatio * 100)));
-    handleBtn.title = 'Seret atau tekan panah kiri/kanan untuk menggeser pembatas';
-    handleBtn.innerHTML = icon('compare', 18);
-
-    const applyRatioLive = (nextRatio, commit = false) => {
-      const clamped = Math.max(0.1, Math.min(0.9, nextRatio));
-      const pStr = `${(clamped * 100).toFixed(2)}%`;
-      dividerLine.style.left = pStr;
-      handleBtn.style.left = pStr;
-      handleBtn.setAttribute('aria-valuenow', String(Math.round(clamped * 100)));
-      viewer.setCompareSplitRatio(clamped);
-      if (commit) {
-        handlers.onChangeSplitRatio(clamped);
-      }
-    };
-
-    let dragging = false;
-    handleBtn.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
-      dragging = true;
-      try {
-        handleBtn.setPointerCapture(e.pointerId);
-      } catch {
-        // Ignore
-      }
-    });
-    handleBtn.addEventListener('pointermove', (e) => {
-      if (!dragging) return;
-      const rect = viewerStage.getBoundingClientRect();
-      if (rect.width <= 0) return;
-      const ratio = (e.clientX - rect.left) / rect.width;
-      applyRatioLive(ratio, false);
-    });
-    const endDrag = (e) => {
-      if (!dragging) return;
-      dragging = false;
-      const rect = viewerStage.getBoundingClientRect();
-      if (rect.width > 0) {
-        applyRatioLive((e.clientX - rect.left) / rect.width, true);
-      }
-      try {
-        handleBtn.releasePointerCapture(e.pointerId);
-      } catch {
-        // Ignore
-      }
-    };
-    handleBtn.addEventListener('pointerup', endDrag);
-    handleBtn.addEventListener('pointercancel', endDrag);
-
-    handleBtn.addEventListener('keydown', (e) => {
-      const step = e.shiftKey ? 0.1 : 0.03;
-      const cur = Number(handleBtn.getAttribute('aria-valuenow')) / 100;
-      if (e.key === 'ArrowLeft') {
-        e.preventDefault();
-        applyRatioLive(cur - step, true);
-      } else if (e.key === 'ArrowRight') {
-        e.preventDefault();
-        applyRatioLive(cur + step, true);
-      } else if (e.key === 'Home') {
-        e.preventDefault();
-        applyRatioLive(0.15, true);
-      } else if (e.key === 'End') {
-        e.preventDefault();
-        applyRatioLive(0.85, true);
-      }
-    });
-
-    viewerStage.append(dividerLine, handleBtn);
+    viewerStage.classList.add('is-versus');
+    const seam = document.createElement('div');
+    seam.className = 'compare-seam';
+    seam.setAttribute('aria-hidden', 'true');
+    const vs = document.createElement('div');
+    vs.className = 'glass compare-vs';
+    vs.setAttribute('aria-hidden', 'true');
+    vs.textContent = 'VS';
+    viewerStage.append(seam, vs);
 
     // Bottom-center glass card: Selisih per arah (W/m²)
     const baseOri = new Map(

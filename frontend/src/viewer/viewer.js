@@ -211,7 +211,9 @@ class LuxaViewer {
     this.controls = null;
     this.modelRoot = null;
     this.compareAltRoot = null;
-    this.compareSplitRatio = null; // null = normal; 0.1..0.9 = scissor split compare
+    this.compareSplitRatio = null; // sisa API lama (tirai geser); tidak dipakai lagi oleh layar Bandingkan
+    this.compareVersus = false; // Bandingkan: dua panel berdampingan, kamera yang sama, gedung utuh di tiap panel
+    this._syncingCompare = false;
     this.lastCompareAltKey = null;
     this.selectionGroup = null;
     this.groundGroup = null;
@@ -298,30 +300,13 @@ class LuxaViewer {
 
     const tick = (now) => {
       this.rafId = window.requestAnimationFrame(tick);
+      if (this.paused) return; // dijeda selama Mode Presentasi (lapisan lain yang menggambar)
       if (this.container && this.container.isConnected) {
         this.rig.tick(now);
         this.controls.update();
         const cam = this.rig.getActiveCamera();
-        if (this.compareSplitRatio !== null && this.compareAltRoot) {
-          const w = Math.max(1, this.lastWidth);
-          const h = Math.max(1, this.lastHeight);
-          const splitX = Math.max(1, Math.min(w - 1, Math.round(w * this.compareSplitRatio)));
-          this.renderer.setScissorTest(true);
-          this.renderer.autoClear = true;
-          this.renderer.setViewport(0, 0, w, h);
-          this.renderer.setScissor(0, 0, splitX, h);
-          this.modelRoot.visible = true;
-          this.compareAltRoot.visible = false;
-          this.renderer.render(this.scene, cam);
-
-          this.renderer.setScissor(splitX, 0, w - splitX, h);
-          this.modelRoot.visible = false;
-          this.compareAltRoot.visible = true;
-          this.renderer.render(this.scene, cam);
-
-          this.renderer.setScissorTest(false);
-          this.modelRoot.visible = true;
-          this.compareAltRoot.visible = false;
+        if (this.compareVersus && this.compareAltRoot) {
+          this._renderVersus(cam, Math.max(1, this.lastWidth), Math.max(1, this.lastHeight));
         } else {
           this.renderer.setScissorTest(false);
           if (this.modelRoot) this.modelRoot.visible = true;
@@ -330,7 +315,8 @@ class LuxaViewer {
         }
         this.gizmo.update(cam);
         this._updateCompassDials(cam);
-        this.labelsOverlay.update(cam, this.lastWidth, this.lastHeight);
+        // label milik model utama: pada mode versus ikut panel kiri
+        this.labelsOverlay.update(cam, this.compareVersus ? Math.floor(this.lastWidth / 2) : this.lastWidth, this.lastHeight);
         if (this.sunDomeController && typeof this.sunDomeController.updateLabels === 'function') {
           this.sunDomeController.updateLabels(cam, this.lastWidth, this.lastHeight);
         }
@@ -444,8 +430,29 @@ class LuxaViewer {
     const h = Math.max(1, this.container.clientHeight);
     this.lastWidth = w;
     this.lastHeight = h;
-    this.rig.resize(w, h);
+    this.rig.resize(this.compareVersus ? Math.max(1, Math.floor(w / 2)) : w, h);
     this.renderer.setSize(w, h, false);
+  }
+
+  /** Dua panel sama lebar: kiri desain sekarang, kanan alternatif, dengan kamera dan skala yang sama. */
+  _renderVersus(cam, w, h) {
+    const hw = Math.max(1, Math.floor(w / 2));
+    this.renderer.setScissorTest(true);
+    this.renderer.autoClear = true;
+    this.renderer.setViewport(0, 0, hw, h);
+    this.renderer.setScissor(0, 0, hw, h);
+    this.modelRoot.visible = true;
+    this.compareAltRoot.visible = false;
+    this.renderer.render(this.scene, cam);
+    this.renderer.setViewport(hw, 0, w - hw, h);
+    this.renderer.setScissor(hw, 0, w - hw, h);
+    this.modelRoot.visible = false;
+    this.compareAltRoot.visible = true;
+    this.renderer.render(this.scene, cam);
+    this.renderer.setScissorTest(false);
+    this.renderer.setViewport(0, 0, w, h);
+    this.modelRoot.visible = true;
+    this.compareAltRoot.visible = false;
   }
 
   // Camera APIs used by shortcuts, bottom pills, pie menu, and Tampilan panel
@@ -563,8 +570,10 @@ class LuxaViewer {
 
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(targetW, targetH, false);
-    this.rig.resize(targetW, targetH);
-    if (this.compareSplitRatio !== null && this.compareAltRoot) {
+    this.rig.resize(this.compareVersus ? Math.max(1, Math.floor(targetW / 2)) : targetW, targetH);
+    if (this.compareVersus && this.compareAltRoot) {
+      this._renderVersus(cam, targetW, targetH);
+    } else if (this.compareSplitRatio !== null && this.compareAltRoot) {
       // Bandingkan: kiri = desain sekarang, kanan = alternatif (sama seperti layar).
       const splitX = Math.max(1, Math.min(targetW - 1, Math.round(targetW * this.compareSplitRatio)));
       this.renderer.setScissorTest(true);
@@ -593,9 +602,8 @@ class LuxaViewer {
     }
 
     this.renderer.setPixelRatio(prevPixelRatio);
-    this.rig.resize(baseW, baseH);
     this.renderer.setSize(baseW, baseH, false);
-    this.renderer.render(this.scene, cam);
+    this._resize();
 
     return { canvas: snapshotCanvas, width: targetW, height: targetH, baseWidth: baseW, baseHeight: baseH };
   }
@@ -676,8 +684,18 @@ class LuxaViewer {
     this.compareSplitRatio = Math.max(0.08, Math.min(0.92, Number(ratio) || 0.5));
   }
 
+  /** Hidupkan/matikan panel berdampingan. Ukuran kamera mengikuti lebar satu panel. */
+  setCompareVersus(on) {
+    const next = Boolean(on);
+    if (next === this.compareVersus) return false;
+    this.compareVersus = next;
+    this._resize();
+    return true;
+  }
+
   clearCompareMode() {
     this.compareSplitRatio = null;
+    this.setCompareVersus(false);
     this.lastCompareAltKey = null;
     if (this.compareAltRoot) {
       this._clearGroup(this.compareAltRoot);
@@ -701,12 +719,18 @@ class LuxaViewer {
       selectedPanelIds: [],
       selectedOrientation: null,
     };
-    this.syncState(baseState);
+    this._syncingCompare = true;
+    try {
+      this.syncState(baseState);
+    } finally {
+      this._syncingCompare = false;
+    }
+    void splitRatio;
     if (!altAnalysis?.panels?.length) {
       this.clearCompareMode();
       return;
     }
-    this.setCompareSplitRatio(splitRatio);
+    const turnedOn = this.setCompareVersus(true);
 
     // Model lain bisa punya koordinat berbeda: geser alternatif supaya titik tengah denah dan
     // muka tanahnya berimpit dengan model utama, lalu bingkai kamera memakai gabungan keduanya.
@@ -733,6 +757,8 @@ class LuxaViewer {
     }
 
     const altKey = `${altAnalysis.analysis_id || 'alt'}|${state.theme}|${state.heatmapGranularity || 'orientation'}|${off.join(',')}`;
+    // bingkai ulang saat panel baru dibuka atau alternatif lain dipilih: kedua gedung utuh dalam panelnya
+    if (turnedOn || altKey !== this.lastCompareAltKey) this.rig.fitToModel(this.controls);
     if (altKey === this.lastCompareAltKey) return;
     this.lastCompareAltKey = altKey;
 
@@ -758,8 +784,9 @@ class LuxaViewer {
    */
   syncState(state) {
     this._initThree();
-    if (state.step !== 'compare') {
+    if (state.step !== 'compare' && !this._syncingCompare) {
       this.compareSplitRatio = null;
+      this.setCompareVersus(false);
     }
     const tokens = readThemeTokens();
     const hasAnalysis = Boolean(state.analysisData?.panels?.length);
