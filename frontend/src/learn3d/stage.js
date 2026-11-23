@@ -10,8 +10,9 @@ import { buildTower } from './tower.js';
 import { SHOTS } from './shots.js';
 
 const DEG = Math.PI / 180;
-// Matahari bawaan dari barat-barat daya, sama di semua sudut supaya konsisten.
-const DEFAULT_SUN = [250, 38];
+// Matahari bawaan: sore hari di lintasan timur–barat (dari barat, sedikit ke selatan), sama di semua sudut.
+// Kamera yang menyesuaikan, supaya matahari datang dari samping dan bayangan terbaca.
+const DEFAULT_SUN = [262, 40];
 
 // Arah dari target ke kamera; azimut dari utara searah jarum jam (utara = -z).
 export function dirFrom(azDeg, elDeg) {
