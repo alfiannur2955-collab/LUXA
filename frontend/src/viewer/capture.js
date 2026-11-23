@@ -630,7 +630,7 @@ export async function captureViewerPng(state, { scale = 2, layout = 'panel', inc
   if (inc.labels && !isCompare) drawDomLabels(ctx, k, 0, 0);
 
   if (isCompare && compareAlt) {
-    const splitX = Math.round(width * Math.max(0.1, Math.min(0.9, Number(state.compareSplitRatio ?? 0.5))));
+    const splitX = Math.round(width / 2); // Versus: dua panel sama lebar (lihat viewer._renderVersus)
     drawCompareOverlays(ctx, d, k, state, tokens, 0, 0, width, splitX, layout === 'panel', height);
   }
 

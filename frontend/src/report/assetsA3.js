@@ -73,12 +73,12 @@ export async function captureReportAssets(state, { theme = 'light', orient = 'la
       }
     }
     if (!pLo) { lo = -b.size.x / 2; hi = b.size.x / 2; pLo = [b.center.x + rx * lo, 0, b.center.z + rz * lo]; pHi = [b.center.x + rx * hi, 0, b.center.z + rz * hi]; }
-    const r = p.shot('terpanas', { pose: { az: hotAz, el: 0 }, heat: false, dome: false, context: false, ...(port ? { fit: { h: 0.26, w: 0.56 }, shiftRight: 0.02, shiftUp: 0.17 } : { fit: { h: 0.58, w: 0.36 }, shiftRight: 0.13, shiftUp: 0.09 }),
+    const r = p.shot('terpanas', { pose: { az: hotAz, el: 0 }, heat: false, dome: false, context: false, ...(port ? { fit: { h: 0.21, w: 0.5 }, shiftRight: 0.02, shiftUp: 0.2 } : { fit: { h: 0.58, w: 0.36 }, shiftRight: 0.13, shiftUp: 0.09 }),
       project: [pLo, pHi, [b.center.x, b.size.y, b.center.z], [b.center.x, 0, b.center.z], ...levels.map((l) => [b.center.x, l.z, b.center.z])] });
     return { ...r, levels, faceW: hi - lo, height: b.size.y };
   });
   const key = cap(1200, 900, (p) => p.shot('sampul', { pose: { az: isoAz, el: ISO_EL }, dome: false, context: false, fit: { h: 0.78, w: 0.7 },
-    heat: (code) => (code === (hot.code === 'TG' ? 'TGR' : hot.code) ? p.heatColor(hot.ottv_orientation_wm2) : theme === 'dark' ? '#4A4B52' : '#DEDAD3') }));
+    heat: (code) => (code === (hot.code === 'TG' ? 'TGR' : hot.code) ? p.heatColor(hot.ottv_orientation_wm2) : theme === 'dark' ? '#6E6F78' : '#DEDAD3') }));
   const facades = renderFacades(analysisData, roles, { theme, width: 2400, height: 520 });
 
   // Tone mapping menekan putih jadi abu sangat muda: ratakan ulang supaya latar gambar = putih halaman.

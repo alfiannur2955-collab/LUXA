@@ -108,7 +108,7 @@ ol.why b { color: var(--ink); font-weight: 600; }
 .vals dt { font-size: 8pt; color: var(--muted); }
 .vals dd { margin: 1mm 0 0; font-size: 14pt; font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .facbox { border-left: 0.3mm solid var(--line); padding-left: 8mm; }
-.facbox img { display: block; width: 100%; height: 22mm; object-fit: contain; object-position: left center; margin: 1mm 0 2mm; }
+.facbox img { display: block; width: 100%; height: 30mm; object-fit: contain; object-position: left center; margin: 1mm 0 2mm; }
 .scale { display: flex; align-items: center; gap: 2mm; font-size: 7.5pt; color: var(--muted); }
 .scale i { width: 34mm; height: 1.6mm; border-radius: 0.8mm; background: linear-gradient(90deg, #f6e7c8, #eeb066 50%, #cf5a1f 70%, #7d1d10); }
 /* ---- halaman tanpa gambar latar: kolom-kolom bergaris rambut */
@@ -170,7 +170,7 @@ ul.do b { color: var(--ink); font-weight: 600; }
 .pt dl.spec { --n: 3 !important; }
 .pt .mat { grid-template-columns: 1fr; row-gap: 3mm; }
 .pt .keyimg { width: 54mm; }
-.pt.p3 .txt { bottom: 116mm; }
+.pt.p3 .txt { bottom: 128mm; }
 .pt.cover .bg img { transform: translateY(9%); }
 .pt .fig svg { max-height: 120mm; }
 .facwide { flex: 1; min-height: 30mm; display: flex; flex-direction: column; gap: 3mm; }
@@ -298,7 +298,8 @@ export function buildMockup(state, { assets, theme = 'light', orient = 'land', l
     if (y1 - y0 >= minGap && dvX < 95) elevMarks += `<div class="dimv" style="left:${dvX.toFixed(2)}%;top:${y0.toFixed(2)}%;height:${(y1 - y0).toFixed(2)}%"><span>${f2(E.height)} m</span></div>`;
     if ((x1 - x0) * PW / 100 >= 18) elevMarks += `<div class="dimh" style="left:${x0.toFixed(2)}%;top:${(y1 + 2.8).toFixed(2)}%;width:${(x1 - x0).toFixed(2)}%"><span>${f2(E.faceW)} m</span></div>`;
     // skala grafis: 4 ruas, panjang total 24 sampai 60 mm, di kanan bawah gedung; pindah ke bawah kanan garis ukur bila tidak muat
-    const capMax = port ? 60 : 76; let sbarEnd = 0, sbarAbove = false; // batas bawah area gambar (persen), di atas garis strip
+    // batas bawah area gambar (persen), di atas garis strip; tegak: keterangan dan skala pindah ke kanan gedung
+    const capMax = port ? 0 : 76; let sbarEnd = 0, sbarAbove = false;
     // skala diambil dari garis ukur lebar itu sendiri (meter per mm kertas), jadi selalu cocok dengan gambar
     const wMm = ((x1 - x0) / 100) * PW;
     const mPerMm = wMm > 5 && E.faceW > 0 ? E.faceW / wMm : E.mPerPx * ((assets.pageW || 2970) / PW);
@@ -317,6 +318,8 @@ export function buildMockup(state, { assets, theme = 'light', orient = 'land', l
     // keterangan gambar di bawah garis ukur; bila gedung memenuhi tinggi halaman, pindah ke kanan bawah gedung
     const capY = y1 + 6.5;
     if (capY <= capMax) elevMarks += `<div class="draw-cap" style="left:${x0.toFixed(2)}%;top:${capY.toFixed(2)}%"><b>Tampak ${sideName(hot.code)}</b>proyeksi sejajar, skala grafis</div>`;
+    else if (port) elevMarks += `<div class="draw-cap" style="left:${x0.toFixed(2)}%;top:${Math.max(17, y0 - 7).toFixed(2)}%">`
+      + `<b>Tampak ${sideName(hot.code)}</b>proyeksi sejajar, skala grafis</div>`;
     else elevMarks += `<div class="draw-cap" style="left:${Math.min(Math.max(dvX + 4, sbarEnd + 2, x1 + 6), 74).toFixed(2)}%;top:${(y1 - (sbarAbove ? 10 : 5)).toFixed(2)}%"><b>Tampak ${sideName(hot.code)}</b>proyeksi sejajar, skala grafis</div>`;
   }
   const p3 = `<section class="pg${dk} p3">
