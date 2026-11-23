@@ -4,6 +4,6 @@ export const SHOTS = {
   beranda: { target: [0, 22, 0], az: 242, el: 35, dist: 1100 },
   bab1: { target: [0, 40, 0], az: 242, el: 32, dist: 860 },
   bab4: { target: [0, 34, 0], az: 242, el: 52, dist: 1000 },
-  bab5: { target: [-14, 55.2, -6], az: 300, el: 16, dist: 46, shadow: 28, shadowFocus: [-14, 55, -6], sun: [255, 42] },
+  bab5: { target: [-14, 55.2, -6], az: 300, el: 16, dist: 46, shadow: 28, shadowFocus: [-14, 55, -6] },
   bab7: { target: [0, 50, 0], az: 225, el: 30, dist: 760 },
 };

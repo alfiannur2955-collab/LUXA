@@ -10,8 +10,8 @@ import { buildTower } from './tower.js';
 import { SHOTS } from './shots.js';
 
 const DEG = Math.PI / 180;
-// Matahari bawaan dari selatan-barat daya: bayangan jatuh ke samping kamera, jadi kedalaman kota terbaca.
-const DEFAULT_SUN = [168, 34];
+// Matahari bawaan dari barat-barat daya, sama di semua sudut supaya konsisten.
+const DEFAULT_SUN = [250, 38];
 
 // Arah dari target ke kamera; azimut dari utara searah jarum jam (utara = -z).
 export function dirFrom(azDeg, elDeg) {
@@ -109,7 +109,7 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
   function addLabel(pos, text, { tag = false, lift = 46 } = {}) {
     const el = document.createElement('div');
     el.className = 'l3d-label' + (tag ? ' is-tag' : '');
-    el.innerHTML = `<span class="l3d-text" style="bottom:${lift + 3}px"></span><i class="l3d-leader" style="height:${lift}px"></i><b class="l3d-dot"></b>`;
+    el.innerHTML = `<span class="l3d-text" style="bottom:${lift + 4}px"></span><i class="l3d-leader" style="height:${lift}px"></i><b class="l3d-dot"></b>`;
     el.querySelector('.l3d-text').textContent = text;
     labelLayer.appendChild(el);
     labels.push({ el, p: new THREE.Vector3(...pos) });
