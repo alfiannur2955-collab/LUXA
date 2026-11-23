@@ -27,7 +27,7 @@ function meshOf(coords, material) {
 
 // Kualitas otomatis menurut jumlah segitiga (lihat spesifikasi P0, Aturan tampilan).
 export function qualityFor(tris) {
-  if (tris <= 20000) return { tier: 'full', ao: true, shadowSize: 4096, edges: 'panels' };
+  if (tris <= 20000) return { tier: 'full', ao: true, shadowSize: 2048, edges: 'panels' };
   if (tris <= 60000) return { tier: 'medium', ao: false, shadowSize: 2048, edges: 'creases' };
   return { tier: 'light', ao: false, shadowSize: 2048, edges: 'none' };
 }

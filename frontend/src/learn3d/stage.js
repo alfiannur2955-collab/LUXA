@@ -28,6 +28,8 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // Peta bayangan digambar sekali per frame. Tanpa ini setiap pass (render, AO) menggambarnya ulang: 3x per frame.
+  renderer.shadowMap.autoUpdate = false;
   // Neutral menjaga putih maket tidak pecah di mode terang; di mode gelap kurvanya menekan warna gelap
   // menjadi hitam kebiruan, jadi mode gelap memakai tanpa tone mapping.
   renderer.toneMapping = pal.toneMapping === 'none' ? THREE.NoToneMapping : THREE.NeutralToneMapping;
@@ -187,6 +189,7 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
   }
 
   function render() {
+    renderer.shadowMap.needsUpdate = true;
     if (api.raw) renderer.render(scene, camera);
     else composer.render();
     placeLabels();
