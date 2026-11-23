@@ -1,0 +1,13 @@
+html, body { margin: 0; height: 100%; background: #ECE8E1; font-family: 'Inter', system-ui, sans-serif; }
+html[data-theme='dark'], html[data-theme='dark'] body { background: #1C1D21; }
+#stage { position: fixed; inset: 0; overflow: hidden; }
+#stage canvas { display: block; }
+.l3d-labels { position: absolute; inset: 0; pointer-events: none; }
+.l3d-label { position: absolute; left: 0; top: 0; width: 0; height: 0; }
+.l3d-dot { position: absolute; left: -2.5px; top: -2.5px; width: 5px; height: 5px; border-radius: 50%; background: #3A352E; }
+.l3d-leader { position: absolute; left: -0.5px; bottom: 0; width: 1px; background: #3A352E; }
+.l3d-text { position: absolute; left: 0; transform: translateX(-50%); white-space: nowrap; font-size: 12px; line-height: 1.2; color: #3A352E; }
+.is-tag .l3d-text { background: #1E1F24; color: #FFFFFF; padding: 4px 8px; border-radius: 3px; font-weight: 500; }
+html[data-theme='dark'] .l3d-text { color: #E6E2DA; }
+html[data-theme='dark'] .l3d-leader, html[data-theme='dark'] .l3d-dot { background: #E6E2DA; }
+html[data-theme='dark'] .is-tag .l3d-text { background: #F3EFE8; color: #1E1F24; }
