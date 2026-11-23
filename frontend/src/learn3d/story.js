@@ -13,6 +13,7 @@ import { createFacadeOverlay, createSunMarker, createHeatArrows, createWallSecti
 import { PRESETS, SYMS, PATH_NAMES, chapters, LUX } from './content.js';
 import { createClouds } from './clouds.js';
 import { createBirds } from './birds.js';
+import { createLife } from './life.js';
 import { sim, sf, facade, total, glassH, effWwr, glassById, wallById, roofById, LIMIT, fmt, pct } from './sim.js';
 import { sceffHorizontal, rttv, tdekWall } from '../learn/ottvCalc.js';
 import { SNI } from '../learn/sniData.js';
@@ -185,6 +186,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   const overlay = createFacadeOverlay(stage);
   const clouds = createClouds(stage, { dark: theme === 'dark' });
   const birds = createBirds(stage, { dark: theme === 'dark' });
+  const life = createLife(stage, { dark: theme === 'dark', city: stage.city });
   const sun = createSunMarker(stage, { radius: 170 });
   const arrows = createHeatArrows(stage);
   // Potongan dinding Bab 6: dinding asli fasad Barat di bawah jendela lantai 10 dipotong di z = −9.
@@ -630,6 +632,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     const camDist = stage.camera.position.distanceTo(controls.target);
     clouds.tick(stage.camera, now / 1000, camDist, reduceMotion);
     birds.tick(now / 1000, camDist, reduceMotion);
+    life.tick(now / 1000, dt, camDist, reduceMotion);
 
     // Sorotan per bab: Bab 1 dan 7 = OTTV per arah, Bab 4 = SF per arah.
     const w1 = Math.max(near(c, idx['bab-1']), near(c, idx['bab-7'])), w4 = near(c, idx['bab-4']);
