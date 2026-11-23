@@ -10,7 +10,7 @@ if (mode === 'bebas') {
   const theme = q.get('theme') === 'dark' ? 'dark' : 'light';
   document.documentElement.dataset.theme = theme;
   import('./story.js').then(({ createStory }) => {
-    const hashI = ['beranda', 'bab-1', 'bab-2', 'bab-3', 'bab-4', 'bab-5', 'bab-6', 'bab-7', 'bab-8'].indexOf(location.hash.slice(1));
+    const hashI = ['beranda', 'bab-1', 'bab-2', 'bab-3', 'bab-4', 'bab-5', 'bab-6', 'bab-7', 'bab-8', 'selesai'].indexOf(location.hash.slice(1));
     const s = createStory({
       host: document.body,
       theme,

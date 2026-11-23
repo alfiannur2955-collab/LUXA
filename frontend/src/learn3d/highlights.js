@@ -244,69 +244,125 @@ const LAYER_KIND = (name) => (/Bata merah/.test(name) ? 'bata' : /AAC|ringan/.te
 
 // Potongan dinding (Bab 6): blok dinding di depan fasad Barat, bidang potongnya menghadap selatan.
 // origin = pusat muka dalam dinding; lapisan tersusun ke arah luar (−x). Tebal dibesarkan supaya terbaca.
-export function createWallSection(stage, { origin, height = 1.3, length = 0.9 }) {
+// Potongan dinding Bab 6: sepotong dinding asli fasad Barat dibuang (kotak potong pada material tower),
+// lalu dua sisa dinding di kiri-kanan lubang memperlihatkan bidang potong berarsir per lapisan.
+// Muka luar lapisan rata dengan bidang fasad, lapisan menerus ke dalam bangunan. Tower lain dibuat agak transparan.
+export function createWallSection(stage, { facadeX = -14, zCut, gap = 1.1, stub = 1.3 }) {
   const group = new THREE.Group();
   group.visible = false;
   stage.scene.add(group);
-  const edgeMat = new THREE.LineBasicMaterial({ color: '#2A2620', transparent: true, opacity: 0.85 });
+  stage.renderer.localClippingEnabled = true;
+  let y0 = 52.5, y1 = 54.5, H = 2, yc = 53.5; // pita dinding padat, disetel lewat update()
   const SCALE = 4;
-  let parts = [], amount = 0, totalT = 0;
+  const edgeMat = new THREE.LineBasicMaterial({ color: '#2A2620', transparent: true, opacity: 0.85 });
+  // Ruang di balik dinding yang terpotong: kotak gelap dilihat dari dalam (sisi belakang) sehingga terbaca sebagai ceruk.
+  // Muka ujung ±z tidak digambar: ujung kiri berimpit dengan bidang potong berarsir.
+  const nicheMat = new THREE.MeshStandardMaterial({ color: '#7A736A', roughness: 1, side: THREE.BackSide });
+  const hidden = new THREE.MeshBasicMaterial({ visible: false });
+  let parts = [], amount = 0, depthT = 0.5;
+  const niche = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [nicheMat, nicheMat, nicheMat, nicheMat, hidden, hidden]);
+  niche.receiveShadow = true;
+  group.add(niche);
   const labels = [0, 1, 2].map(() => stage.addLabel([0, 0, 0], '', { lift: 30, maxDist: 60 }));
   const sideOut = stage.addLabel([0, 0, 0], 'Luar', { tag: true, lift: 18, maxDist: 60 });
   const sideIn = stage.addLabel([0, 0, 0], 'Dalam', { lift: 18, maxDist: 60 });
   const all = [...labels, sideOut, sideIn];
   all.forEach((l) => { l.on = false; });
+
+  // Kotak potong pada material tower: titik di dalam kotak (di sisi negatif keenam bidang) tidak digambar.
+  const planes = [0, 1, 2, 3, 4, 5].map(() => new THREE.Plane());
+  const mats = stage.tower.userData.mats;
+  const towerMats = [mats.wall, mats.glass, mats.mull, mats.edge];
+  for (const m of towerMats) { m.clippingPlanes = planes; m.clipIntersection = true; m.needsUpdate = true; }
+  function setClip(on) {
+    if (!on) { planes[0].set(new THREE.Vector3(1, 0, 0), 1e6); for (let i = 1; i < 6; i++) planes[i].set(new THREE.Vector3(-1, 0, 0), -1e6); return; }
+    const x0 = facadeX - 1.2, x1 = facadeX + depthT; // dari luar fasad (termasuk kaca/overhang) sampai muka dalam dinding
+    const z0 = zCut - stub, z1 = zCut + gap + stub;
+    planes[0].set(new THREE.Vector3(1, 0, 0), -x1);
+    planes[1].set(new THREE.Vector3(-1, 0, 0), x0);
+    planes[2].set(new THREE.Vector3(0, 1, 0), -y1);
+    planes[3].set(new THREE.Vector3(0, -1, 0), y0);
+    planes[4].set(new THREE.Vector3(0, 0, 1), -z1);
+    planes[5].set(new THREE.Vector3(0, 0, -1), z0);
+  }
+  setClip(false);
+
   const texCache = {};
-  function build(wallId, outerColor) {
-    for (const p of parts) { group.remove(p.mesh); p.mesh.traverse((o) => o.geometry && o.geometry.dispose()); }
+  function cutTexture(kind, color, w, h) {
+    texCache[kind + color] ||= hatchTexture(kind, color);
+    const t = texCache[kind + color].clone();
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(Math.max(0.2, w / 0.6), h / 0.6); // satu ubin arsiran ≈ 0,6 m, supaya pola tidak gepeng
+    t.needsUpdate = true;
+    return t;
+  }
+
+  function build(wallId, outerColor, band) {
+    if (band) { [y0, y1] = band; H = y1 - y0; yc = (y0 + y1) / 2; }
+    for (const p of parts) { group.remove(p); p.traverse((o) => { o.geometry?.dispose(); [].concat(o.material || []).forEach((m) => { if (m !== edgeMat) { m.map?.dispose(); m.dispose(); } }); }); }
     parts = [];
     const layers = WALL_LAYERS[wallId] || WALL_LAYERS.wal_bata_ringan_aac_100;
-    let x = origin.x; // muka dalam
-    const ordered = [...layers].reverse(); // dari dalam ke luar
-    ordered.forEach(([name, mm, color], k) => {
+    const info = [];
+    let x = facadeX; // muka luar, lalu ke dalam (+x)
+    layers.forEach(([name, mm, color], k) => {
       const t = Math.max(0.05, (mm / 1000) * SCALE);
-      const cx = x - t / 2;
-      x -= t;
-      const isOuter = k === ordered.length - 1;
-      if (!color) { parts.push({ mesh: new THREE.Object3D(), name, mm, cx, t }); group.add(parts.at(-1).mesh); return; }
+      const cx = x + t / 2;
+      x += t;
+      info.push({ name, mm, cx });
+      if (!color) return; // rongga udara: dibiarkan kosong
       const kind = LAYER_KIND(name);
-      const key = kind + color;
-      texCache[key] ||= hatchTexture(kind, color);
-      const side = new THREE.MeshStandardMaterial({ color: isOuter && outerColor ? outerColor : color, roughness: 0.9, transparent: true });
-      const cut = new THREE.MeshBasicMaterial({ map: texCache[key], transparent: true, toneMapped: false });
-      // urutan muka BoxGeometry: +x, −x, +y, −y, +z (bidang potong), −z
-      const mats = [side, side, side, side, cut, side];
-      const geo = new THREE.BoxGeometry(t, height, length);
-      const mesh = new THREE.Mesh(geo, mats);
-      mesh.position.set(cx, origin.y, origin.z);
-      mesh.castShadow = mesh.receiveShadow = true;
-      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
-      group.add(mesh);
-      parts.push({ mesh, name, mm, cx, t });
+      const side = new THREE.MeshStandardMaterial({ color: k === 0 && outerColor ? outerColor : color, roughness: 0.9 });
+      // dua sisa dinding: kiri (bidang potong menghadap +z) dan kanan (bidang potong menghadap −z)
+      for (const [za, zb, cutIdx] of [[zCut - stub, zCut, 4], [zCut + gap, zCut + gap + stub, 5]]) {
+        const cut = new THREE.MeshBasicMaterial({ map: cutTexture(kind, color, t, H), toneMapped: false });
+        const ms = [side, side, side, side, side, side];
+        ms[cutIdx] = cut; // urutan muka BoxGeometry: +x, −x, +y, −y, +z, −z
+        const geo = new THREE.BoxGeometry(t, H, zb - za);
+        const mesh = new THREE.Mesh(geo, ms);
+        mesh.position.set(cx, yc, (za + zb) / 2);
+        mesh.castShadow = mesh.receiveShadow = true;
+        mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), edgeMat));
+        group.add(mesh);
+        parts.push(mesh);
+      }
     });
-    totalT = origin.x - x;
-    // label: titik di tengah bidang potong tiap lapisan, tinggi angkat berselang supaya tidak bertumpuk
-    const cutZ = origin.z + length / 2 + 0.01;
-    [...parts].reverse().forEach((p, k) => {
+    depthT = x - facadeX;
+    niche.scale.set(depthT, H, gap);
+    niche.position.set(facadeX + depthT / 2, yc, zCut + gap / 2);
+    // label di bidang potong kiri: angkat berselang supaya tidak bertumpuk
+    const cutZ = zCut + 0.01;
+    [...info].reverse().forEach((p, k) => {
       const l = labels[k];
       if (!l) return;
       l.setText(`${p.name} · ${p.mm} mm`);
-      l.setPos(new THREE.Vector3(p.cx, origin.y + height * 0.22, cutZ));
-      l.el.querySelector(".l3d-leader").style.height = `${40 + k * 30}px`;
-      l.el.querySelector(".l3d-text").style.bottom = `${44 + k * 30}px`;
+      l.setPos(new THREE.Vector3(p.cx, y0 + H * 0.7, cutZ));
+      l.el.querySelector('.l3d-leader').style.height = `${40 + k * 30}px`;
+      l.el.querySelector('.l3d-text').style.bottom = `${44 + k * 30}px`;
+      l.count = info.length;
     });
-    sideOut.setPos(new THREE.Vector3(origin.x - totalT - 0.25, origin.y - height * 0.42, cutZ));
-    sideIn.setPos(new THREE.Vector3(origin.x + 0.22, origin.y - height * 0.42, cutZ));
+    labels.forEach((l, k) => { l.used = k < info.length; });
+    sideOut.setPos(new THREE.Vector3(facadeX - 0.35, y0 + H * 0.12, cutZ));
+    sideIn.setPos(new THREE.Vector3(facadeX + depthT + 0.3, y0 + H * 0.12, cutZ));
     paint();
   }
   function paint() {
-    group.visible = amount > 0.01;
-    for (const p of parts) if (p.mesh.material) for (const m of [].concat(p.mesh.material)) m.opacity = Math.min(1, amount * 1.5);
-    labels.forEach((l, k) => { l.on = amount > 0.6 && k < parts.length; });
+    const on = amount > 0.01;
+    group.visible = on;
+    setClip(on);
+    // Tower lain memudar supaya potongan menonjol; material dibuat transparan hanya selama dibutuhkan.
+    const fade = 1 - 0.6 * amount;
+    for (const m of [mats.wall, mats.glass, mats.mull]) {
+      const tr = amount > 0.01;
+      if (m.transparent !== tr) { m.transparent = tr; m.needsUpdate = true; }
+      m.opacity = fade;
+    }
+    mats.edge.opacity = (mats.edge.userData.base ??= mats.edge.opacity) * fade;
+    labels.forEach((l) => { l.on = amount > 0.6 && l.used; });
     sideOut.on = sideIn.on = amount > 0.6;
   }
   return {
-    update(wallId, outerColor) { build(wallId, outerColor); },
-    setAmount(a) { if (Math.abs(a - amount) > 0.002) { amount = a; paint(); } },
+    /** band = [y bawah, y atas] pita dinding padat antara overhang lantai bawah dan ambang kaca. */
+    update(wallId, outerColor, band) { build(wallId, outerColor, band); },
+    setAmount(a) { if (Math.abs(a - amount) > 0.002 || (a === 0 && amount !== 0)) { amount = a; paint(); } },
   };
 }

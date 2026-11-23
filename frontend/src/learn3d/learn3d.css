@@ -258,3 +258,17 @@ html[data-theme='dark'] .l3d-gate-err { color: #F08A64; }
 
 /* Di dalam aplikasi, kartu turun sedikit supaya tidak tertutup topbar (gaya .app.is-scene ada di theme.css). */
 body.l3d-on .l3d-card { top: max(12vh, 88px); }
+
+/* Jarak antarkartu: kartu yang menempel berhenti sebelum kartu berikutnya tiba, jadi keduanya tidak bersentuhan. */
+.l3d-card { margin-bottom: 18vh; }
+.l3d-card.is-dock { animation: l3d-dock 0.56s cubic-bezier(0.2, 0.8, 0.2, 1); }
+@keyframes l3d-dock {
+  0% { scale: 1 1; }
+  32% { scale: 1.012 0.982; }
+  64% { scale: 0.996 1.008; }
+  100% { scale: 1 1; }
+}
+@media (prefers-reduced-motion: reduce) { .l3d-card.is-dock { animation: none; } }
+.l3d-link { font: inherit; font-size: 13px; color: inherit; background: none; border: 0; padding: 4px 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; opacity: 0.75; }
+.l3d-link:hover { opacity: 1; }
+.l3d-link:focus-visible { outline: 2px solid #138E86; outline-offset: 2px; border-radius: 4px; }

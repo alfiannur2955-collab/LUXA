@@ -39,9 +39,6 @@ const PRESETS = {
 };
 
 function chapters({ embedded }) {
-  const cta7 = embedded
-    ? '<button type="button" class="l3d-cta" data-act="start">Hitung modelmu sendiri</button>'
-    : '<a class="l3d-cta" href="https://alfiannur2955-collab.github.io/LUXA/" target="_blank" rel="noopener">Coba hitung modelmu di LUXA</a>';
   return [
     { id: 'beranda', shot: 'beranda', nav: 'Beranda', html: '<div data-slot="home"></div>' },
     { id: 'bab-1', shot: 'bab1', nav: 'Bab 1', html: `
@@ -101,8 +98,7 @@ function chapters({ embedded }) {
       <h2>Dari per arah ke OTTV total</h2>
       <p>OTTV bangunan adalah rata-rata OTTV semua fasad, ditimbang dengan luasnya. Fasad yang luas dan menghadap arah panas paling besar pengaruhnya.</p>
       <div class="l3d-sides">${['U', 'T', 'S', 'B'].map((d) => `<div class="l3d-side"><span>${DIR_NAME[d]}</span><input type="range" min="0.1" max="0.85" step="0.05" data-side="${d}" aria-label="WWR ${DIR_NAME[d]}"><output data-side-out="${d}">–</output><b data-side-ottv="${d}">–</b></div>`).join('')}<p class="l3d-muted">Geser WWR tiap arah. Angka kanan = OTTV fasad itu (W/m²).</p></div>
-      <div class="l3d-gauge"><div class="l3d-gauge-num"><b data-id="ottv-total7">–</b><span>W/m² OTTV total</span></div><div class="l3d-gauge-bar"><i data-id="ottv-bar7"></i><em style="left:${(LIMIT / 80) * 100}%"><span>batas ${fmt(LIMIT)}</span></em></div><p data-id="ottv-verdict7" class="l3d-verdict"></p></div>
-      ${cta7}` },
+      <div class="l3d-gauge"><div class="l3d-gauge-num"><b data-id="ottv-total7">–</b><span>W/m² OTTV total</span></div><div class="l3d-gauge-bar"><i data-id="ottv-bar7"></i><em style="left:${(LIMIT / 80) * 100}%"><span>batas ${fmt(LIMIT)}</span></em></div><p data-id="ottv-verdict7" class="l3d-verdict"></p></div>` },
     { id: 'bab-8', shot: 'bab8', nav: 'Bab 8', html: `
       <p class="l3d-kicker">Bonus · Bab 8</p>
       <h2>Atap dan RTTV</h2>
@@ -112,6 +108,15 @@ function chapters({ embedded }) {
       <dl class="l3d-stats"><div><dt>Atap</dt><dd data-id="r-roof">–</dd></div><div><dt>Konduksi skylight</dt><dd data-id="r-cond">–</dd></div><div><dt>Radiasi skylight</dt><dd data-id="r-solar">–</dd></div></dl>
       <div class="l3d-gauge"><div class="l3d-gauge-num"><b data-id="rttv-total">–</b><span>W/m² RTTV</span></div><div class="l3d-gauge-bar"><i data-id="rttv-bar"></i><em data-id="rttv-limit"><span></span></em></div><p data-id="rttv-verdict" class="l3d-verdict"></p></div>
       <p class="l3d-note">Contoh: atap podium ${fmt(PODIUM_ROOF_AREA)} m² di luar tapak tower, skylight dari ${glassById('glz_kaca_tinted_8').name.toLowerCase()}, SF atap Jakarta ${fmt(sf().ROOF)} W/m².</p>` },
+    { id: 'selesai', shot: 'akhir', nav: 'Selesai', html: `
+      <p class="l3d-kicker">Selesai</p>
+      <h2>Sekarang coba dengan modelmu</h2>
+      <p>Kamu sudah melihat semua yang membentuk OTTV dan RTTV: WWR, arah hadap, kaca, peneduh, dinding, dan atap. LUXA menghitung semuanya langsung dari model 3D-mu, per fasad dan per arah.</p>
+      <div class="l3d-actions">
+        <button type="button" class="l3d-cta" data-act="start">${icon('upload', 16)}<span>Hitung modelmu</span></button>
+        <button type="button" class="l3d-ghost" data-act="example">${icon('play', 16)}<span>Coba model contoh</span></button>
+      </div>
+      <button type="button" class="l3d-link" data-act="top">Kembali ke Beranda</button>` },
   ];
 }
 
@@ -126,6 +131,7 @@ const LUX = {
   'bab-6': ['guide', 'Lihat potongannya: makin berat dindingnya, makin kecil TDek-nya.'],
   'bab-7': ['think', 'Fasad yang luas dan menghadap barat paling menentukan.'],
   'bab-8': ['report', 'Tanpa skylight, batas RTTV turun jadi 10 W/m².'],
+  selesai: ['happy', 'Mantap, delapan bab beres. Yuk cek fasad desainmu sendiri.'],
 };
 const luxRow = (id) => (LUX[id] ? `<div class="l3d-lux" data-lux="${id}">${luxSvg(LUX[id][0], { size: 46 })}<p>${LUX[id][1]}</p></div>` : '');
 
@@ -204,6 +210,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     else if (act === 'resume') h.onResume?.(h.savedAutosave);
     else if (act === 'example') h.onTryExample?.();
     else if (act === 'learn') goTo(1);
+    else if (act === 'top') goTo(0);
   });
 
   // ---------- Layar sambutan: nama wajib diisi pada kunjungan pertama ----------
@@ -269,8 +276,8 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   const overlay = createFacadeOverlay(stage);
   const sun = createSunMarker(stage, { radius: 170 });
   const arrows = createHeatArrows(stage);
-  // Potongan dinding menempel di depan fasad Barat (0,35 m keluar), muka dalam menghadap fasad.
-  const wallSample = createWallSection(stage, { origin: new THREE.Vector3(-14.35, 54.6, -9) });
+  // Potongan dinding Bab 6: dinding asli fasad Barat di bawah jendela lantai 10 dipotong di z = −9.
+  const wallSample = createWallSection(stage, { facadeX: -14, zCut: -9 });
   const V0 = [0, 0, 0];
   const L = {
     sf: [
@@ -307,6 +314,14 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
       overhang: new THREE.Vector3(-14.6, base + sill + gh + 0.18, -10),
       glassMid: new THREE.Vector3(-14.05, base + sill + gh * 0.6, -1.5),
     };
+  }
+
+  // Pita dinding padat di fasad Barat lantai 10: dari atas overhang lantai 9 sampai ambang kaca lantai 10.
+  function wallBand() {
+    const gh = glassH('B'), sill = sillFor(gh), base = PODIUM_H + FLOOR * 4;
+    const top = base + sill;
+    const bottom = Math.min(top - 0.8, base - 4 + sill + gh + 0.3);
+    return [bottom, top];
   }
 
   // ---------- Pembaruan model + angka ----------
@@ -368,7 +383,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     $('d-td').textContent = `${tdekWall(wall.massa_kg_m2)} K`;
     $('d-q').textContent = fmt(w.qWall, 1);
     $('d-total').textContent = fmt(w.total, 1);
-    wallSample.update(sim.wall, outerColor(alpha));
+    wallSample.update(sim.wall, outerColor(alpha), wallBand());
     // Bab 7
     for (const d of ['U', 'T', 'S', 'B']) {
       root.querySelector(`[data-side="${d}"]`).value = sim.wwr[d];
@@ -566,9 +581,52 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   // Desktop: pusat bingkai digeser ke kanan kartu teks. HP: kartu di bawah, bingkai tidak digeser.
   function fitFrame() {
     const card = root.querySelector('.l3d-card');
+    stickTop = card ? parseFloat(getComputedStyle(card).top) || 0 : 0;
     stage.setFrameInset(window.innerWidth > 720 && card ? card.getBoundingClientRect().right + 16 : 0);
     stage.resize();
   }
+
+  // ---------- Gerak kartu ----------
+  // Kartu yang didorong keluar mengecil dan memudar; kartu yang sedang bergerak sedikit meregang mengikuti
+  // kecepatan scroll; saat menempel di posisinya kartu memantul pelan (squash lalu kembali).
+  const cards = [...root.querySelectorAll('.l3d-card')];
+  const docked = cards.map(() => false);
+  let stickTop = 0;
+  function cardFx() {
+    if (reduceMotion) return;
+    const v = lenis ? lenis.velocity : 0;
+    const stretch = Math.min(0.03, Math.abs(v) * 0.0016);
+    const vh = window.innerHeight;
+    cards.forEach((el, i) => {
+      const r = el.getBoundingClientRect();
+      if (r.bottom < -40 || r.top > vh + 40) {
+        if (el.style.transform || el.style.opacity) { el.style.transform = ''; el.style.opacity = ''; }
+        docked[i] = false;
+        return;
+      }
+      const dy = r.top - stickTop;
+      if (dy < -1) {
+        const p = clamp01(-dy / (r.height * 0.7));
+        el.style.transformOrigin = 'center top';
+        el.style.transform = `scale(${(1 - 0.06 * p).toFixed(4)})`;
+        el.style.opacity = (1 - 0.55 * p).toFixed(3);
+        docked[i] = false;
+      } else if (dy > 1) {
+        el.style.transformOrigin = v >= 0 ? 'center top' : 'center bottom';
+        el.style.transform = stretch > 0.002 ? `scaleY(${(1 + stretch).toFixed(4)})` : '';
+        el.style.opacity = '';
+        docked[i] = false;
+      } else {
+        if (!docked[i]) {
+          docked[i] = true;
+          el.style.transformOrigin = 'center top';
+          if (frames > 10) { el.classList.remove('is-dock'); void el.offsetWidth; el.classList.add('is-dock'); }
+        }
+        if (el.style.transform || el.style.opacity) { el.style.transform = ''; el.style.opacity = ''; }
+      }
+    });
+  }
+  cards.forEach((el) => el.addEventListener('animationend', () => el.classList.remove('is-dock')));
 
   // ---------- Loop ----------
   const idx = Object.fromEntries(CH.map((c, i) => [c.id, i]));
@@ -603,7 +661,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     L.wwr.on = at(c, 'bab-3');
     L.overhang.on = L.glassH.on = at(c, 'bab-5', 0.35);
     Object.values(L.side).forEach((l) => { l.on = at(c, 'bab-7'); });
-    L.sky.on = c > idx['bab-8'] - 0.3;
+    L.sky.on = at(c, 'bab-8', 0.45);
 
     const a = Math.round(c);
     if (a !== active || frames === 0) {
@@ -613,6 +671,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
       h.onChapter?.(active);
     }
 
+    cardFx();
     stage.render();
     if (++frames === 6) window.__ready = true;
     raf = requestAnimationFrame(tick);

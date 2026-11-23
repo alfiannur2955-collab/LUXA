@@ -100,8 +100,9 @@ export function buildCity(pal) {
       walks.push(box(cx - half, cz - half, cx + half, cz + half, 0, 0.25));
       if (i === 0 && j === 0) continue; // blok tower
       if (i === 0 && j === 1) {
-        // Plaza di selatan tower
-        for (let k = 0; k < 22; k++) trees.push([cx - 24 + r() * 48, cz - 24 + r() * 48, 0.8 + r() * 0.5]);
+        // Plaza di selatan tower: dua baris pohon rapi di kiri-kanan, sumbu tengah dibiarkan terbuka ke tower.
+        for (const dx of [-22, -14, 14, 22]) for (const dz of [-18, -6, 6, 18]) trees.push([cx + dx, cz + dz, 1]);
+        for (let k = 0; k < 66; k++) r(); // jaga urutan angka acak supaya bentuk blok lain tidak berubah
         continue;
       }
       // Blok di depan kamera (barat dan selatan tower) dibuat lebih rendah supaya kaki tower terlihat.
@@ -121,14 +122,14 @@ export function buildCity(pal) {
     }
   }
 
-  // Pohon di sepanjang jalan dekat tower dan di blok tower.
-  for (const s of [-1, 1]) {
-    for (let k = -2; k <= 2; k++) {
-      trees.push([s * (half + 3), k * 12, 0.9]);
-      trees.push([k * 12, s * (half + 3), 0.9]);
-    }
+  // Pohon di tapak tower: satu baris rapi di tiap sisi, di antara podium (20 m) dan tepi blok (30 m).
+  // Jarak 8 m, sudut diisi sekali saja. Tidak ada pohon di badan jalan.
+  const ring = 25;
+  for (let k = -3; k <= 3; k++) {
+    const u = k * 8;
+    trees.push([u, -ring, 1], [u, ring, 1]);
+    if (Math.abs(k) < 3) trees.push([-ring, u, 1], [ring, u, 1]);
   }
-  for (const [x, z] of [[-26, -26], [26, -26], [-26, 26], [26, 26], [-26, 0], [26, 8]]) trees.push([x, z, 1]);
 
   // Garis tengah jalan putus-putus.
   const ext = (N + 0.5) * PITCH;
