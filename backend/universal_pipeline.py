@@ -59,7 +59,13 @@ from loaders.normalize import (  # noqa: F401
     _merge_coplanar_tris_to_quads,
     decompose_merged_group_geometrically,
 )
-from loaders.rhino import _apply_xform, _ladybug_mesh_to_numpy, _rhino_mesh_to_numpy, _xform_to_matrix
+from loaders.rhino import (
+    _apply_xform,
+    _ladybug_mesh_to_numpy,
+    _rhino_mesh_to_numpy,
+    _xform_to_matrix,
+    tessellate_planar_brep_face,
+)
 from loaders.types import RawGroupMesh, Stage1GeometryAudit, UNIT_SCALE_TO_METERS  # noqa: F401
 
 HAS_IFCOPENSHELL = _ifc_loader.HAS_IFCOPENSHELL  # dibaca ulang saat dipakai; browser_api memperbaruinya
@@ -162,11 +168,16 @@ def load_universal_model_stages_1_and_2(
             _add_chunk(g_name, layer_name, str(ch.get("src_mat") or "Default"), cat, v_arr, f_arr)
         for mm in payload.get("missing_mesh") or []:
             audit.missing_mesh.append(dict(mm))
+        fb_faces = int(payload.get("planar_fallback_faces") or 0)
+        if fb_faces > 0:
+            audit.notes.append(
+                f"File tanpa render mesh: {fb_faces} permukaan planar ditesselasi otomatis dari tepi Brep/Extrusion."
+            )
         if audit.missing_mesh:
             audit.notes.append(
                 f"Peringatan M3: {sum(int(m.get('face_count', 0)) for m in audit.missing_mesh)} permukaan tanpa render mesh "
-                "tidak digambar ulang otomatis. Di Rhino: tampilkan viewport dalam mode Shaded lalu Save "
-                "(jangan gunakan SaveSmall), atau jalankan perintah Mesh pada objek Brep/Surface sebelum menyimpan .3dm."
+                "tidak digambar ulang otomatis. Di Rhino: tampilkan viewport dalam mode Shaded lalu simpan ulang tanpa SaveSmall "
+                "(atau jalankan RefreshShade / Mesh pada objek Brep/Surface sebelum menyimpan .3dm)."
             )
         if audit.hidden_objects_skipped > 0:
             audit.notes.append(f"{audit.hidden_objects_skipped} objek/layer tersembunyi (Hidden/Off) diabaikan otomatis.")
@@ -226,9 +237,12 @@ def load_universal_model_stages_1_and_2(
         mat_from_parent = getattr(rhino3dm.ObjectMaterialSource, "MaterialFromParent", None)
         mat_from_object = getattr(rhino3dm.ObjectMaterialSource, "MaterialFromObject", None)
         missing_mesh_counts: Dict[Tuple[str, str, str], int] = {}
+        missing_mesh_obj_counts: Dict[Tuple[str, str, str], int] = {}
+        # A3-05: antrean Brep tanpa render mesh untuk tesselasi cadangan planar bila file 0 mesh
+        planar_fallback_queue: List[Tuple[Any, List[int], str, str, str, str, np.ndarray]] = []
         rhino_mesh_export_instruction = (
-            "Di Rhino: tampilkan viewport dalam mode Shaded lalu Save (jangan gunakan SaveSmall), "
-            "atau jalankan perintah Mesh pada objek Brep/Surface sebelum menyimpan .3dm."
+            "Buka di Rhino, jalankan RefreshShade atau simpan ulang dari Rhino tanpa SaveSmall "
+            "(viewport mode Shaded), atau jalankan perintah Mesh pada objek Brep/Surface sebelum menyimpan .3dm."
         )
 
         def _process_rhino_obj(
@@ -325,6 +339,7 @@ def load_universal_model_stages_1_and_2(
                     geom = brep
 
             if isinstance(geom, rhino3dm.Brep):
+                missing_face_indices: List[int] = []
                 for f_i in range(len(geom.Faces)):
                     bf = geom.Faces[f_i]
                     got_mesh = False
@@ -337,14 +352,20 @@ def load_universal_model_stages_1_and_2(
                                 got_mesh = True
                                 break
                     if not got_mesh:
-                        # M3: NEVER tessellate untrimmed UnderlyingSurface — record missing render mesh!
-                        mk = (g_name, layer_name, "Brep")
-                        missing_mesh_counts[mk] = missing_mesh_counts.get(mk, 0) + 1
+                        missing_face_indices.append(f_i)
+                if missing_face_indices:
+                    mk = (g_name, layer_name, "Brep")
+                    missing_mesh_counts[mk] = missing_mesh_counts.get(mk, 0) + len(missing_face_indices)
+                    missing_mesh_obj_counts[mk] = missing_mesh_obj_counts.get(mk, 0) + 1
+                    planar_fallback_queue.append(
+                        (geom, missing_face_indices, g_name, layer_name, src_mat, cat, parent_xform)
+                    )
 
             elif isinstance(geom, rhino3dm.Surface):
                 # M3: Standalone Surface without stored render mesh — record instead of fabricating untrimmed mesh
                 mk = (g_name, layer_name, "Surface")
                 missing_mesh_counts[mk] = missing_mesh_counts.get(mk, 0) + 1
+                missing_mesh_obj_counts[mk] = missing_mesh_obj_counts.get(mk, 0) + 1
 
         identity4 = np.eye(4, dtype=np.float64)
         idef_obj_mode = getattr(rhino3dm.ObjectMode, "InstanceDefinitionObject", None)
@@ -355,6 +376,31 @@ def load_universal_model_stages_1_and_2(
                 continue
             _process_rhino_obj(obj, identity4)
 
+        # A3-05 (Opsi 2): hanya jalankan tesselasi cadangan planar bila file 3DM menghasilkan 0 mesh sama sekali
+        if not groups_map and planar_fallback_queue:
+            # Pertahankan catatan Surface; hitung ulang missing_mesh Brep khusus face non-planar / gagal
+            missing_mesh_counts = {k: v for k, v in missing_mesh_counts.items() if k[2] != "Brep"}
+            missing_mesh_obj_counts = {k: v for k, v in missing_mesh_obj_counts.items() if k[2] != "Brep"}
+            planar_fallback_faces = 0
+            for brep_obj, face_indices, mg, ml, msrc, mcat, xf_mat in planar_fallback_queue:
+                failed_for_obj = 0
+                for f_i in face_indices:
+                    bf = brep_obj.Faces[f_i]
+                    res = tessellate_planar_brep_face(brep_obj, bf)
+                    if res is not None:
+                        _add_chunk(mg, ml, msrc, mcat, _apply_xform(res[0], xf_mat), res[1])
+                        planar_fallback_faces += 1
+                    else:
+                        failed_for_obj += 1
+                if failed_for_obj > 0:
+                    mk = (mg, ml, "Brep")
+                    missing_mesh_counts[mk] = missing_mesh_counts.get(mk, 0) + failed_for_obj
+                    missing_mesh_obj_counts[mk] = missing_mesh_obj_counts.get(mk, 0) + 1
+            if planar_fallback_faces > 0:
+                audit.notes.append(
+                    f"File tanpa render mesh: {planar_fallback_faces} permukaan planar ditesselasi otomatis dari tepi Brep/Extrusion."
+                )
+
         if missing_mesh_counts:
             total_missing = 0
             for (mg, ml, mtype), cnt in sorted(missing_mesh_counts.items()):
@@ -364,6 +410,7 @@ def load_universal_model_stages_1_and_2(
                     "layer": ml,
                     "object_type": mtype,
                     "face_count": int(cnt),
+                    "object_count": int(missing_mesh_obj_counts.get((mg, ml, mtype), 0)),
                     "instruction": rhino_mesh_export_instruction,
                 })
             audit.notes.append(
@@ -622,6 +669,14 @@ def load_universal_model_stages_1_and_2(
             )
 
     if not raw_groups:
+        if audit.missing_mesh:
+            total_faces = sum(int(m.get("face_count", 0)) for m in audit.missing_mesh)
+            total_objs = sum(int(m.get("object_count", 0)) for m in audit.missing_mesh)
+            obj_txt = f"{total_objs} objek ({total_faces} permukaan)" if total_objs > 0 else f"{total_faces} permukaan"
+            raise ValueError(
+                f"File berisi {obj_txt} Brep/Surface tanpa render mesh (non-planar sehingga tidak bisa "
+                "ditesselasi otomatis). Buka di Rhino, jalankan RefreshShade atau simpan ulang tanpa SaveSmall."
+            )
         raise ValueError("Tidak ditemukan geometri 3D pada file yang diunggah.")
 
     # ------------------------------------------------------------------------

@@ -579,3 +579,210 @@ def test_nama_generik_tanpa_saran_material(tmp_path, glz, wall):
     assert w["detail"]["suggestions"] == []
     assert w["detail"]["suggested_patch"] == {}
     assert r["summary"]["is_provisional"] is True
+
+
+# ----------------------------------------------------------------------------
+# A3-05: file .3dm berisi Brep / Extrusion tanpa render mesh (SaveSmall)
+# ----------------------------------------------------------------------------
+
+def _add_layer_and_mat(model: "rhino3dm.File3dm", name: str, rgb: Tuple[int, int, int], transp: float = 0.0) -> Tuple[int, int]:
+    lyr = rhino3dm.Layer()
+    lyr.Name = name
+    lyr.Color = (rgb[0], rgb[1], rgb[2], 255)
+    li = model.Layers.Add(lyr)
+    mat = rhino3dm.Material()
+    mat.Name = name
+    mat.Transparency = transp
+    mi = model.Materials.Add(mat)
+    return li, mi
+
+
+def _extrusion_box(x0: float, y0: float, x1: float, y1: float, z0: float, z1: float) -> "rhino3dm.Extrusion":
+    pl = rhino3dm.Polyline([
+        rhino3dm.Point3d(x0, y0, z0),
+        rhino3dm.Point3d(x1, y0, z0),
+        rhino3dm.Point3d(x1, y1, z0),
+        rhino3dm.Point3d(x0, y1, z0),
+        rhino3dm.Point3d(x0, y0, z0),
+    ])
+    return rhino3dm.Extrusion.Create(pl.ToPolylineCurve(), z1 - z0, True)
+
+
+def _write_meshless_brep_extrusion_building(path: str) -> None:
+    """Bangunan kotak 20x12x8 m (2 lantai @ 4 m) murni Brep + Extrusion tanpa render mesh."""
+    model = rhino3dm.File3dm()
+    model.Settings.ModelUnitSystem = rhino3dm.UnitSystem.Meters
+    li_w, mi_w = _add_layer_and_mat(model, "Dinding Bata", (194, 184, 173), 0.0)
+    li_g, mi_g = _add_layer_and_mat(model, "Kaca Jendela", (122, 194, 235), 0.7)
+    li_r, mi_r = _add_layer_and_mat(model, "Atap Beton", (140, 143, 148), 0.0)
+
+    def _attr(li: int, mi: int) -> "rhino3dm.ObjectAttributes":
+        a = rhino3dm.ObjectAttributes()
+        a.LayerIndex = li
+        a.MaterialIndex = mi
+        a.MaterialSource = rhino3dm.ObjectMaterialSource.MaterialFromObject
+        return a
+
+    t = 0.2
+    for f in range(2):
+        z0 = f * 4.0
+        # Pita spandrel bawah & atas sebagai Extrusion (tanpa render mesh)
+        for zb0, zb1 in ((z0, z0 + 1.2), (z0 + 2.8, z0 + 4.0)):
+            for x0, y0, x1, y1 in (
+                (-10.0, -6.0, 10.0, -6.0 + t),
+                (-10.0, 6.0 - t, 10.0, 6.0),
+                (10.0 - t, -6.0 + t, 10.0, 6.0 - t),
+                (-10.0, -6.0 + t, -10.0 + t, 6.0 - t),
+            ):
+                model.Objects.AddExtrusion(_extrusion_box(x0, y0, x1, y1, zb0, zb1), _attr(li_w, mi_w))
+        # Pita kaca tengah sebagai Brep kotak (tanpa render mesh)
+        zg0, zg1 = z0 + 1.2, z0 + 2.8
+        for x0, y0, x1, y1 in (
+            (-10.0, -6.0, 10.0, -6.0 + t),
+            (-10.0, 6.0 - t, 10.0, 6.0),
+            (10.0 - t, -6.0 + t, 10.0, 6.0 - t),
+            (-10.0, -6.0 + t, -10.0 + t, 6.0 - t),
+        ):
+            bb = rhino3dm.BoundingBox(rhino3dm.Point3d(x0, y0, zg0), rhino3dm.Point3d(x1, y1, zg1))
+            brep = rhino3dm.Brep.CreateFromBox(rhino3dm.Box(bb))
+            model.Objects.AddBrep(brep, _attr(li_g, mi_g))
+
+    # Atap sebagai Extrusion tipis (tanpa render mesh)
+    model.Objects.AddExtrusion(_extrusion_box(-10.0, -6.0, 10.0, 6.0, 8.0, 8.2), _attr(li_r, mi_r))
+    model.Write(path, 7)
+
+
+def _mesh_equivalent_parts() -> List[ms.MeshPart]:
+    rect = [(-10.0, -6.0), (10.0, -6.0), (10.0, 6.0), (-10.0, 6.0)]
+    roof = [ms.make_horizontal_quad(rect, 8.0, up=True)]
+    return ms.build_ribbon_building_parts(
+        [rect], roof, floors=2, fh=4.0,
+        wall_name="Dinding Bata", glz_name="Kaca Jendela", roof_name="Atap Beton",
+    )
+
+
+def test_3dm_brep_dan_extrusion_tanpa_mesh_sama_dengan_versi_mesh(tmp_path):
+    """A3-05: file 3DM murni Brep kotak + Extrusion tanpa render mesh menghasilkan OTTV sama dengan versi Mesh."""
+    ref = run(tmp_path, _mesh_equivalent_parts(), "box2_mesh")
+
+    path_nomesh = str(tmp_path / "box2_brep_extrusion_nomesh.3dm")
+    _write_meshless_brep_extrusion_building(path_nomesh)
+    prm = EnvelopeParameters()
+    prm.calculation_mode = "sni"
+    prm.city_preset = "jakarta"
+    prm.materials_confirmed = True
+    res = analyze_building_ottv(path_nomesh, os.path.basename(path_nomesh), prm)
+    assert res.get("ottv_total_wm2") is not None, res.get("ottv_error")
+    assert_same(ref, res, "Brep+Extrusion tanpa mesh vs Mesh")
+    assert "MISSING_MESH" not in _codes(res)
+
+
+def test_3dm_extrusion_berlubang_tanpa_mesh(tmp_path):
+    """A3-05: BrepFace planar dengan lubang (loop dalam) ditriangulasi benar tanpa menutup lubang."""
+    path = str(tmp_path / "wall_with_hole_nomesh.3dm")
+    model = rhino3dm.File3dm()
+    model.Settings.ModelUnitSystem = rhino3dm.UnitSystem.Meters
+    li_w, mi_w = _add_layer_and_mat(model, "Dinding Bata", (194, 184, 173), 0.0)
+    li_g, mi_g = _add_layer_and_mat(model, "Kaca Jendela", (122, 194, 235), 0.7)
+
+    def _attr(li: int, mi: int) -> "rhino3dm.ObjectAttributes":
+        a = rhino3dm.ObjectAttributes()
+        a.LayerIndex = li
+        a.MaterialIndex = mi
+        a.MaterialSource = rhino3dm.ObjectMaterialSource.MaterialFromObject
+        return a
+
+    # Cincin dinding 20x12 m berlubang 16x8 m di tengah (AddInnerProfile pakai koordinat lokal terhadap outer[0])
+    outer = rhino3dm.Polyline([
+        rhino3dm.Point3d(-10.0, -6.0, 0.0), rhino3dm.Point3d(10.0, -6.0, 0.0),
+        rhino3dm.Point3d(10.0, 6.0, 0.0), rhino3dm.Point3d(-10.0, 6.0, 0.0),
+        rhino3dm.Point3d(-10.0, -6.0, 0.0),
+    ])
+    inner = rhino3dm.Polyline([
+        rhino3dm.Point3d(2.0, 2.0, 0.0), rhino3dm.Point3d(18.0, 2.0, 0.0),
+        rhino3dm.Point3d(18.0, 10.0, 0.0), rhino3dm.Point3d(2.0, 10.0, 0.0),
+        rhino3dm.Point3d(2.0, 2.0, 0.0),
+    ])
+    ext = rhino3dm.Extrusion.Create(outer.ToPolylineCurve(), 4.0, True)
+    ext.AddInnerProfile(inner.ToPolylineCurve())
+    model.Objects.AddExtrusion(ext, _attr(li_w, mi_w))
+
+    # Tambahkan atap datar dengan lubang 16x8 di atasnya sebagai Atap Beton (luas harus 20*12 - 16*8 = 112 m²)
+    li_r, mi_r = _add_layer_and_mat(model, "Atap Beton", (140, 143, 148), 0.0)
+    roof_ext = rhino3dm.Extrusion.Create(outer.ToPolylineCurve(), 0.2, True)
+    roof_ext.AddInnerProfile(inner.ToPolylineCurve())
+    roof_ext.Translate(rhino3dm.Vector3d(0.0, 0.0, 4.0))
+    model.Objects.AddExtrusion(roof_ext, _attr(li_r, mi_r))
+
+    # Kaca kecil di sisi selatan agar tidak NO_GLAZING
+    bb_g = rhino3dm.BoundingBox(rhino3dm.Point3d(-2.0, -6.2, 1.0), rhino3dm.Point3d(2.0, -6.0, 3.0))
+    model.Objects.AddBrep(rhino3dm.Brep.CreateFromBox(rhino3dm.Box(bb_g)), _attr(li_g, mi_g))
+    model.Write(path, 7)
+
+    prm = EnvelopeParameters()
+    prm.calculation_mode = "sni"
+    prm.city_preset = "jakarta"
+    prm.materials_confirmed = True
+    res = analyze_building_ottv(path, os.path.basename(path), prm)
+    assert res.get("ottv_total_wm2") is not None
+    # Luas atap berlubang: 20*12 - 16*8 = 240 - 128 = 112 m² (bukan 240 m²!)
+    roof_area = float(res["rttv"]["total_roof_area_m2"])
+    assert abs(roof_area - 112.0) <= 2.0, f"Atap berlubang seharusnya ~112 m², dapat {roof_area:.2f} m²"
+
+
+def test_3dm_nonplanar_tanpa_mesh_catat_missing_mesh_dan_pesan_savesmall(tmp_path):
+    """A3-05: face non-planar tanpa render mesh dicatat di missing_mesh; bila seluruh file non-planar pesan jujur."""
+    # 1. File murni non-planar (bola Brep tanpa render mesh) -> ValueError jujur menyarankan SaveSmall
+    path_only_curved = str(tmp_path / "only_sphere_nomesh.3dm")
+    m1 = rhino3dm.File3dm()
+    m1.Settings.ModelUnitSystem = rhino3dm.UnitSystem.Meters
+    li_w, mi_w = _add_layer_and_mat(m1, "Dinding Bata", (194, 184, 173), 0.0)
+    a = rhino3dm.ObjectAttributes()
+    a.LayerIndex = li_w
+    a.MaterialIndex = mi_w
+    a.MaterialSource = rhino3dm.ObjectMaterialSource.MaterialFromObject
+    sph = rhino3dm.Sphere(rhino3dm.Point3d(0, 0, 5), 5.0)
+    m1.Objects.AddBrep(sph.ToBrep(), a)
+    m1.Write(path_only_curved, 7)
+
+    from universal_pipeline import load_universal_model_stages_1_and_2
+    with pytest.raises(ValueError) as exc_info:
+        load_universal_model_stages_1_and_2(path_only_curved)
+    msg = str(exc_info.value)
+    assert "SaveSmall" in msg and "render mesh" in msg.lower(), f"Pesan error kurang informatif: {msg}"
+
+    # 2. File tanpa mesh berisi dinding kotak planar + satu bola non-planar -> planar tetap terhitung, bola masuk MISSING_MESH
+    path_mixed_geom = str(tmp_path / "planar_plus_sphere_nomesh.3dm")
+    _write_meshless_brep_extrusion_building(path_mixed_geom)
+    m2 = rhino3dm.File3dm.Read(path_mixed_geom)
+    a2 = rhino3dm.ObjectAttributes()
+    a2.LayerIndex = 0
+    a2.MaterialIndex = 0
+    a2.MaterialSource = rhino3dm.ObjectMaterialSource.MaterialFromObject
+    m2.Objects.AddBrep(rhino3dm.Sphere(rhino3dm.Point3d(25, 0, 5), 2.0).ToBrep(), a2)
+    m2.Write(path_mixed_geom, 7)
+
+    prm = EnvelopeParameters()
+    prm.calculation_mode = "sni"
+    prm.city_preset = "jakarta"
+    prm.materials_confirmed = True
+    res = analyze_building_ottv(path_mixed_geom, os.path.basename(path_mixed_geom), prm)
+    assert "MISSING_MESH" in _codes(res)
+    mm_warn = [w for w in res["summary"]["warnings"] if w["code"] == "MISSING_MESH"][0]
+    assert "SaveSmall" in mm_warn["message"]
+    assert mm_warn["detail"]["total_face_count"] == 1
+
+
+def test_3dm_campuran_missing_mesh_sebut_objek_dan_sarankan_savesmall():
+    """A3-05 (Opsi 2): file campuran (punya mesh + Brep tanpa mesh) tetap mencatat MISSING_MESH lengkap."""
+    p = os.path.join(ROOT_DIR, "fixtures", "synthetic", "12_brep_tanpa_mesh", "model.3dm")
+    prm = EnvelopeParameters()
+    prm.calculation_mode = "sni"
+    prm.city_preset = "jakarta"
+    prm.materials_confirmed = True
+    res = analyze_building_ottv(p, "model.3dm", prm)
+    mm = [w for w in res["summary"]["warnings"] if w["code"] == "MISSING_MESH"]
+    assert len(mm) == 1
+    msg = mm[0]["message"]
+    assert "32 objek" in msg and "192 permukaan" in msg, f"Jumlah objek/permukaan tidak disebut: {msg}"
+    assert "simpan ulang dari Rhino tanpa SaveSmall" in msg, f"Saran SaveSmall tidak ada: {msg}"

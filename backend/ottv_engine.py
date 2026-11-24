@@ -3576,19 +3576,27 @@ def analyze_building_ottv(
         })
     if stage1_audit.missing_mesh:
         total_missing_faces = sum(int(item.get("face_count", 0)) for item in stage1_audit.missing_mesh)
+        total_missing_objs = sum(int(item.get("object_count", 0)) for item in stage1_audit.missing_mesh)
         per_group_summary = ", ".join(
             f"{item.get('group', '?')} ({int(item.get('face_count', 0))} face)"
             for item in stage1_audit.missing_mesh
         )
+        count_prefix = (
+            f"{total_missing_objs} objek ({total_missing_faces} permukaan)"
+            if total_missing_objs > 0
+            else f"{total_missing_faces} permukaan"
+        )
         summary_warnings.append({
             "code": "MISSING_MESH",
             "message": (
-                f"{total_missing_faces} permukaan Brep/Surface tidak memiliki render mesh sehingga "
-                f"tidak ikut dihitung: {per_group_summary}. Hasil OTTV bersifat sementara sampai "
-                "file disimpan ulang dengan render mesh."
+                f"{count_prefix} Brep/Surface tidak memiliki render mesh sehingga "
+                f"dilewati: {per_group_summary}. Bila objek tersebut termasuk selubung bangunan, "
+                "simpan ulang dari Rhino tanpa SaveSmall (mode Shaded atau jalankan RefreshShade) "
+                "agar ikut dihitung."
             ),
             "detail": {
                 "total_face_count": int(total_missing_faces),
+                "total_object_count": int(total_missing_objs),
                 "items": stage1_audit.missing_mesh,
             },
         })
