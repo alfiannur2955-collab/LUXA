@@ -25,7 +25,7 @@ Skrip probe tidak dimasukkan ke repo. Temuan yang diperbaiki wajib mendapat uji 
 | A3-04 | TINGGI | Performa | Model 24 lantai: hasil 22 MB JSON, memori puncak 319 MB → aplikasi tersendat |
 | A3-05 | TINGGI | Baca file | 3DM berisi Brep/Extrusion tanpa render mesh → "tidak ada geometri" — **diperbaiki** |
 | A3-06 | SEDANG | Klasifikasi | Cek geometri (AUDIT-03) hanya saat hitung; inspeksi dan hasil tidak konsisten — **diperbaiki** |
-| A3-07 | SEDANG | Sisi luar | Dua massa dengan celah ≤ 1 m: fasad yang berhadapan dibuang tanpa peringatan |
+| A3-07 | SEDANG | Sisi luar | Dua massa dengan celah ≤ 1 m: fasad yang berhadapan dibuang tanpa peringatan — **diperbaiki** |
 | A3-08 | SEDANG | Peneduh | Pelat balkon: dihitung atau tidak bergantung nama ("Slab" ya, "Pelat Lantai" tidak) — **diperbaiki** |
 | A3-09 | SEDANG | CI | Paritas engine browser, hitung ulang LibreOffice, dan tes berbasis corpus selalu dilewati di CI — **diperbaiki** |
 | A3-10 | SEDANG | Distribusi | `frontend/dist` lokal bisa basi tanpa peringatan; Node.js tidak ada di laptop pengembang — **diperbaiki** |
@@ -196,6 +196,8 @@ Dua massa 20×10 m berhadapan:
 Pada celah ≤ 1 m, fasad yang berhadapan dianggap fasad dalam. Secara fisik masih udara luar (walau sangat
 terbayangi), dan pengguna tidak diberi tahu. **Usulan:** tampilkan peringatan "N m² fasad dianggap dalam karena
 berhadapan dengan massa lain berjarak < X m", dengan opsi menghitungnya.
+
+**Perbaikan (Nov 2026, commit `ffb6467`).** Ditambahkan deteksi celah sempit `< 1,5 m` (terbuka ke langit agar tidak salah menandai koridor beratap) di `detect_exterior_faces_raycast()` dan `resolve_group_outer_skin_faces()`, yang mengeluarkan peringatan informatif `NARROW_GAP_FACES` (luas m² dan daftar grup) di `summary.warnings` tanpa mengubah angka OTTV maupun status provisional. Teruji di `tests/test_invariants.py` (celah 1,0 m → peringatan muncul; 6,0 m → tidak); baseline 0 selisih.
 
 ## A3-08 · SEDANG · Pelat balkon bergantung nama
 
