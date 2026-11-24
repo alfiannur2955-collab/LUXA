@@ -1431,6 +1431,7 @@ def _measure_panel_sni_shading_ratios(
     detail: Optional[Dict[str, Any]] = None,
     shading_src: Optional[np.ndarray] = None,
     shading_zindex: Optional[Dict[str, Any]] = None,
+    shading_norm_info: Optional[Tuple[np.ndarray, np.ndarray]] = None,
 ) -> Tuple[float, float, float]:
     """
     Measures SNI 6389:2020 Lampiran A overhang ratio `R1 = P_h / H` (horizontal overhang),
@@ -1449,6 +1450,8 @@ def _measure_panel_sni_shading_ratios(
         return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
 
     pv = np.asarray(panel_verts, dtype=np.float64)
+    sel_tn_unit: Optional[np.ndarray] = None
+    sel_valid_n: Optional[np.ndarray] = None
     # Lossless 3D AABB spatial pre-filter: shading triangles beyond 12.5m XY or outside Z window band
     # can never satisfy `d_max <= 12.0` and `u_min <= half_h + 0.80` / `u_max >= -half_h + 0.05`.
     if shading_aabb is not None:
@@ -1456,52 +1459,78 @@ def _measure_panel_sni_shading_ratios(
         p_min = np.min(pv, axis=0)
         p_max = np.max(pv, axis=0)
         if shading_zindex is not None:
-            # Kandidat dari indeks ember-Z (superset saringan Z di bawah) -> hasil identik, jauh lebih cepat
-            cand = _z_index_candidates(shading_zindex, p_min[2] - 0.5, p_max[2] + SHADE_MAX_RISE_M + 0.5)
+            # Kandidat dari indeks ember-Z ber-cache per (b0, b1) -> hasil identik, jauh lebih cepat
+            cand, cand_min, cand_max = _z_index_candidates_with_aabb(
+                shading_zindex, p_min[2] - 0.5, p_max[2] + SHADE_MAX_RISE_M + 0.5, sh_min, sh_max
+            )
             if len(cand) == 0:
                 return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
-            shading_tris = shading_tris[cand]
-            sh_min, sh_max = sh_min[cand], sh_max[cand]
+            near_mask = (
+                (cand_max[:, 2] >= p_min[2] - 0.5)
+                & (cand_min[:, 2] <= p_max[2] + SHADE_MAX_RISE_M + 0.5)
+                & (cand_max[:, 0] >= p_min[0] - 12.5)
+                & (cand_min[:, 0] <= p_max[0] + 12.5)
+                & (cand_max[:, 1] >= p_min[1] - 12.5)
+                & (cand_min[:, 1] <= p_max[1] + 12.5)
+            )
+            if not np.any(near_mask):
+                return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+            sel = cand[near_mask]
+            shading_tris = shading_tris[sel]
             if shading_src is not None:
-                shading_src = shading_src[cand]
-        near_mask = (
-            (sh_max[:, 2] >= p_min[2] - 0.5)
-            & (sh_min[:, 2] <= p_max[2] + SHADE_MAX_RISE_M + 0.5)
-            & (sh_max[:, 0] >= p_min[0] - 12.5)
-            & (sh_min[:, 0] <= p_max[0] + 12.5)
-            & (sh_max[:, 1] >= p_min[1] - 12.5)
-            & (sh_min[:, 1] <= p_max[1] + 12.5)
-        )
-        if not np.any(near_mask):
-            return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
-        shading_tris = shading_tris[near_mask]
-        if shading_src is not None:
-            shading_src = shading_src[near_mask]
+                shading_src = shading_src[sel]
+            if shading_norm_info is not None:
+                sel_tn_unit = shading_norm_info[0][sel]
+                sel_valid_n = shading_norm_info[1][sel]
+        else:
+            near_mask = (
+                (sh_max[:, 2] >= p_min[2] - 0.5)
+                & (sh_min[:, 2] <= p_max[2] + SHADE_MAX_RISE_M + 0.5)
+                & (sh_max[:, 0] >= p_min[0] - 12.5)
+                & (sh_min[:, 0] <= p_max[0] + 12.5)
+                & (sh_max[:, 1] >= p_min[1] - 12.5)
+                & (sh_min[:, 1] <= p_max[1] + 12.5)
+            )
+            if not np.any(near_mask):
+                return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+            shading_tris = shading_tris[near_mask]
+            if shading_src is not None:
+                shading_src = shading_src[near_mask]
+            if shading_norm_info is not None:
+                sel_tn_unit = shading_norm_info[0][near_mask]
+                sel_valid_n = shading_norm_info[1][near_mask]
     n_raw = np.asarray(panel_normal, dtype=np.float64)
-    n_h = np.array([n_raw[0], n_raw[1], 0.0], dtype=np.float64)
-    nh_len = float(np.linalg.norm(n_h))
+    nhx = float(n_raw[0])
+    nhy = float(n_raw[1])
+    nh_len = math.hypot(nhx, nhy)
     if nh_len < 1e-6:
         return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
-    n_h /= nh_len
-    u_ax = np.array([0.0, 0.0, 1.0], dtype=np.float64)
-    t_ax = np.array([-n_h[1], n_h[0], 0.0], dtype=np.float64)  # right horizontal axis
+    nhx /= nh_len
+    nhy /= nh_len
+    tx = -nhy  # right horizontal axis
+    ty = nhx
+    t_ax = np.array([tx, ty, 0.0], dtype=np.float64)
 
     # Local panel bounding box in (t, u, d)
-    p_t = pv @ t_ax
-    p_u = pv @ u_ax
-    p_d = pv @ n_h
-    t_c = 0.5 * (float(np.min(p_t)) + float(np.max(p_t)))
-    u_c = 0.5 * (float(np.min(p_u)) + float(np.max(p_u)))
+    p_t = pv[:, 0] * tx + pv[:, 1] * ty
+    p_u = pv[:, 2]
+    p_d = pv[:, 0] * nhx + pv[:, 1] * nhy
+    pt_min, pt_max = float(np.min(p_t)), float(np.max(p_t))
+    pu_min, pu_max = float(np.min(p_u)), float(np.max(p_u))
+    t_c = 0.5 * (pt_min + pt_max)
+    u_c = 0.5 * (pu_min + pu_max)
     d_0 = float(np.mean(p_d))
-    win_w = max(0.05, float(np.max(p_t) - np.min(p_t)))
-    win_h = max(0.05, float(np.max(p_u) - np.min(p_u)))
+    win_w = max(0.05, pt_max - pt_min)
+    win_h = max(0.05, pu_max - pu_min)
     half_w = 0.5 * win_w
     half_h = 0.5 * win_h
 
-    # Vectorized projection of all shading triangle vertices into panel local frame
-    tri_t = np.einsum("ijk,k->ij", shading_tris, t_ax) - t_c  # (M, 3)
-    tri_u = np.einsum("ijk,k->ij", shading_tris, u_ax) - u_c  # (M, 3)
-    tri_d = np.einsum("ijk,k->ij", shading_tris, n_h) - d_0   # (M, 3)
+    # Vectorized projection of shading triangle vertices into panel local frame (identik dengan einsum)
+    sh_x = shading_tris[:, :, 0]
+    sh_y = shading_tris[:, :, 1]
+    tri_t = sh_x * tx + sh_y * ty - t_c       # (M, 3)
+    tri_u = shading_tris[:, :, 2] - u_c       # (M, 3)
+    tri_d = sh_x * nhx + sh_y * nhy - d_0     # (M, 3)
 
     d_max = np.max(tri_d, axis=1)
     d_min = np.min(tri_d, axis=1)
@@ -1517,16 +1546,24 @@ def _measure_panel_sni_shading_ratios(
         return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
 
     idx_c = np.where(in_front)[0]
-    sub_tris = shading_tris[idx_c]
-    tc = np.cross(sub_tris[:, 1] - sub_tris[:, 0], sub_tris[:, 2] - sub_tris[:, 0])
-    tn_len = np.linalg.norm(tc, axis=1)
-    valid_n = tn_len > 1e-8
-    if not np.any(valid_n):
-        return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+    if sel_tn_unit is not None and sel_valid_n is not None:
+        valid_n = sel_valid_n[idx_c]
+        if not np.any(valid_n):
+            return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+        idx_c = idx_c[valid_n]
+        tn_unit = sel_tn_unit[idx_c]
+        tn_z = np.abs(tn_unit[:, 2])
+    else:
+        sub_tris = shading_tris[idx_c]
+        tc = np.cross(sub_tris[:, 1] - sub_tris[:, 0], sub_tris[:, 2] - sub_tris[:, 0])
+        tn_len = np.linalg.norm(tc, axis=1)
+        valid_n = tn_len > 1e-8
+        if not np.any(valid_n):
+            return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
 
-    idx_c = idx_c[valid_n]
-    tn_unit = tc[valid_n] / tn_len[valid_n, None]
-    tn_z = np.abs(tn_unit[:, 2])
+        idx_c = idx_c[valid_n]
+        tn_unit = tc[valid_n] / tn_len[valid_n, None]
+        tn_z = np.abs(tn_unit[:, 2])
 
     # 1. Horizontal overhang above top of window (|nz| >= 0.35, spans horizontally across window, sits near top edge)
     #    Exclude narrow horizontal top/bottom caps of extruded vertical fins by verifying
@@ -1662,7 +1699,7 @@ def _build_shading_z_index(sh_min: np.ndarray, sh_max: np.ndarray, bucket_m: flo
     order = np.argsort(bucket_ids, kind="stable")
     tri_sorted = tri_ids[order]
     starts = np.searchsorted(bucket_ids[order], np.arange(n_b + 1))
-    return {"z0": z0, "bucket": bucket_m, "n": n_b, "tris": tri_sorted, "starts": starts}
+    return {"z0": z0, "bucket": bucket_m, "n": n_b, "tris": tri_sorted, "starts": starts, "_cache": {}, "_aabb_cache": {}}
 
 
 def _z_index_candidates(zi: Dict[str, Any], z_lo: float, z_hi: float) -> np.ndarray:
@@ -1672,8 +1709,43 @@ def _z_index_candidates(zi: Dict[str, Any], z_lo: float, z_hi: float) -> np.ndar
     b1 = min(zi["n"] - 1, int(math.floor((z_hi - zi["z0"]) / zi["bucket"])))
     if b1 < b0:
         return np.zeros(0, dtype=np.int64)
+    cache = zi.get("_cache")
+    key = (b0, b1)
+    if cache is not None and key in cache:
+        return cache[key]
     seg = zi["tris"][zi["starts"][b0]:zi["starts"][b1 + 1]]
-    return np.unique(seg)  # urut naik = urutan asli segitiga (argmax/ties tidak berubah)
+    res = np.unique(seg)  # urut naik = urutan asli segitiga (argmax/ties tidak berubah)
+    if cache is not None:
+        cache[key] = res
+    return res
+
+
+def _z_index_candidates_with_aabb(
+    zi: Dict[str, Any],
+    z_lo: float,
+    z_hi: float,
+    sh_min: np.ndarray,
+    sh_max: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if zi["n"] == 0:
+        empty_i = np.zeros(0, dtype=np.int64)
+        empty_f = np.empty((0, 3), dtype=np.float64)
+        return empty_i, empty_f, empty_f
+    b0 = max(0, int(math.floor((z_lo - zi["z0"]) / zi["bucket"])))
+    b1 = min(zi["n"] - 1, int(math.floor((z_hi - zi["z0"]) / zi["bucket"])))
+    if b1 < b0:
+        empty_i = np.zeros(0, dtype=np.int64)
+        empty_f = np.empty((0, 3), dtype=np.float64)
+        return empty_i, empty_f, empty_f
+    acache = zi.get("_aabb_cache")
+    key = (b0, b1)
+    if acache is not None and key in acache:
+        return acache[key]
+    cand = _z_index_candidates(zi, z_lo, z_hi)
+    pair = (cand, sh_min[cand], sh_max[cand])
+    if acache is not None:
+        acache[key] = pair
+    return pair
 
 
 def _superposed_sceff(orient: str, det: Dict[str, Any], r1: float, r2: float, phi1: float, table_mode: str) -> Optional[float]:
@@ -2185,6 +2257,12 @@ def analyze_building_ottv(
         or any(str(b.get("category", "")) in ("glazing", "composite_cw") for b in z_band_ovs)
     )
 
+    sf_by_orient_sni: Dict[str, float] = (
+        {code: get_sf_for_source(params.city_preset, code, sf_source) for code in ORIENTATION_CODES}
+        if is_sni_mode
+        else {}
+    )
+
     for rg, eff_cat in surface_groups:
         ext_res = resolve_group_outer_skin_faces(
             rg=rg,
@@ -2265,22 +2343,44 @@ def analyze_building_ottv(
             "enabled": not group_disabled,
         })
 
+        p0_r = np.round(p0_v, 3).tolist()
+        p1_r = np.round(p1_v, 3).tolist()
+        p2_r = np.round(p2_v, 3).tolist()
+        p3_r = np.round(p3_v, 3).tolist()
+        cent_r = np.round(centroids_v, 3).tolist()
+        norm_r = np.round(normals_v, 3).tolist()
+        area_r = np.round(areas_v, 3).tolist()
+        az_r = np.round(raw_az, 1).tolist()
+        tilt_r = np.round(tilt_arr, 1).tolist()
+        is_quad_l = is_quad_v.tolist()
+        is_outer_l = is_outer_arr.tolist()
+        fl_idx_l = fl_indices.tolist()
+        orig_idx_l = orig_idx_v.tolist()
+        cz_l = centroids_v[:, 2].tolist()
+        nz_l = normals_v[:, 2].tolist()
+        has_orient_ov = bool(params.orientation_material_overrides)
+        orient_ov_map = params.orientation_material_overrides
+        gid_prefix = f"{rg.group_id}-F"
+        gname_prefix = f"{rg.group_name}_"
+
         for i in range(len(areas_v)):
-            fl_num = int(fl_indices[i]) + 1
-            is_outer = bool(is_outer_arr[i])
-            cz_i = float(centroids_v[i, 2])
+            fl_num = fl_idx_l[i] + 1
+            is_outer = is_outer_l[i]
+            cz_i = cz_l[i]
             is_below_ground = (z_ground_cut > 0.05) and (cz_i < z_ground_cut - 0.05)
             if is_below_ground:
                 basement_panels_excluded += 1
 
             # Per-face & Z-band role overrides from 3D Staging Inspection
-            orig_face_key = f"{rg.group_id}-F{int(orig_idx_v[i]) + 1}"
-            seq_face_key = f"{rg.group_id}-F{i + 1}"
+            orig_face_key = f"{gid_prefix}{orig_idx_l[i] + 1}"
             panel_cat = eff_cat
-            if orig_face_key in face_ov_map:
-                panel_cat = face_ov_map[orig_face_key]
-            elif seq_face_key in face_ov_map:
-                panel_cat = face_ov_map[seq_face_key]
+            if face_ov_map:
+                if orig_face_key in face_ov_map:
+                    panel_cat = face_ov_map[orig_face_key]
+                else:
+                    seq_face_key = f"{gid_prefix}{i + 1}"
+                    if seq_face_key in face_ov_map:
+                        panel_cat = face_ov_map[seq_face_key]
             elif z_band_ovs:
                 for zb in z_band_ovs:
                     g_match = str(zb.get("group_name") or "*")
@@ -2294,7 +2394,7 @@ def analyze_building_ottv(
             face_non_envelope = panel_cat in ("ignore", "excluded", "shading", "context_shading", "roof", "frame")
             if panel_cat in ("shading", "context_shading"):
                 extra_face_shading_tris.append(np.array([p0_v[i], p1_v[i], p2_v[i]], dtype=np.float64))
-                if is_quad_v[i]:
+                if is_quad_l[i]:
                     extra_face_shading_tris.append(np.array([p0_v[i], p2_v[i], p3_v[i]], dtype=np.float64))
 
             in_floor_section = True
@@ -2310,13 +2410,13 @@ def analyze_building_ottv(
                 and in_floor_section
                 and (is_outer if params.outer_skin_only else True)
             )
-            az_val = round(float(raw_az[i]), 1)
-            tilt_val = round(float(tilt_arr[i]), 1)
+            az_val = az_r[i]
+            tilt_val = tilt_r[i]
             orient_code = classify_sni_orientation(az_val)
-            sf_val = get_sf_for_source(params.city_preset, orient_code, sf_source) if is_sni_mode else interpolate_sni_solar_factor(az_val, tilt_val, sf_mult)
+            sf_val = sf_by_orient_sni[orient_code] if is_sni_mode else interpolate_sni_solar_factor(az_val, tilt_val, sf_mult)
 
             # Resolve panel material via single canonical resolve_material()
-            if panel_cat != eff_cat or orient_code in params.orientation_material_overrides:
+            if panel_cat != eff_cat or (has_orient_ov and orient_code in orient_ov_map):
                 res_pm = resolve_material(
                     rg,
                     params,
@@ -2331,7 +2431,7 @@ def analyze_building_ottv(
 
             # SNI Pasal 4.4: Upward-facing glazing (nz > 0.50) counts as RTTV skylight ONLY if
             # shortest in-plane dimension > 0.30 m; thinner faces are recorded as 'sisi_tebal_panel'.
-            if panel_cat == "glazing" and float(normals_v[i, 2]) > 0.50:
+            if panel_cat == "glazing" and nz_l[i] > 0.50:
                 # Skylight hanya dari grup yang ditandai pengguna (bila daftar diisi); selain itu
                 # kaca menghadap atas tetap dikeluarkan dari OTTV tetapi tidak masuk RTTV.
                 sky_allowed = params.rttv_skylight_groups is None or rg.group_name in set(params.rttv_skylight_groups)
@@ -2386,25 +2486,13 @@ def analyze_building_ottv(
             else:
                 verif_label = "Sisi Luar Aktif"
 
-            if is_quad_v[i]:
-                verts_i = [
-                    [round(float(p0_v[i, 0]), 3), round(float(p0_v[i, 1]), 3), round(float(p0_v[i, 2]), 3)],
-                    [round(float(p1_v[i, 0]), 3), round(float(p1_v[i, 1]), 3), round(float(p1_v[i, 2]), 3)],
-                    [round(float(p2_v[i, 0]), 3), round(float(p2_v[i, 1]), 3), round(float(p2_v[i, 2]), 3)],
-                    [round(float(p3_v[i, 0]), 3), round(float(p3_v[i, 1]), 3), round(float(p3_v[i, 2]), 3)],
-                ]
-            else:
-                verts_i = [
-                    [round(float(p0_v[i, 0]), 3), round(float(p0_v[i, 1]), 3), round(float(p0_v[i, 2]), 3)],
-                    [round(float(p1_v[i, 0]), 3), round(float(p1_v[i, 1]), 3), round(float(p1_v[i, 2]), 3)],
-                    [round(float(p2_v[i, 0]), 3), round(float(p2_v[i, 1]), 3), round(float(p2_v[i, 2]), 3)],
-                ]
+            verts_i = [p0_r[i], p1_r[i], p2_r[i], p3_r[i]] if is_quad_l[i] else [p0_r[i], p1_r[i], p2_r[i]]
 
             panel_records.append({
                 "id": orig_face_key,
                 "group_id": rg.group_id,
                 "group_name": rg.group_name,
-                "name": f"{rg.group_name}_{i + 1}",
+                "name": f"{gname_prefix}{i + 1}",
                 "element_type": panel_cat,
                 "floor_number": fl_num,
                 "floor_label": f"L{fl_num}",
@@ -2417,17 +2505,9 @@ def analyze_building_ottv(
                 "material_id": eff_panel_mat_id,
                 "material_name": eff_panel_mat_name,
                 "vertices": verts_i,
-                "centroid": [
-                    round(float(centroids_v[i, 0]), 3),
-                    round(float(centroids_v[i, 1]), 3),
-                    round(float(centroids_v[i, 2]), 3),
-                ],
-                "normal": [
-                    round(float(normals_v[i, 0]), 3),
-                    round(float(normals_v[i, 1]), 3),
-                    round(float(normals_v[i, 2]), 3),
-                ],
-                "area_m2": round(float(areas_v[i]), 3),
+                "centroid": cent_r[i],
+                "normal": norm_r[i],
+                "area_m2": area_r[i],
                 "azimuth_deg": az_val,
                 "tilt_deg": tilt_val,
                 "orientation_code": orient_code,
@@ -2692,6 +2772,17 @@ def analyze_building_ottv(
             if len(sni_shading_tris) > 0
             else None
         )
+        sni_shading_norm_info: Optional[Tuple[np.ndarray, np.ndarray]] = None
+        if len(sni_shading_tris) > 0:
+            _sh_tc = np.cross(
+                sni_shading_tris[:, 1] - sni_shading_tris[:, 0],
+                sni_shading_tris[:, 2] - sni_shading_tris[:, 0],
+            )
+            _sh_len = np.linalg.norm(_sh_tc, axis=1)
+            _sh_valid = _sh_len > 1e-8
+            _sh_unit = np.zeros((len(sni_shading_tris), 3), dtype=np.float64)
+            _sh_unit[_sh_valid] = _sh_tc[_sh_valid] / _sh_len[_sh_valid, None]
+            sni_shading_norm_info = (_sh_unit, _sh_valid)
 
         sc_Display_mult_arr = np.ones(num_panels, dtype=np.float64)
         detached_shading_panels = 0
@@ -2716,6 +2807,7 @@ def analyze_building_ottv(
                     b1 = min(zi["n"] - 1, int(math.floor((max(zs_q) + SHADE_MAX_RISE_M + 0.5 - zi["z0"]) / zi["bucket"])))
                     if b1 < b0 or occ_cum[b1 + 1] - occ_cum[b0] == 0:
                         skip_shading_measure[idx_q] = True
+        sceff_lookup_cache: Dict[Tuple[str, float, float, float], Dict[str, Any]] = {}
         for idx_p, p_rec in enumerate(panel_records):
             if p_rec["element_type"] in ("glazing", "composite_cw"):
                 sh_det: Dict[str, Any] = {}
@@ -2731,6 +2823,7 @@ def analyze_building_ottv(
                     louver_spacing_m=params.louver_spacing_m,
                     louver_tilt_deg=params.louver_tilt_deg,
                     shading_aabb=sni_shading_aabb,
+                    shading_norm_info=sni_shading_norm_info,
                 )
                 panel_r1_arr[idx_p] = r1_v
                 src_ov = int((sh_det.get("ov") or {}).get("src", 0))
@@ -2754,13 +2847,17 @@ def analyze_building_ottv(
                         p_rec["template_shade_code"] = ""
                         sc_Display_mult_arr[idx_p] = 1.0
                 else:
-                    sc_det = lookup_sceff_detailed(
-                        p_rec["orientation_code"],
-                        r1_horizontal=r1_v,
-                        r2_vertical=r2_v,
-                        tilt_deg=phi1_v,
-                        table_mode=sceff_table_mode,
-                    )
+                    sc_key = (p_rec["orientation_code"], r1_v, r2_v, phi1_v)
+                    sc_det = sceff_lookup_cache.get(sc_key)
+                    if sc_det is None:
+                        sc_det = lookup_sceff_detailed(
+                            p_rec["orientation_code"],
+                            r1_horizontal=r1_v,
+                            r2_vertical=r2_v,
+                            tilt_deg=phi1_v,
+                            table_mode=sceff_table_mode,
+                        )
+                        sceff_lookup_cache[sc_key] = sc_det
                     sc_Display_mult_arr[idx_p] = float(sc_det["sc_eff"])
                     sc_sup = _superposed_sceff(p_rec["orientation_code"], sh_det, r1_v, r2_v, phi1_v, sceff_table_mode)
                     if sc_sup is not None:
@@ -2875,37 +2972,43 @@ def analyze_building_ottv(
             return float(mat_dict["td_ek"])
         return float(fallback_td)
 
+    mat_params_cache: Dict[Tuple[Optional[str], str], Tuple[float, float, float, float, float, float]] = {}
     for idx, p in enumerate(panel_records):
         if p["is_outer"]:
             total_outer_panels += 1
 
         # Resolve per-group / per-orientation material parameters (catalog + per-model custom_materials)
-        g_mat = get_material_by_id(p["material_id"], extra_materials=extra_mats)
         cat = p["element_type"]
-
-        if cat in ("glazing", "composite_cw"):
-            eff_g_mat = g_mat if (g_mat and g_mat.get("category") == "glazing") else glz_mat
-            u_f_k = float(eff_g_mat["u_value"]) if eff_g_mat else float(params.u_fenestration)
-            if is_template_method:
-                shgc_k, sc_1_k = compute_template_shgc_and_sck(eff_g_mat, fallback_sc=params.sc_glass)
-            else:
-                sc_1_k = float(eff_g_mat["sc"]) if (eff_g_mat and eff_g_mat.get("sc") is not None) else float(params.sc_glass)
-                shgc_k = get_material_shgc(eff_g_mat, fallback_sc=sc_1_k)
-            u_w_k = float(wal_mat["u_value"]) if wal_mat else float(params.u_wall)
-            alpha_k = float(wal_mat["alpha"]) if wal_mat else float(params.alpha_wall)
-            tdek_k = _wall_tdek_from_mat(wal_mat, params.td_ek) if is_sni_mode else (float(wal_mat["td_ek"]) if wal_mat else float(params.td_ek))
+        mp_key = (p["material_id"], cat)
+        mp_cached = mat_params_cache.get(mp_key)
+        if mp_cached is not None:
+            u_f_k, shgc_k, sc_1_k, u_w_k, alpha_k, tdek_k = mp_cached
         else:
-            # 'wall' or 'spandrel'
-            eff_w_mat = g_mat if (g_mat and g_mat.get("category") == "wall") else wal_mat
-            u_w_k = float(eff_w_mat["u_value"]) if eff_w_mat else float(params.u_wall)
-            alpha_k = float(eff_w_mat["alpha"]) if (eff_w_mat and eff_w_mat.get("alpha") is not None) else float(params.alpha_wall)
-            tdek_k = _wall_tdek_from_mat(eff_w_mat, params.td_ek) if is_sni_mode else (float(eff_w_mat["td_ek"]) if (eff_w_mat and eff_w_mat.get("td_ek") is not None) else float(params.td_ek))
-            u_f_k = float(glz_mat["u_value"]) if glz_mat else float(params.u_fenestration)
-            if is_template_method:
-                shgc_k, sc_1_k = compute_template_shgc_and_sck(glz_mat, fallback_sc=params.sc_glass)
+            g_mat = get_material_by_id(p["material_id"], extra_materials=extra_mats)
+            if cat in ("glazing", "composite_cw"):
+                eff_g_mat = g_mat if (g_mat and g_mat.get("category") == "glazing") else glz_mat
+                u_f_k = float(eff_g_mat["u_value"]) if eff_g_mat else float(params.u_fenestration)
+                if is_template_method:
+                    shgc_k, sc_1_k = compute_template_shgc_and_sck(eff_g_mat, fallback_sc=params.sc_glass)
+                else:
+                    sc_1_k = float(eff_g_mat["sc"]) if (eff_g_mat and eff_g_mat.get("sc") is not None) else float(params.sc_glass)
+                    shgc_k = get_material_shgc(eff_g_mat, fallback_sc=sc_1_k)
+                u_w_k = float(wal_mat["u_value"]) if wal_mat else float(params.u_wall)
+                alpha_k = float(wal_mat["alpha"]) if wal_mat else float(params.alpha_wall)
+                tdek_k = _wall_tdek_from_mat(wal_mat, params.td_ek) if is_sni_mode else (float(wal_mat["td_ek"]) if wal_mat else float(params.td_ek))
             else:
-                sc_1_k = float(glz_mat["sc"]) if glz_mat else float(params.sc_glass)
-                shgc_k = get_material_shgc(glz_mat, fallback_sc=sc_1_k)
+                # 'wall' or 'spandrel'
+                eff_w_mat = g_mat if (g_mat and g_mat.get("category") == "wall") else wal_mat
+                u_w_k = float(eff_w_mat["u_value"]) if eff_w_mat else float(params.u_wall)
+                alpha_k = float(eff_w_mat["alpha"]) if (eff_w_mat and eff_w_mat.get("alpha") is not None) else float(params.alpha_wall)
+                tdek_k = _wall_tdek_from_mat(eff_w_mat, params.td_ek) if is_sni_mode else (float(eff_w_mat["td_ek"]) if (eff_w_mat and eff_w_mat.get("td_ek") is not None) else float(params.td_ek))
+                u_f_k = float(glz_mat["u_value"]) if glz_mat else float(params.u_fenestration)
+                if is_template_method:
+                    shgc_k, sc_1_k = compute_template_shgc_and_sck(glz_mat, fallback_sc=params.sc_glass)
+                else:
+                    sc_1_k = float(glz_mat["sc"]) if glz_mat else float(params.sc_glass)
+                    shgc_k = get_material_shgc(glz_mat, fallback_sc=sc_1_k)
+            mat_params_cache[mp_key] = (u_f_k, shgc_k, sc_1_k, u_w_k, alpha_k, tdek_k)
 
         if params.wwr_override is not None:
             wwr_k = max(0.0, min(0.95, float(params.wwr_override)))
@@ -2929,7 +3032,6 @@ def analyze_building_ottv(
 
         area = p["area_m2"]
         heat_w = ottv_panel_wm2 * area
-        elem_hex, elem_rgb = compute_panel_heatmap_color(ottv_panel_wm2)
         solar_exp_wm2 = round(p["sf_wm2"] * sc_eff, 2)
 
         p["wwr_panel"] = round(wwr_k, 3)
@@ -2953,10 +3055,6 @@ def analyze_building_ottv(
         p["q_solar_wm2"] = round(q_solar_wm2, 2)
         p["ottv_panel_wm2"] = round(ottv_panel_wm2, 2)
         p["heat_gain_w"] = round(heat_w, 1)
-        p["heatmap_element_hex"] = elem_hex
-        p["heatmap_element_rgb"] = elem_rgb
-        p["heatmap_color_hex"] = elem_hex
-        p["heatmap_rgb"] = elem_rgb
 
         # Accumulate floor breakdown for all above-ground outer-skin panels (so floor chart always shows full building profile)
         if (
@@ -3461,14 +3559,7 @@ def analyze_building_ottv(
         else 1.0
     )
     for idx, p in enumerate(panel_records):
-        comp_val = round(raw_comp_vals[idx] * comp_norm_factor, 2)
-        c_hex, c_rgb = compute_panel_heatmap_color(comp_val)
-        p["ottv_composite_wm2"] = comp_val
-        p["heatmap_composite_hex"] = c_hex
-        p["heatmap_composite_rgb"] = c_rgb
-        # Default heatmap color uses smooth composite so the 3D facade is continuous
-        p["heatmap_color_hex"] = c_hex
-        p["heatmap_rgb"] = c_rgb
+        p["ottv_composite_wm2"] = round(raw_comp_vals[idx] * comp_norm_factor, 2)
 
     # Finalize 8-orientation x floor breakdown for PUPR Metode 2 Excel template
     orientation_floor_breakdown: Dict[str, List[Dict[str, Any]]] = {}
@@ -3554,11 +3645,14 @@ def analyze_building_ottv(
             remap[used] = np.arange(len(used))
             vs = np.round(np.asarray(r.vertices, dtype=np.float64)[used], 3).tolist()
             fr = remap[f_arr]
-            tris: List[List[int]] = []
-            for f in fr:
-                tris.append([int(f[0]), int(f[1]), int(f[2])])
-                if len(f) > 3 and f[2] != f[3]:
-                    tris.append([int(f[0]), int(f[2]), int(f[3])])
+            if fr.shape[1] >= 4:
+                is_q = fr[:, 2] != fr[:, 3]
+                if np.any(is_q):
+                    tris = np.vstack([fr[:, :3], fr[is_q][:, [0, 2, 3]]]).tolist()
+                else:
+                    tris = fr[:, :3].tolist()
+            else:
+                tris = fr[:, :3].tolist()
             out.append({
                 "group_name": r.group_name,
                 "vertices": vs,

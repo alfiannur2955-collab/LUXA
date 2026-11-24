@@ -135,8 +135,6 @@ def rematerial_analysis(
     Recomputes OTTV, per-panel heat gains, orientation breakdown, floor breakdown, and RTTV
     using cached geometry & SF from `base_analysis` without reloading 3D meshes or raytracing.
     """
-    from ottv_engine import compute_panel_heatmap_color
-
     # Salinan hemat (dulu copy.deepcopy seluruh hasil, ±70% waktu ganti material di browser): fungsi ini hanya
     # mengganti nilai di tingkat atas tiap panel dan di dict summary/rttv/parameters_used/config. Geometri & mesh
     # tidak pernah diubah, jadi aman dibagi dengan hasil dasar.
@@ -275,7 +273,6 @@ def rematerial_analysis(
 
         area = float(p.get("area_m2", 0.0))
         heat_w = ottv_panel_wm2 * area
-        elem_hex, elem_rgb = compute_panel_heatmap_color(ottv_panel_wm2)
 
         p["shgc_glass"] = round(shgc_k, 4)
         p["sc_glass"] = round(sc_1_k, 6)
@@ -290,10 +287,6 @@ def rematerial_analysis(
         p["q_solar_wm2"] = round(q_solar_wm2, 2)
         p["ottv_panel_wm2"] = round(ottv_panel_wm2, 2)
         p["heat_gain_w"] = round(heat_w, 1)
-        p["heatmap_element_hex"] = elem_hex
-        p["heatmap_element_rgb"] = elem_rgb
-        p["heatmap_color_hex"] = elem_hex
-        p["heatmap_rgb"] = elem_rgb
 
         fnum = int(p.get("floor_number", 1))
         if (
