@@ -12,7 +12,7 @@ import shutil
 import subprocess
 import sys
 import time
-from typing import Optional
+from typing import Optional, Tuple
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BACKEND_DIR = os.path.join(PROJECT_ROOT, "backend")
@@ -22,6 +22,77 @@ PYTHON_EXE = os.path.join(BACKEND_DIR, ".venv", "Scripts", "python.exe")
 if not os.path.isfile(PYTHON_EXE):
     PYTHON_EXE = sys.executable
 VITE_JS = os.path.join(FRONTEND_DIR, "node_modules", "vite", "bin", "vite.js")
+
+_SKIP_BACKEND_DIRS = frozenset({".venv", "__pycache__", "uploads", "samples", "epw_samples"})
+_SKIP_BACKEND_FILES = frozenset({"run_studio_servers.py"})
+
+
+def check_stale_build(project_root: str = PROJECT_ROOT) -> Tuple[bool, str]:
+    """Bandingkan waktu ubah terbaru di frontend/src/ dan backend/**/*.py dengan frontend/dist/index.html.
+
+    Mengembalikan `(is_stale, detail_rel_path)` di mana `detail_rel_path` adalah path relatif file sumber
+    terbaru (atau `""` jika `frontend/dist/index.html` belum ada / masih mutakhir).
+    """
+    dist_index = os.path.join(project_root, "frontend", "dist", "index.html")
+    if not os.path.isfile(dist_index):
+        return True, ""
+
+    dist_mtime = os.path.getmtime(dist_index)
+    newest_mtime = 0.0
+    newest_path = ""
+
+    src_dir = os.path.join(project_root, "frontend", "src")
+    if os.path.isdir(src_dir):
+        for root, dirs, files in os.walk(src_dir):
+            dirs[:] = [d for d in dirs if d != "__pycache__"]
+            for fn in files:
+                fp = os.path.join(root, fn)
+                try:
+                    mt = os.path.getmtime(fp)
+                except OSError:
+                    continue
+                if mt > newest_mtime:
+                    newest_mtime = mt
+                    newest_path = fp
+
+    backend_dir = os.path.join(project_root, "backend")
+    if os.path.isdir(backend_dir):
+        for root, dirs, files in os.walk(backend_dir):
+            dirs[:] = [d for d in dirs if d not in _SKIP_BACKEND_DIRS]
+            for fn in files:
+                if not fn.endswith(".py") or fn in _SKIP_BACKEND_FILES:
+                    continue
+                fp = os.path.join(root, fn)
+                try:
+                    mt = os.path.getmtime(fp)
+                except OSError:
+                    continue
+                if mt > newest_mtime:
+                    newest_mtime = mt
+                    newest_path = fp
+
+    if newest_mtime > dist_mtime + 1.0:
+        rel = os.path.relpath(newest_path, project_root).replace("\\", "/")
+        return True, rel
+    return False, ""
+
+
+def warn_if_build_stale(project_root: str = PROJECT_ROOT) -> bool:
+    """Cetak peringatan jelas di konsol bila frontend/dist belum ada atau lebih lama dari kode sumber."""
+    is_stale, newest_rel = check_stale_build(project_root)
+    if not is_stale:
+        return False
+
+    print("============================================================================", flush=True)
+    if newest_rel:
+        print("  [PERINGATAN] Build aplikasi lebih lama dari kode.", flush=True)
+        print(f"  File sumber lebih baru: {newest_rel}", flush=True)
+    else:
+        print("  [PERINGATAN] Build aplikasi (frontend/dist/index.html) belum ditemukan.", flush=True)
+    print("  Jalankan: cd frontend && npm run build", flush=True)
+    print("  (Diperlukan Node.js 20 LTS — unduh dari https://nodejs.org/)", flush=True)
+    print("============================================================================", flush=True)
+    return True
 
 
 def find_node_executable() -> Optional[str]:
@@ -64,6 +135,8 @@ def main() -> None:
     print("============================================================================", flush=True)
     print("  LUXA by Alf Studio (SNI 6389:2020)", flush=True)
     print("  Server & Aplikasi : http://127.0.0.1:8000", flush=True)
+
+    warn_if_build_stale(PROJECT_ROOT)
 
     backend_proc = subprocess.Popen(
         [PYTHON_EXE, "-m", "uvicorn", "main:app", "--host", "127.0.0.1", "--port", "8000"],
