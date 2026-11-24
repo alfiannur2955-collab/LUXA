@@ -27,7 +27,7 @@ Skrip probe tidak dimasukkan ke repo. Temuan yang diperbaiki wajib mendapat uji 
 | A3-06 | SEDANG | Klasifikasi | Cek geometri (AUDIT-03) hanya saat hitung; inspeksi dan hasil tidak konsisten — **diperbaiki** |
 | A3-07 | SEDANG | Sisi luar | Dua massa dengan celah ≤ 1 m: fasad yang berhadapan dibuang tanpa peringatan |
 | A3-08 | SEDANG | Peneduh | Pelat balkon: dihitung atau tidak bergantung nama ("Slab" ya, "Pelat Lantai" tidak) — **diperbaiki** |
-| A3-09 | SEDANG | CI | Paritas engine browser, hitung ulang LibreOffice, dan tes berbasis corpus selalu dilewati di CI |
+| A3-09 | SEDANG | CI | Paritas engine browser, hitung ulang LibreOffice, dan tes berbasis corpus selalu dilewati di CI — **diperbaiki** |
 | A3-10 | SEDANG | Distribusi | `frontend/dist` lokal bisa basi tanpa peringatan; Node.js tidak ada di laptop pengembang — **diperbaiki** |
 | A3-11 | SEDANG | Hitung | Mode simulasi: konduksi rangka 8% hanya ditambahkan bila model punya grup rangka |
 | A3-12 | RENDAH | Klasifikasi | Token belum dikenal: GL-01, Polycarbonate, Secondary Skin, Perforated, Pergola, Krepyak, Jalusi, Roster, Spandek, dll. — **sebagian besar diperbaiki** |
@@ -219,6 +219,8 @@ lantai; kini meneduhi, OTTV 26,79 → 25,03.
 
 **Usulan:** di `tests.yml`, jalankan `bash scripts/fetch_engine_assets.sh` + `npm run engine:assets`, pasang
 LibreOffice, dan pindahkan satu atau dua model nyata kecil ke `fixtures/`.
+
+**Perbaikan (Nov 2026, commit `5ff7ed5`).** `.github/workflows/tests.yml` kini meng-cache `frontend/.engine-cache`, menjalankan `bash scripts/fetch_engine_assets.sh` dan `npm run engine:assets`, memasang `libreoffice-calc`, serta menjalankan `python -m pytest -q -rs`. Model publik buildingSMART `Duplex_A_20110907.ifc` (2,27 MB) disalin ke `fixtures/real/` agar `test_ifc_duplex_uses_ifc_storeys` berjalan di CI (`Facade only to Alfian.3dm` tetap lokal di `corpus/`). Verifikasi akhir di GitHub Actions berjalan setelah `git push`.
 
 ## A3-10 · SEDANG · Build lokal bisa basi
 
