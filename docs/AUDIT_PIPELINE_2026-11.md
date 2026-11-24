@@ -1,0 +1,220 @@
+# Audit Pipeline LUXA — November 2026
+
+Audit langkah 3 (setelah langkah 1: baseline + CI, langkah 2: uji invarian). Setiap tahap pipeline diuji
+dengan model buatan yang meniru kebiasaan modeling nyata, lalu kode dibaca pada bagian yang hasilnya
+mencurigakan. Semua angka di bawah berasal dari engine pada commit `71516e7`, mode SNI, Jakarta.
+
+Skrip probe tidak dimasukkan ke repo. Temuan yang diperbaiki wajib mendapat uji di `tests/test_invariants.py`.
+
+## Skala keparahan
+
+| Tingkat | Arti |
+|---|---|
+| **KRITIS** | Hasil salah besar, diam-diam, dan **terlihat lolos SNI** pada kasus yang umum |
+| **TINGGI** | Hasil salah atau aplikasi tidak bisa dipakai pada kasus yang cukup umum |
+| **SEDANG** | Hasil bergantung pada cara modeling, atau ada celah pengaman |
+| **RENDAH** | Kenyamanan, pesan, kosmetik |
+
+## Ringkasan
+
+| ID | Tingkat | Tahap | Temuan |
+|---|---|---|---|
+| A3-01 | KRITIS | Material | Material default = kaca terbaik di katalog, tidak disimpulkan dari nama, tidak wajib dikonfirmasi |
+| A3-02 | TINGGI | Peneduh | Peneduh berjarak dari fasad dihitung seolah menempel; ada "tebing" ke nol di 1 m |
+| A3-03 | TINGGI | Klasifikasi | Nama yang salah dengan yakin: ACP/Metal Cladding → rangka, Hollow Core Wall → abaikan |
+| A3-04 | TINGGI | Performa | Model 24 lantai: hasil 22 MB JSON, memori puncak 319 MB → aplikasi tersendat |
+| A3-05 | TINGGI | Baca file | 3DM berisi Brep/Extrusion tanpa render mesh → "tidak ada geometri" |
+| A3-06 | SEDANG | Klasifikasi | Cek geometri (AUDIT-03) hanya saat hitung; inspeksi dan hasil tidak konsisten |
+| A3-07 | SEDANG | Sisi luar | Dua massa dengan celah ≤ 1 m: fasad yang berhadapan dibuang tanpa peringatan |
+| A3-08 | SEDANG | Peneduh | Pelat balkon: dihitung atau tidak bergantung nama ("Slab" ya, "Pelat Lantai" tidak) |
+| A3-09 | SEDANG | CI | Paritas engine browser, hitung ulang LibreOffice, dan tes berbasis corpus selalu dilewati di CI |
+| A3-10 | SEDANG | Distribusi | `frontend/dist` lokal bisa basi tanpa peringatan; Node.js tidak ada di laptop pengembang |
+| A3-11 | SEDANG | Hitung | Mode simulasi: konduksi rangka 8% hanya ditambahkan bila model punya grup rangka |
+| A3-12 | RENDAH | Klasifikasi | Token belum dikenal: GL-01, Polycarbonate, Secondary Skin, Perforated, Pergola, Krepyak, Jalusi, Roster, Spandek, dll. |
+| A3-13 | RENDAH | Hitung | Mode SNI: muka depan mullion tidak masuk luas selubung A_o |
+
+Sudah diperbaiki selama audit (commit `d9238f1`, `71516e7`): nama jamak mullion/transom (AUDIT-01), `crown`
+sebagai token kaca, nama elemen IFC tidak dibaca (WWR 0%), penjarangan mesh peneduh merusak tampilan, baseline
+basi, face kembar (AUDIT-02), dan batang bernama kaca (AUDIT-03).
+
+---
+
+## A3-01 · KRITIS · Material default adalah kaca terbaik
+
+**Bukti.** Kotak 20×30 m, 4 lantai, WWR 40%, layer bernama "Dinding Bata" dan "Kaca Bening":
+
+| Material yang dipakai | OTTV (W/m²) |
+|---|---|
+| Default (IGU triple-silver SC 0,23 + spandrel insulasi) | **19,37 — lolos** |
+| Kaca polos 8 mm (SC 0,92) + bata merah plester | **79,84** |
+| IGU polos 6+12+6 (SC 0,80) + bata merah plester | 66,44 |
+| Kaca tinted 8 mm (SC 0,60) + bata merah plester | 58,85 |
+
+Model twisted dengan kaca polos 8 mm: 34,17 → **139,35**.
+
+**Sebab.** `config_schema.DEFAULT_GLAZING_MAT_ID = "glz_igu_triple_silver"`, dan
+`DEFAULT_WALL_MAT_ID = "wal_spandrel_insulasi_50"`. Nama layer ("Bening", "Clear", "Stopsol", "Bata", "Hebel")
+tidak dipakai untuk memilih material, dan hasil tidak ditandai sementara bila material belum dipilih.
+Dinding bata juga mendapat TD_ek 15 K milik spandrel ringan, bukan TD_ek dinding masif.
+
+**Dampak.** Mahasiswa yang lupa atau tidak tahu cara memilih material akan mendapat "memenuhi SNI" untuk
+desain yang sebenarnya jauh melampaui batas. Ini mengalahkan tujuan aplikasi.
+
+**Usulan.**
+1. Hasil berstatus **sementara** (`MATERIAL_NOT_CONFIRMED`) sampai pengguna memilih atau mengonfirmasi material.
+2. Tebak material dari nama layer (Bening/Clear → kaca polos, Stopsol/Reflektif → reflektif, Low-E, IGU, Bata,
+   Hebel/AAC, Beton, ACP, Spandrel), tampilkan sebagai saran yang perlu dikonfirmasi.
+3. Pertimbangkan default yang netral, misalnya kaca polos dan bata, agar kesalahan cenderung konservatif, bukan optimis.
+
+## A3-02 · TINGGI · Peneduh berjarak dihitung seolah menempel
+
+**Bukti.** Kotak dasar 19,37. Kanopi menerus di atas tiap pita kaca:
+
+| Kasus | OTTV |
+|---|---|
+| Kanopi 1,0 m menempel fasad | 14,72 |
+| Kanopi 1,0 m, celah 0,2 m dari fasad | 14,24 (lebih baik dari menempel) |
+| Kanopi 1,0 m, celah 1,0 m | 13,13 (= kanopi menempel 2,0 m) |
+| Kanopi 1,0 m, celah 1,5 m | **19,37 (tiba-tiba nol)** |
+| Kanopi 1,0 m, 0,5 m di atas kaca | 14,72 (sama dengan menempel) |
+| Kanopi 1,0 m, 1,0 m di atas kaca | **19,37 (tiba-tiba nol)** |
+
+**Sebab.** `_measure_panel_sni_shading_ratios` mengambil P_h dari tepi terjauh (`d_max`), tanpa mengurangi
+celah dari fasad. Kandidat hanya diterima bila `d_min ≤ 1,0 m` dan tepi bawah ≤ `half_h + 0,80 m`, sehingga di
+luar batas itu efeknya langsung hilang.
+
+**Dampak.** Kisi atau secondary skin yang dipasang lepas dari fasad (kasus umum, termasuk Opsi A dengan sirip
+lepas 3 cm) mendapat manfaat berlebih. Desain yang sedikit berubah bisa "jatuh tebing".
+
+**Usulan.** Cocokkan dengan definisi R1/R2 di SNI 6389:2020 Lampiran A. Bila tabel SNI hanya untuk peneduh
+menempel, gunakan proyeksi efektif `P − celah`, atau faktor proyeksi `P/(H + G)` untuk jarak vertikal.
+Peralihannya harus halus (tanpa tebing), dan pengguna diberi peringatan bila ada peneduh lepas yang
+diperlakukan dengan pendekatan.
+
+## A3-03 · TINGGI · Nama yang salah dengan yakin
+
+Dari 94 nama layer nyata yang diuji, nama yang berakhir sebagai `unknown` relatif aman (hasil ditandai
+sementara). Yang berbahaya adalah nama yang **salah tapi yakin**:
+
+| Nama | Seharusnya | Terbaca | Akibat |
+|---|---|---|---|
+| Aluminium Composite Panel, Metal Cladding | dinding | rangka | dinding keluar dari luas selubung |
+| Hollow Core Wall | dinding | abaikan (token `core`) | dinding hilang |
+| Dinding Partisi Luar | dinding | abaikan (token `partisi`) | dinding hilang |
+| Expanded Metal | peneduh | rangka | peneduh tidak dihitung |
+| Rangka Kaca, Window Frame | rangka | kaca | sebagian tertolong cek geometri AUDIT-03 |
+| Lantai | abaikan | atap | masuk RTTV |
+
+**Usulan.** Token "material" (aluminium, metal) jangan otomatis berarti rangka bila ada kata
+panel/cladding/composite. Kata `luar`/`exterior` membatalkan `partisi`/`core`. Tambahkan uji parametrik untuk
+setiap nama di atas. Jangka panjang: template layer LUXA opsional.
+
+## A3-04 · TINGGI · Hasil terlalu berat untuk browser
+
+**Bukti.** Model twisted (24 lantai, 37 ribu face): 9,3 s di Python desktop, memori puncak 319 MB, hasil
+**22,3 MB JSON**. Rinciannya: `panels` 17,9 MB, `shading_elements` 2,7 MB, `frame_elements` 1,6 MB.
+Di Pyodide (WebAssembly) waktunya diperkirakan beberapa kali lebih lama. Ini cocok dengan keluhan bahwa situs
+publik dan mode Presentasi terasa berat.
+
+**Sebab.** Setiap panel mengirim sekitar 45 field, termasuk warna heatmap ganda (hex + RGB, tiga varian) dan
+verifikasi teks, sebagai objek JSON.
+
+**Usulan.** Kirim geometri panel sebagai array biner bertipe (`Float32Array` untuk vertex, `Uint8` untuk kode
+kategori dan orientasi), hitung warna heatmap di viewer, dan kirim rincian per panel hanya saat panel diklik.
+Targetnya di bawah 3 MB untuk model ini.
+
+## A3-05 · TINGGI · Brep/Extrusion tanpa render mesh tidak terbaca
+
+**Bukti.** File 3DM berisi satu Brep kaca dan satu Extrusion dinding (tanpa render mesh) menghasilkan
+`ValueError: Tidak ditemukan geometri 3D pada file yang diunggah`.
+
+**Sebab.** rhino3dm tidak punya mesher. Engine hanya membaca render mesh yang tersimpan. File dari
+"Save Small", skrip, Grasshopper bake tertentu, atau Rhino Compute sering tidak menyimpannya.
+
+**Usulan.** Tambahkan tesselasi cadangan untuk face planar (mayoritas geometri arsitektur): ambil loop tepi
+Brep/Extrusion dan triangulasi poligonnya. Bila tetap gagal, pesannya harus jujur: "file berisi N objek Brep
+tanpa render mesh; buka di Rhino, jalankan `RefreshShade`/simpan tanpa Save Small".
+
+## A3-06 · SEDANG · Inspeksi dan hasil tidak konsisten
+
+Cek geometri AUDIT-03 berjalan di `analyze_building_ottv`, bukan di tahap 1–2. Di layar inspeksi, grup
+`CW_Vertical` masih tertulis "kaca", lalu menjadi "rangka" di hasil. **Usulan:** jalankan `looks_like_frame`
+pada tahap klasifikasi, dan tampilkan peringatannya di inspeksi agar pengguna memutuskan sebelum menghitung.
+
+## A3-07 · SEDANG · Celah sempit antar massa
+
+Dua massa 20×10 m berhadapan:
+
+| Celah | Kaca geometri | Kaca terhitung |
+|---|---|---|
+| 6,0 m | 691,2 | 691,2 |
+| 2,0 m | 742,4 | 742,4 |
+| 1,0 m | 755,2 | **627,2** |
+| 0,5 m | 761,6 | **633,6** |
+
+Pada celah ≤ 1 m, fasad yang berhadapan dianggap fasad dalam. Secara fisik masih udara luar (walau sangat
+terbayangi), dan pengguna tidak diberi tahu. **Usulan:** tampilkan peringatan "N m² fasad dianggap dalam karena
+berhadapan dengan massa lain berjarak < X m", dengan opsi menghitungnya.
+
+## A3-08 · SEDANG · Pelat balkon bergantung nama
+
+Pelat 1,5 m di atas tiap pita kaca: "Kanopi" dan "Overhang Beton" → 13,71, "Slab" (terbaca atap) → 13,71,
+sedangkan "Plat Balkon" dan "Balkon" (unknown) serta "Pelat Lantai" (abaikan) → 19,37. Hasil untuk apartemen
+dengan balkon akan sangat bergantung pada penamaan. **Usulan:** pelat horizontal yang menjorok keluar dari
+garis fasad diperlakukan sebagai peneduh berdasarkan geometri, apa pun namanya, dengan peringatan.
+
+## A3-09 · SEDANG · Tes penting selalu dilewati di CI
+
+- `test_browser_engine_parity.py` dilewati bila aset engine browser belum di-build, dan CI tidak mem-build-nya.
+  Artinya **engine yang benar-benar dipakai pengguna (Pyodide) tidak pernah diuji otomatis**.
+- `test_luxa_report.py::test_libreoffice_recalculation_matches_app` dilewati tanpa LibreOffice.
+- Tes yang memakai `corpus/real` dan Duplex IFC dilewati karena `corpus/` di-gitignore.
+
+**Usulan:** di `tests.yml`, jalankan `bash scripts/fetch_engine_assets.sh` + `npm run engine:assets`, pasang
+LibreOffice, dan pindahkan satu atau dua model nyata kecil ke `fixtures/`.
+
+## A3-10 · SEDANG · Build lokal bisa basi
+
+`start_studio.bat` menyajikan `frontend/dist` tanpa memeriksa apakah build itu lebih lama dari kode sumber.
+Di laptop pengembang tidak ada Node.js, sehingga `dist` tertinggal sejak 23 Nov tanpa ada yang tahu.
+**Usulan:** peringatan di `start_studio.bat`/`run_studio_servers.py` bila `src/` atau `backend/` lebih baru dari
+`dist/index.html`, dan pasang Node.js LTS di laptop pengembang.
+
+## A3-11 · SEDANG · Konduksi rangka bergantung detail model (mode simulasi)
+
+`frame_cond_adder = U_frame × 8% × ΔT` hanya ditambahkan bila `len(frame_groups) > 0`. Model yang memodelkan
+mullion mendapat OTTV lebih tinggi daripada model yang sama tanpa mullion. **Usulan:** terapkan rasio rangka
+pada semua kaca (atau hitung dari luas muka rangka terukur), tidak bergantung ada atau tidaknya grup rangka.
+
+## A3-12 · RENDAH · Token yang belum dikenal
+
+Kaca: GLS, GL-01, Polycarbonate, Vitrage, Glazed Panel. Dinding: WPC, Roster, Batu Alam, Sandwich Panel,
+Exterior Finish. Peneduh: Secondary Skin, Perforated Panel, Tirai Bambu, Pergola, Vertical Garden, Krepyak,
+Jalusi. Atap: Spandek. Konteks: Tangga, Toilet, Parkir, Mobil, Manusia, Kontur. Semuanya aman (menjadi
+`unknown` → hasil sementara), tetapi merepotkan pengguna.
+
+## A3-13 · RENDAH · Muka depan mullion di luar A_o (mode SNI)
+
+Grup rangka tidak menyumbang luas selubung. Muka depan profil (biasanya 3–5% luas fasad curtain wall)
+semestinya termasuk fenestrasi. Dampaknya kecil, tetapi perlu diputuskan dan didokumentasikan.
+
+---
+
+## Yang terbukti kokoh
+
+- Rotasi model + arah utara, satuan (m/cm/mm), koordinat UTM, elevasi tidak nol.
+- Triangulasi, normal terbalik, satu objek per face.
+- Paritas format 3DM, OBJ, GLB, termasuk menara twisted.
+- Atrium (kaca dalam tidak dihitung), podium + tower (13 lantai), balkon menjorok, dinding interior,
+  pelat lantai bernama jelas, bangunan konteks.
+- Hitungan SNI kotak dasar cocok dengan hitung tangan (U 18,05 · T 20,16 · S 14,74 · B 22,56 → 19,37).
+- Pesan galat untuk file kosong atau rusak sudah jelas.
+
+## Urutan perbaikan yang diusulkan
+
+1. **A3-01** material: dampaknya terbesar dan perbaikannya relatif kecil (status sementara + saran dari nama).
+2. **A3-02** peneduh berjarak: verifikasi definisi SNI dulu, lalu perbaiki dengan uji kontinuitas.
+3. **A3-03 + A3-12** klasifikasi: aturan + token + uji parametrik nama.
+4. **A3-06 + A3-08** cek geometri dipindah ke tahap inspeksi, pelat menjorok sebagai peneduh.
+5. **A3-04** diet payload (paling besar pekerjaannya, paling terasa bagi pengguna).
+6. **A3-05, A3-07, A3-09, A3-10, A3-11, A3-13**.
