@@ -432,7 +432,8 @@ def test_ui_response_contract_rttv_and_panel_fields(isolated_client):
         "element_type",
         "orientation_code",
         "area_m2",
-        "centroid",
+        # "centroid" tidak dikirim sejak A3-04: dihitung adapter frontend dari vertex (tests/test_payload.py)
+        "vertices",
         "normal",
         "sf_wm2",
         "sc_effective",

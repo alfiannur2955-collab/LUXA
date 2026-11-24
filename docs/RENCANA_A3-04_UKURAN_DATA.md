@@ -1,6 +1,6 @@
 # Rencana Teknis A3-04 — Diet Ukuran Data Hasil
 
-Status: **rencana, belum dikerjakan**. Disusun 24 Nov 2026 dari pengukuran pada model `Fasad_Tower_Twisted.3dm`
+Status: **Fase 0 + 1 selesai** (lihat §8). Fase 2–4 belum. Disusun 24 Nov 2026 dari pengukuran pada model `Fasad_Tower_Twisted.3dm`
 (24 lantai, 37 ribu face, mode SNI, Jakarta) dan pembacaan kode `backend/` + `frontend/src/`.
 
 ## 1. Masalah
@@ -157,3 +157,21 @@ Perkiraan: **±6 → < 3 MB**.
 2. Mode engine server (`npm run dev:server`, `engine/server.js`, khusus pengembangan) tetap didukung penuh, atau
    cukup mode browser yang dipakai pengguna (termasuk `start_studio.bat`, yang menyajikan build browser)?
    Rekomendasi: tetap didukung, karena biayanya kecil bila adapter dipakai bersama.
+
+## 8. Hasil Fase 0 + 1 (24 Nov 2026)
+
+| Ukuran (model twisted) | Sebelum | Sesudah |
+|---|---|---|
+| Hasil hitung | 22,4 MB | **7,9 MB** (panel 4,8 · peneduh 1,8 · rangka 1,1) |
+| Ganti material | ±16,3 MB | **0,63 MB** |
+
+- `backend/payload.py`: `slim_analysis` / `slim_rematerial`, dipakai `browser_api.py` (browser) dan `main.py` (server).
+  Engine tetap menyimpan hasil lengkap; laporan Excel/PDF dan ganti material memakainya.
+- `frontend/src/engine/payload.js`: `expandAnalysis` / `applyRematerial`, dipakai `local.js` dan `server.js`.
+  Kode tampilan tidak berubah. `centroid` dihitung dari rata-rata vertex (selisih pembulatan ≤ 1,5 mm).
+- Alat ukur: `tools/payload_report.py`, `?perf=1` (konsol: waktu total, waktu parse, ukuran per operasi engine).
+- Pengaman: `tests/test_payload.py` membongkar format ramping dengan adapter JavaScript asli lewat Node dan
+  membandingkan setiap field setiap panel (juga setelah ganti material) dengan hasil lengkap; anggaran ukuran
+  9 MB / 1 MB. Paritas engine browser (Pyodide) dan baseline tetap lulus.
+- Lebih besar dari perkiraan awal (±6 MB) karena mesh peneduh/rangka tetap ±2,9 MB dalam base64. Target
+  < 3 MB menunggu Fase 2 (kolom biner panel) dan Fase 4 (pakai ulang mesh inspeksi).

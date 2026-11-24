@@ -3,6 +3,7 @@
  * Web Worker (./worker.js) with Pyodide. Model files and configs stay on the user's device
  * (IndexedDB, ./store.js); no request ever carries a model file.
  */
+import { applyRematerial, expandAnalysis, perfLog, PERF } from './payload.js';
 import * as store from './store.js';
 
 const SAMPLES = {
@@ -21,8 +22,6 @@ const listeners = new Set();
 let lastStatus = { phase: 'idle', label: 'Engine belum dimuat', progress: 0 };
 let bootPromise = null;
 const inWorker = new Set(); // model ids registered in the current worker
-const geometry = new Map(); // analysis_id -> Map(panel id -> vertices), for rematerial results
-const MAX_GEOMETRY = 4;
 
 function emitStatus(s) {
   lastStatus = { ...lastStatus, ...s };
@@ -67,7 +66,12 @@ function getWorker() {
       p.resolve(m.result);
       return;
     }
+    const tParse = PERF ? performance.now() : 0;
     const out = JSON.parse(m.json);
+    if (PERF) {
+      const now = performance.now();
+      perfLog(p.op || 'engine', { total_ms: now - p.t0, parse_ms: now - tParse, payload_mb: m.json.length / 1e6 });
+    }
     if (out.ok) p.resolve(out.result);
     else {
       const err = new Error(out.detail || 'Engine gagal.');
@@ -89,7 +93,7 @@ function post(op, args, transfer = [], signal) {
   const id = ++seq;
   const w = getWorker();
   return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
+    pending.set(id, { resolve, reject, op: args?.op || op, t0: PERF ? performance.now() : 0 });
     // The worker cannot stop Python mid-run; an aborted call just ignores the late answer.
     signal?.addEventListener('abort', () => {
       if (pending.delete(id)) reject(new DOMException('Dibatalkan', 'AbortError'));
@@ -159,23 +163,6 @@ function displayName(modelId) {
   return SAMPLES[modelId]?.name;
 }
 
-function rememberGeometry(analysis) {
-  if (!analysis?.analysis_id || !Array.isArray(analysis.panels)) return;
-  const m = new Map();
-  for (const p of analysis.panels) if (p.vertices) m.set(p.id, p.vertices);
-  geometry.set(analysis.analysis_id, m);
-  while (geometry.size > MAX_GEOMETRY) geometry.delete(geometry.keys().next().value);
-}
-
-function attachGeometry(result, baseId) {
-  if (result?.geometry_from !== 'previous') return result;
-  const m = geometry.get(baseId);
-  if (m) for (const p of result.panels || []) if (!p.vertices && m.has(p.id)) p.vertices = m.get(p.id);
-  delete result.geometry_from;
-  rememberGeometry(result);
-  return result;
-}
-
 // ---------------------------------------------------------------------------
 // Public API (mirrors ./server.js)
 // ---------------------------------------------------------------------------
@@ -237,8 +224,10 @@ export async function inspect(modelId, config, { userAnswers = {}, signal } = {}
 export async function analyze(modelId, config, { signal } = {}) {
   await ensureModel(modelId, { signal });
   const out = await api('analyze', { model_id: modelId, config }, { signal });
-  rememberGeometry(out);
-  return out;
+  const t0 = PERF ? performance.now() : 0;
+  const res = expandAnalysis(out);
+  if (PERF) perfLog('analyze:expand', { ms: performance.now() - t0, panels: res.panels?.length || 0 });
+  return res;
 }
 
 export function exposure(analysisId, date, hours = null, { northAngleDeg = null, signal } = {}) {
@@ -264,7 +253,7 @@ export function validateMaterial(payload, { signal } = {}) {
 
 export async function rematerial(analysisId, patch, { signal } = {}) {
   const out = await api('rematerial', { analysis_id: analysisId, req: patch }, { signal });
-  return attachGeometry(out, analysisId);
+  return applyRematerial(out, analysisId);
 }
 
 export function recommend(analysisId, req, { signal } = {}) {

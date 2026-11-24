@@ -36,7 +36,10 @@ def _analyze(case):
     browser_api.register_upload(mid, src, "model.3dm", src)
     cfg = browser_api.default_config("model.3dm")
     cfg["model"]["model_scope"] = "full_building"
-    return browser_api.analyze(mid, cfg)
+    slim = browser_api.analyze(mid, cfg)
+    # Laporan dibuat dari salinan LENGKAP yang disimpan engine (sama seperti export_report di aplikasi);
+    # nilai kembalian analyze() adalah format kirim ramping untuk tampilan (A3-04).
+    return browser_api._get_analysis(slim["analysis_id"])
 
 
 @pytest.mark.parametrize("case", CASES)

@@ -72,7 +72,10 @@ def test_upload_inspect_analyze_match_server(both):
     rm_s = client.post(f"/api/analyses/{an_s['analysis_id']}/rematerial", json=patch).json()
     rm_l = browser_api.rematerial(an_l["analysis_id"], patch)
     assert rm_l["ottv_total_wm2"] == rm_s["ottv_total_wm2"]
-    assert rm_l["geometry_from"] == "previous" and "vertices" not in rm_l["panels"][0]
+    # A3-04: ganti material hanya mengirim kolom angka panel aktif; geometri dipakai dari hasil sebelumnya
+    assert rm_l["geometry_from"] == "previous" and "panels" not in rm_l
+    assert rm_l["panel_updates"]["ids"] == rm_s["panel_updates"]["ids"]
+    assert rm_l["payload_format"] == rm_s["payload_format"] == "slim-1"
 
     req = {"mode": "optimize", "target_ottv_wm2": 30.0}
     rc_s = client.post(f"/api/analyses/{an_s['analysis_id']}/recommend", json=req).json()

@@ -15,6 +15,7 @@ from __future__ import annotations
 import gc
 import os
 import uuid
+from payload import slim_analysis, slim_rematerial
 from collections import OrderedDict
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -255,7 +256,7 @@ def analyze(model_id: str, config: Optional[Dict[str, Any]] = None) -> Dict[str,
         payload["status_label"] = "HASIL SEMENTARA — perlu konfirmasi"
 
     _store_analysis(aid, payload)
-    return payload
+    return slim_analysis(payload)  # A3-04: engine simpan versi lengkap, tampilan menerima versi ramping
 
 
 def exposure(analysis_id: str, date: str = "2026-09-23", hours: Optional[List[int]] = None,
@@ -292,14 +293,6 @@ def export_report(analysis_id: str, fmt: str) -> Dict[str, Any]:
     raise EngineError(f"Format laporan '{fmt}' tidak dikenal.", 400)
 
 
-def strip_panel_geometry(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Rematerial keeps geometry: drop panel vertices so the worker sends less (JS re-attaches)."""
-    out = dict(payload)
-    out["panels"] = [{k: v for k, v in p.items() if k != "vertices"} for p in (payload.get("panels") or [])]
-    out["geometry_from"] = "previous"
-    return out
-
-
 def rematerial(analysis_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
     base = _get_analysis(analysis_id)
     keys = ("glazing_material_id", "wall_material_id", "frame_material_id", "roof_material_id",
@@ -320,7 +313,7 @@ def rematerial(analysis_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
         if req.get("materials_confirmed") is not None:
             cfg_s["materials_confirmed"] = bool(req["materials_confirmed"])
     _store_analysis(str(updated["analysis_id"]), updated)
-    return strip_panel_geometry(updated)
+    return slim_rematerial(updated)  # A3-04: hanya kolom angka panel yang berubah
 
 
 def recommend(analysis_id: str, req: Dict[str, Any]) -> Dict[str, Any]:

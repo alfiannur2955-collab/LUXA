@@ -17,6 +17,7 @@ All legacy endpoints (/api/analyze/preset, /api/analyze/upload, /api/analyze/com
 
 from __future__ import annotations
 
+from payload import slim_analysis, slim_rematerial
 from collections import OrderedDict
 import hashlib
 import os
@@ -807,7 +808,7 @@ def analyze_model(
         payload["status_label"] = "HASIL SEMENTARA — perlu konfirmasi"
 
     _store_analysis_record(analysis_id, payload)
-    return payload
+    return slim_analysis(payload)  # A3-04: format ramping yang sama dengan engine browser
 
 
 class RematerialRequest(BaseModel):
@@ -877,10 +878,12 @@ def rematerial_analysis_endpoint(
             cfg_s["orientation_material_overrides"] = dict(req.orientation_material_overrides)
         if req.custom_materials:
             cfg_s["custom_materials"] = list(req.custom_materials)
+        if req.materials_confirmed is not None:
+            cfg_s["materials_confirmed"] = bool(req.materials_confirmed)
 
     new_id = str(updated["analysis_id"])
     _store_analysis_record(new_id, updated)
-    return updated
+    return slim_rematerial(updated)  # A3-04
 
 
 @app.post("/api/analyses/{analysis_id}/recommend")

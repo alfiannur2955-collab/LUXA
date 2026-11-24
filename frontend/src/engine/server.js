@@ -1,3 +1,4 @@
+import { applyRematerial, expandAnalysis } from './payload.js';
 /**
  * LUXA engine, server mode: talks to the FastAPI backend (backend/main.py).
  * Used for development with `npm run dev:server`. The default build uses the in-browser
@@ -77,7 +78,7 @@ export async function analyze(modelId, config, { signal } = {}) {
     body: JSON.stringify(config),
     signal,
   });
-  return _jsonOrThrow(res, 'Gagal menghitung OTTV model.');
+  return expandAnalysis(await _jsonOrThrow(res, 'Gagal menghitung OTTV model.'));
 }
 
 export async function exposure(analysisId, date, hours = null, { northAngleDeg = null, signal } = {}) {
@@ -135,7 +136,7 @@ export async function rematerial(analysisId, patch, { signal } = {}) {
     body: JSON.stringify(patch),
     signal,
   });
-  return _jsonOrThrow(res, 'Gagal menghitung ulang material.');
+  return applyRematerial(await _jsonOrThrow(res, 'Gagal menghitung ulang material.'), analysisId);
 }
 
 export async function recommend(analysisId, req, { signal } = {}) {
