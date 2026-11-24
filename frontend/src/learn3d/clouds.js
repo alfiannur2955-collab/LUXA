@@ -64,19 +64,8 @@ const FRAG_CLOUD = /* glsl */ `
     gl_FragColor = vec4(uColor, a * m * uOpacity);
     #include <colorspace_fragment>
   }`;
-const FRAG_SHADOW = /* glsl */ `
-  uniform sampler2D uMap;
-  uniform float uOpacity, uClear;
-  varying vec2 vUv;
-  varying vec3 vW;
-  void main() {
-    float a = texture2D(uMap, vUv).a;
-    float m = smoothstep(uClear, uClear * 1.83, length(vW.xz)); // tapak tower bersih
-    gl_FragColor = vec4(0.0, 0.0, 0.0, a * m * uOpacity);
-  }`;
-
 // scale: ukuran dunia relatif terhadap tower Belajar (1 = tower 93,5 m); target = titik tengah model (garis pandang dibuka).
-export function createClouds(stage, { dark = false, count = 26, seed = 2020, scale = 1, target = [0, 45, 0], shadow = 1, opacity = 1, hole = null } = {}) {
+export function createClouds(stage, { dark = false, count = 26, seed = 2020, scale = 1, target = [0, 45, 0], opacity = 1, hole = null } = {}) {
   const S = scale;
   const r = rng(seed);
   const textures = [0, 1, 2].map(() => cloudTexture(r));
@@ -88,8 +77,6 @@ export function createClouds(stage, { dark = false, count = 26, seed = 2020, sca
     uR1: { value: hole ? hole[1] : 115 * S },
     uOpacity: { value: 0 },
   };
-  const shadowOpacity = { value: 0 };
-  const clear = { value: 48 * S };
   const geo = new THREE.PlaneGeometry(1, 1);
   geo.rotateX(-Math.PI / 2);
   const group = new THREE.Group();
@@ -101,13 +88,7 @@ export function createClouds(stage, { dark = false, count = 26, seed = 2020, sca
       uniforms: { ...shared, uMap: { value: tex } },
       vertexShader: VERT, fragmentShader: FRAG_CLOUD, transparent: true, depthWrite: false, side: THREE.DoubleSide,
     }));
-    const shadow = new THREE.Mesh(geo, new THREE.ShaderMaterial({
-      uniforms: { uMap: { value: tex }, uOpacity: shadowOpacity, uClear: clear },
-      vertexShader: VERT, fragmentShader: FRAG_SHADOW, transparent: true, depthWrite: false,
-      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
-    }));
     cloud.renderOrder = 7;
-    shadow.renderOrder = 1;
     const ang = (i / count) * Math.PI * 2 + r() * 0.6;
     // Kamera memakai lensa tele (bidang pandang sempit), jadi awan ditaruh rendah (±120–170 m, di atas
     // gedung tertinggi) dan tidak jauh dari tower supaya masuk bingkai.
@@ -115,15 +96,13 @@ export function createClouds(stage, { dark = false, count = 26, seed = 2020, sca
     const inner = i < 8;
     const rad = inner ? 60 + r() * 70 : 110 + Math.sqrt(r()) * 240;
     const size = inner ? 70 + r() * 50 : 100 + r() * 90;
-    const it = { cloud, shadow, ang, rad: rad * S, y: (inner ? 105 + r() * 35 : 120 + r() * 50) * S, rot: r() * Math.PI * 2, sx: size * S * (1.2 + r() * 0.6), sz: size * S };
+    const it = { cloud, ang, rad: rad * S, y: (inner ? 105 + r() * 35 : 120 + r() * 50) * S, rot: r() * Math.PI * 2, sx: size * S * (1.2 + r() * 0.6), sz: size * S };
     cloud.scale.set(it.sx, 1, it.sz);
-    shadow.scale.set(it.sx, 1, it.sz);
-    cloud.rotation.y = shadow.rotation.y = it.rot;
-    group.add(cloud, shadow);
+    cloud.rotation.y = it.rot;
+    group.add(cloud);
     items.push(it);
   }
   const base = (dark ? 0.3 : 0.9) * opacity;
-  const sunDir = new THREE.Vector3();
   const clamp01 = (x) => Math.min(1, Math.max(0, x));
   return {
     group,
@@ -132,22 +111,16 @@ export function createClouds(stage, { dark = false, count = 26, seed = 2020, sca
       // 0 = kamera jauh (awan penuh), 1 = dekat (awan tersibak habis)
       const open = clamp01((900 - dist / S) / 700);
       const vis = 1 - THREE.MathUtils.smoothstep(open, 0.62, 0.97); // tetap terlihat sampai kamera cukup dekat
-      group.visible = vis > 0.01;
+      group.visible = !this.off && vis > 0.01; // off: dimatikan penjaga kualitas
       if (!group.visible) return;
       shared.uOpacity.value = base * vis;
-      shadowOpacity.value = (dark ? 0.26 : 0.3) * vis * shadow;
       shared.uCam.value.copy(camera.position);
-      sunDir.copy(stage.sun.position).sub(stage.sun.target.position).normalize();
       const push = 1 + 1.2 * open * open; // awan bergeser menjauh dari tower saat kamera mendekat
       const spin = still ? 0 : timeSec * 0.0035; // hanyut pelan mengitari kota
       for (const it of items) {
         const a = it.ang + spin;
         const x = Math.cos(a) * it.rad * push, z = Math.sin(a) * it.rad * push;
         it.cloud.position.set(x, it.y, z);
-        // bayangan: proyeksi awan ke tanah searah sinar matahari
-        const gy = 0.6 * Math.min(1, S);
-        const k = (it.y - gy) / Math.max(0.15, sunDir.y);
-        it.shadow.position.set(x - sunDir.x * k, gy, z - sunDir.z * k);
       }
     },
     dispose() {

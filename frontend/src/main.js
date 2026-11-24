@@ -2182,21 +2182,30 @@ async function bootstrap() {
   } catch {
     // abaikan
   }
-  if (engineMode === 'browser') {
-    registerServiceWorker();
-    warmUpEngine().catch(() => {});
-  }
-
-  try {
-    const [mats, locs] = await Promise.all([engine.listMaterials(), engine.listLocations()]);
-    setState({
-      serverMaterialsCatalog: mats,
-      materials: getMergedCatalog(mats),
-      locations: locs,
-    });
-  } catch {
-    // Catalogs will retry naturally when backend is reachable
-  }
+  // Mesin hitung (Python di browser, ratusan MB) baru dimuat saat pengguna masuk ke Simulasi:
+  // Beranda dan Belajar tidak memakainya, jadi jangan membebani memori di sana.
+  let engineStarted = false;
+  const startEngine = async () => {
+    if (engineStarted) return;
+    engineStarted = true;
+    if (engineMode === 'browser') {
+      registerServiceWorker();
+      warmUpEngine().catch(() => {});
+    }
+    try {
+      const [mats, locs] = await Promise.all([engine.listMaterials(), engine.listLocations()]);
+      setState({
+        serverMaterialsCatalog: mats,
+        materials: getMergedCatalog(mats),
+        locations: locs,
+      });
+    } catch {
+      // Catalogs will retry naturally when backend is reachable
+    }
+  };
+  const onLanding = (st) => st.step === 'home' || st.step === 'learn';
+  if (!onLanding(getState())) await startEngine();
+  else subscribe((st) => { if (!engineStarted && !onLanding(st)) startEngine(); });
 }
 
 /** Fase 5b: cache the in-browser engine for later visits (production builds only). */

@@ -181,7 +181,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   }
 
   // ---------- Adegan + sorotan ----------
-  const stage = createStage(root.querySelector('.l3d-stage'), { theme });
+  const stage = createStage(root.querySelector('.l3d-stage'), { theme, shadowSize: 2048 });
   const overlay = createFacadeOverlay(stage);
   const clouds = createClouds(stage, { dark: theme === 'dark' });
   const birds = createBirds(stage, { dark: theme === 'dark' });
@@ -613,8 +613,15 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   const near = (c, i, k = 1.6) => clamp01(1 - Math.abs(c - i) * k);
   const at = (c, id, r = 0.3) => Math.abs(c - idx[id]) < r;
   let last = performance.now(), frames = 0, raf = 0, running = false, active = 0;
+  // Diam (tanpa gulir, geser, atau kamera bergerak) → cukup ±30 bingkai/detik untuk awan, burung, dan lalu lintas.
+  let lastActive = 0, lastDraw = 0;
+  const camPrev = new THREE.Vector3();
+  const poke = () => { lastActive = performance.now(); };
+  ['wheel', 'pointerdown', 'pointermove', 'keydown', 'touchmove', 'scroll'].forEach((t) => window.addEventListener(t, poke, { passive: true }));
   function tick(now) {
     if (!running) return;
+    if (now - lastActive > 900 && now - lastDraw < 31) { raf = requestAnimationFrame(tick); return; }
+    lastDraw = now;
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     if (lenis) lenis.raf(now);
@@ -662,6 +669,8 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
 
     cardFx();
     stage.render();
+    stage.govern(now, (lvl) => { if (lvl >= 2) clouds.off = true; }, now - lastActive > 900 ? 52 : 36);
+    if (camPrev.distanceToSquared(stage.camera.position) > 1e-4) { lastActive = now; camPrev.copy(stage.camera.position); }
     if (++frames === 6) window.__ready = true;
     raf = requestAnimationFrame(tick);
   }

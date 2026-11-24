@@ -102,8 +102,8 @@ export function createLife(stage, { dark = false, city } = {}) {
   });
   const cars = vehicles.filter((v) => !v.bus), buses = vehicles.filter((v) => v.bus);
   const mk = (geo, mat, n, shadow) => { const m = new THREE.InstancedMesh(geo, mat, Math.max(1, n)); m.castShadow = shadow; m.count = n; group.add(m); return m; };
-  const carMesh = mk(carGeometry(4.2, 1.6), new THREE.MeshStandardMaterial({ roughness: 0.7 }), cars.length, true);
-  const busMesh = mk(carGeometry(11, 3.1), new THREE.MeshStandardMaterial({ color: dark ? '#C9A64B' : '#E8C46A', roughness: 0.7 }), buses.length, true);
+  const carMesh = mk(carGeometry(4.2, 1.6), new THREE.MeshStandardMaterial({ roughness: 0.7 }), cars.length, false); // kendaraan bergerak tanpa bayangan: peta bayangan tak perlu digambar ulang tiap bingkai
+  const busMesh = mk(carGeometry(11, 3.1), new THREE.MeshStandardMaterial({ color: dark ? '#C9A64B' : '#E8C46A', roughness: 0.7 }), buses.length, false);
   cars.forEach((v, i) => carMesh.setColorAt(i, v.color));
   // Lampu kendaraan hanya di mode gelap: depan putih, belakang merah.
   const headMat = new THREE.MeshBasicMaterial({ color: '#FFF4D6', toneMapped: false });

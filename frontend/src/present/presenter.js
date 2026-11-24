@@ -112,7 +112,7 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
 
   // Awan di atas puncak kubah, burung di ketinggian yang sama.
   const skyScale = Math.max(maket.scale, (R * 1.2) / 105);
-  const clouds = createClouds(stage, { dark: theme === 'dark', scale: skyScale, target: [b.center.x, b.center.y, b.center.z], count: 14, opacity: 0.55, shadow: capture ? 0 : 0.35, hole: [Math.max(b.radius, R * 0.6) * 1.2, Math.max(b.radius, R * 0.6) * 3] });
+  const clouds = createClouds(stage, { dark: theme === 'dark', scale: skyScale, target: [b.center.x, b.center.y, b.center.z], count: 14, opacity: 0.55, hole: [Math.max(b.radius, R * 0.6) * 1.2, Math.max(b.radius, R * 0.6) * 3] });
   const birds = createBirds(stage, { dark: theme === 'dark', scale: skyScale });
   clouds.group.visible = sky === true; // sky: true = awan + burung, 'birds' = burung saja (sampul laporan), false = tanpa langit
   birds.group.visible = Boolean(sky);

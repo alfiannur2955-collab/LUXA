@@ -22,12 +22,20 @@ export function dirFrom(azDeg, elDeg) {
 }
 
 // context: false = panggung kosong tanpa kota dan tower contoh (dipakai Mode Presentasi untuk model pengguna).
-export function createStage(container, { theme = 'light', fov = 14, shadowSize = 4096, context = true } = {}) {
+// autoQuality (bawaan untuk Beranda/Belajar): ketajaman mengikuti luas kanvas, AO setengah resolusi, dan penjaga
+// kualitas menurunkan efek bila bingkai lambat (laptop dengan GPU terintegrasi).
+export function createStage(container, { theme = 'light', fov = 14, shadowSize = 4096, context = true, autoQuality = context } = {}) {
   const pal = PALETTES[theme];
   const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+  // ketajaman: maks 1,5x, dan dibatasi ±2,6 juta piksel per bingkai (layar penuh 2560×1600 skala 150% → ±1,2x)
+  let dprMax = 1.5;
+  const autoDpr = () => {
+    const a = Math.max(1, container.clientWidth * container.clientHeight);
+    return Math.max(1, Math.min(window.devicePixelRatio || 1, dprMax, Math.sqrt(2.6e6 / a)));
+  };
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = autoQuality ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap; // PCF biasa: jauh lebih murah per piksel
   // Peta bayangan digambar sekali per frame. Tanpa ini setiap pass (render, AO) menggambarnya ulang: 3x per frame.
   renderer.shadowMap.autoUpdate = false;
   // Neutral menjaga putih maket tidak pecah di mode terang; di mode gelap kurvanya menekan warna gelap
@@ -63,7 +71,8 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
   ao.configuration.intensity = pal.aoIntensity;
   ao.configuration.color = new THREE.Color(pal.ao);
   ao.configuration.gammaCorrection = false;
-  ao.setQualityMode('High');
+  ao.setQualityMode(autoQuality ? 'Medium' : 'High');
+  if (autoQuality) ao.configuration.halfRes = true; // setengah resolusi, dihaluskan sadar-kedalaman: hampir tak terlihat bedanya
   // Model berat: AO dimatikan, gambar adegan diambil oleh RenderPass biasa (AO pass sekaligus pass gambar).
   const plainPass = new RenderPass(scene, camera);
   plainPass.enabled = false;
@@ -181,6 +190,7 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
 
   function resize() {
     const w = container.clientWidth, h = container.clientHeight;
+    if (autoQuality) renderer.setPixelRatio(autoDpr());
     renderer.setSize(w, h);
     composer.setSize(w, h);
     camera.aspect = (w + frameInset) / h;
@@ -188,8 +198,56 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
     camera.updateProjectionMatrix();
   }
 
+  // Peta bayangan hanya digambar ulang bila ada yang berubah: arah/area matahari, atau posisi, bentuk, dan
+  // keterlihatan benda yang melempar bayangan. Kamera bergerak tidak mengubah bayangan.
+  let shadowSig = null;
+  function signature() {
+    scene.updateMatrixWorld();
+    let a = 0, n = 0;
+    scene.traverseVisible((o) => {
+      if (!o.castShadow) return;
+      const e = o.matrixWorld.elements;
+      a += e[0] + e[5] * 1.1 + e[10] * 1.3 + e[12] * 1.7 + e[13] * 1.9 + e[14] * 2.3 + n * 0.37;
+      if (o.isInstancedMesh) a += o.instanceMatrix.version * 7 + o.count * 3;
+      const g = o.geometry;
+      if (g) a += g.id * 0.013 + (g.attributes.position?.version || 0) * 11 + (g.drawRange.count === Infinity ? 0 : g.drawRange.count);
+      n += 1;
+    });
+    const L = sun.position, T = sun.target.position;
+    return `${n}|${a.toFixed(4)}|${L.x.toFixed(3)},${L.y.toFixed(3)},${L.z.toFixed(3)}|${T.x.toFixed(3)},${T.z.toFixed(3)}|${sc.left}|${sun.shadow.mapSize.x}`;
+  }
+
+  // Penjaga kualitas berbasis waktu: setelah 1 dtk pemanasan, amati 1,5 dtk; bila >60% bingkai melewati anggaran
+  // (budget ms, mis. 36 saat bergerak, 52 saat diam di ±30 fps) → turun satu tahap lalu amati lagi.
+  // Tahap 1: tanpa AO, ketajaman ≤ 1,25x. Tahap 2: ketajaman 1x, peta bayangan 1024. Cukup cepat → berhenti.
+  const gov = { t0: 0, last: 0, n: 0, slow: 0, level: 0, done: !autoQuality };
+  function govern(t, onLevel, budget = 36) {
+    if (gov.done) return;
+    const dt = gov.last ? t - gov.last : 0;
+    gov.last = t;
+    if (!gov.t0) gov.t0 = t + 1000;
+    if (!dt || dt > 1500 || t < gov.t0) return; // pemanasan, tab tersembunyi, atau jeda
+    gov.n += 1;
+    if (dt > budget) gov.slow += 1;
+    if (t - gov.t0 < 1500 || gov.n < 6) return;
+    const slow = gov.slow / gov.n > 0.6;
+    gov.n = 0; gov.slow = 0; gov.t0 = t + 600;
+    if (!slow) { gov.done = true; return; }
+    gov.level += 1;
+    if (gov.level === 1) { setAO(false); dprMax = 1.25; }
+    else {
+      dprMax = 1;
+      sun.shadow.mapSize.set(1024, 1024);
+      sun.shadow.map?.dispose(); sun.shadow.map = null;
+      gov.done = true;
+    }
+    resize();
+    onLevel?.(gov.level);
+  }
+
   function render() {
-    renderer.shadowMap.needsUpdate = true;
+    const sig = signature();
+    if (sig !== shadowSig) { renderer.shadowMap.needsUpdate = true; shadowSig = sig; }
     if (api.raw) renderer.render(scene, camera);
     else composer.render();
     placeLabels();
@@ -215,6 +273,6 @@ export function createStage(container, { theme = 'light', fov = 14, shadowSize =
     labelLayer.remove();
   }
 
-  const api = { renderer, scene, camera, sun, city, tower, ao, composer, palette: pal, raw: false, setAO, setShot, poseOf, applyCamera, applyShadowArea, setSun, addLabel, resize, render, setFrameInset, dispose };
+  const api = { renderer, scene, camera, sun, city, tower, ao, composer, palette: pal, raw: false, govern, get quality() { return gov.level; }, setAO, setShot, poseOf, applyCamera, applyShadowArea, setSun, addLabel, resize, render, setFrameInset, dispose };
   return api;
 }
