@@ -3,7 +3,7 @@
  * Web Worker (./worker.js) with Pyodide. Model files and configs stay on the user's device
  * (IndexedDB, ./store.js); no request ever carries a model file.
  */
-import { applyRematerial, expandAnalysis, perfLog, PERF } from './payload.js';
+import { applyRematerial, expandAnalysis, forgetInspect, memoInspect, perfLog, PERF } from './payload.js';
 import * as store from './store.js';
 
 const SAMPLES = {
@@ -138,6 +138,7 @@ async function sendModel(modelId, name, bytes, sidecars, { detect, signal }) {
   const sc = sidecars.map((s) => ({ name: s.name, bytes: s.bytes.slice(0) }));
   const res = await post('upload', { modelId, name, bytes: copy, sidecars: sc, detect }, [copy, ...sc.map((s) => s.bytes)], signal);
   inWorker.add(modelId);
+  forgetInspect(modelId); // isi file bisa berbeda walau nama (dan model_id) sama
   return res;
 }
 
@@ -218,7 +219,7 @@ export async function inspect(modelId, config, { userAnswers = {}, signal } = {}
     advanced: config?.advanced || {},
     user_answers: userAnswers || {},
   };
-  return api('inspect', { model_id: modelId, req }, { signal });
+  return memoInspect(modelId, req, () => api('inspect', { model_id: modelId, req }, { signal }));
 }
 
 export async function analyze(modelId, config, { signal } = {}) {

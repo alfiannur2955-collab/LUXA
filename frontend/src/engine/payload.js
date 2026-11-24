@@ -114,3 +114,30 @@ export function perfLog(op, info) {
   const parts = Object.entries(info).map(([k, v]) => `${k}=${typeof v === 'number' ? Math.round(v * 10) / 10 : v}`);
   console.info(`[LUXA perf] ${op}: ${parts.join(' ')}`);
 }
+
+// ---------------------------------------------------------------------------
+// Inspeksi: permintaan yang sama persis memakai hasil terakhir (layar Konfirmasi memanggil ulang
+// inspeksi di setiap pilihan, termasuk "Lanjut ke Inspeksi" tanpa perubahan apa pun).
+// ---------------------------------------------------------------------------
+const inspectMemo = new Map(); // `${modelId}|${JSON req}` -> hasil
+const MAX_INSPECT_MEMO = 6;
+
+export async function memoInspect(modelId, req, run) {
+  const key = `${modelId}|${JSON.stringify(req)}`;
+  if (inspectMemo.has(key)) {
+    const hit = inspectMemo.get(key);
+    inspectMemo.delete(key);
+    inspectMemo.set(key, hit);
+    if (PERF) perfLog('inspect', { cache: 'hit' });
+    return hit;
+  }
+  const res = await run();
+  inspectMemo.set(key, res);
+  while (inspectMemo.size > MAX_INSPECT_MEMO) inspectMemo.delete(inspectMemo.keys().next().value);
+  return res;
+}
+
+/** Dipanggil saat file model diunggah/diganti: hasil inspeksi lama untuk model itu tidak berlaku lagi. */
+export function forgetInspect(modelId) {
+  for (const k of [...inspectMemo.keys()]) if (k.startsWith(`${modelId}|`)) inspectMemo.delete(k);
+}

@@ -1,4 +1,4 @@
-import { applyRematerial, expandAnalysis } from './payload.js';
+import { applyRematerial, expandAnalysis, forgetInspect, memoInspect } from './payload.js';
 /**
  * LUXA engine, server mode: talks to the FastAPI backend (backend/main.py).
  * Used for development with `npm run dev:server`. The default build uses the in-browser
@@ -31,7 +31,9 @@ export async function upload(file, { signal } = {}) {
     body: form,
     signal,
   });
-  return _jsonOrThrow(res, 'Gagal mengunggah file model.');
+  const out = await _jsonOrThrow(res, 'Gagal mengunggah file model.');
+  if (out?.model_id) forgetInspect(out.model_id);
+  return out;
 }
 
 export async function listModels({ signal } = {}) {
@@ -62,13 +64,15 @@ export async function inspect(modelId, config, { userAnswers = {}, signal } = {}
     advanced: config?.advanced || {},
     user_answers: userAnswers || {},
   };
-  const res = await fetch(`/api/models/${encodeURIComponent(modelId)}/inspect`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-    signal,
+  return memoInspect(modelId, payload, async () => {
+    const res = await fetch(`/api/models/${encodeURIComponent(modelId)}/inspect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal,
+    });
+    return _jsonOrThrow(res, 'Gagal memeriksa geometri model.');
   });
-  return _jsonOrThrow(res, 'Gagal memeriksa geometri model.');
 }
 
 export async function analyze(modelId, config, { signal } = {}) {

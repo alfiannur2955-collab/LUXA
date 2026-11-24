@@ -1213,7 +1213,47 @@ def resolve_group_outer_skin_faces(
     }
 
 
+_OUTER_SKIN_CACHE: Dict[Any, Dict[str, Dict[str, Any]]] = {}
+
+
 def compute_outer_skin_areas_by_group(
+    raw_groups: List[RawGroupMesh],
+    group_category_overrides: Optional[Dict[str, str]] = None,
+    disabled_groups: Optional[List[str]] = None,
+    z_ground_cutoff_m: float = 0.0,
+    exterior_detection_mode: str = "auto",
+    bim_storeys: Optional[List[Dict[str, Any]]] = None,
+    restore_filtered: Optional[List[str]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Versi ber-cache (inspeksi diulang tiap pilihan di layar Konfirmasi; deteksi sisi luar adalah bagian
+    terberatnya). Kunci = sidik geometri tiap grup + semua parameter yang memengaruhi hasil, jadi hasil identik."""
+    import copy as _copy
+    fp = tuple(
+        (rg.group_name, rg.default_category, len(rg.faces), len(rg.vertices), round(float(np.asarray(rg.vertices).sum()), 4))
+        for rg in raw_groups
+    )
+    key = (
+        fp,
+        tuple(sorted((group_category_overrides or {}).items())),
+        tuple(sorted(disabled_groups or [])),
+        round(float(z_ground_cutoff_m or 0.0), 4),
+        str(exterior_detection_mode),
+        repr(bim_storeys),
+        tuple(sorted(restore_filtered or [])),
+    )
+    hit = _OUTER_SKIN_CACHE.get(key)
+    if hit is None:
+        hit = _compute_outer_skin_areas_by_group_uncached(
+            raw_groups, group_category_overrides, disabled_groups, z_ground_cutoff_m,
+            exterior_detection_mode, bim_storeys, restore_filtered,
+        )
+        if len(_OUTER_SKIN_CACHE) >= 16:
+            _OUTER_SKIN_CACHE.clear()
+        _OUTER_SKIN_CACHE[key] = hit
+    return _copy.deepcopy(hit)
+
+
+def _compute_outer_skin_areas_by_group_uncached(
     raw_groups: List[RawGroupMesh],
     group_category_overrides: Optional[Dict[str, str]] = None,
     disabled_groups: Optional[List[str]] = None,
