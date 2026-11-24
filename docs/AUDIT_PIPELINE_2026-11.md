@@ -28,7 +28,7 @@ Skrip probe tidak dimasukkan ke repo. Temuan yang diperbaiki wajib mendapat uji 
 | A3-07 | SEDANG | Sisi luar | Dua massa dengan celah ≤ 1 m: fasad yang berhadapan dibuang tanpa peringatan |
 | A3-08 | SEDANG | Peneduh | Pelat balkon: dihitung atau tidak bergantung nama ("Slab" ya, "Pelat Lantai" tidak) — **diperbaiki** |
 | A3-09 | SEDANG | CI | Paritas engine browser, hitung ulang LibreOffice, dan tes berbasis corpus selalu dilewati di CI |
-| A3-10 | SEDANG | Distribusi | `frontend/dist` lokal bisa basi tanpa peringatan; Node.js tidak ada di laptop pengembang |
+| A3-10 | SEDANG | Distribusi | `frontend/dist` lokal bisa basi tanpa peringatan; Node.js tidak ada di laptop pengembang — **diperbaiki** |
 | A3-11 | SEDANG | Hitung | Mode simulasi: konduksi rangka 8% hanya ditambahkan bila model punya grup rangka |
 | A3-12 | RENDAH | Klasifikasi | Token belum dikenal: GL-01, Polycarbonate, Secondary Skin, Perforated, Pergola, Krepyak, Jalusi, Roster, Spandek, dll. — **sebagian besar diperbaiki** |
 | A3-13 | RENDAH | Hitung | Mode SNI: muka depan mullion tidak masuk luas selubung A_o |
@@ -226,6 +226,8 @@ LibreOffice, dan pindahkan satu atau dua model nyata kecil ke `fixtures/`.
 Di laptop pengembang tidak ada Node.js, sehingga `dist` tertinggal sejak 23 Nov tanpa ada yang tahu.
 **Usulan:** peringatan di `start_studio.bat`/`run_studio_servers.py` bila `src/` atau `backend/` lebih baru dari
 `dist/index.html`, dan pasang Node.js LTS di laptop pengembang.
+
+**Perbaikan (Nov 2026, commit `86f953b`).** Ditambahkan `check_stale_build()` dan `warn_if_build_stale()` di `backend/run_studio_servers.py` sebelum menyajikan `frontend/dist`, membandingkan mtime terbaru di `frontend/src/` dan `backend/**/*.py` terhadap `frontend/dist/index.html` lalu mencetak peringatan jelas menyarankan `cd frontend && npm run build` (memerlukan Node.js 20 LTS). Teruji otomatis di `tests/test_stale_build_warning.py` (4 uji) dan verifikasi langsung pada repositori.
 
 ## A3-11 · SEDANG · Konduksi rangka bergantung detail model (mode simulasi)
 
