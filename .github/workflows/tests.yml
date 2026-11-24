@@ -30,3 +30,7 @@ jobs:
       - name: Jalankan pytest
         # Tes hitung ulang LibreOffice dan paritas engine browser dilewati otomatis bila alatnya tidak ada.
         run: python -m pytest -q
+      - name: Bandingkan hasil fixture dengan baseline
+        # Gagal bila angka OTTV/geometri fixture berubah. Perubahan disengaja: jalankan
+        # `python tools/snapshot_baseline.py`, periksa selisihnya, lalu commit baseline baru.
+        run: python tools/compare_baseline.py

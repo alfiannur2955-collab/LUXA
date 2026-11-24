@@ -27,7 +27,7 @@ _CURTAINWALL_CONTEXT_TOKENS = frozenset({"curtainwall", "curtain", "cw", "ifccur
 _GLAZING_TOKENS_ID = frozenset({"kaca", "jendela", "bukaan"})
 _GLAZING_TOKENS_EN = frozenset({
     "glass", "glas", "glazing", "glaze", "window", "vision", "fenestration",
-    "aperture", "skylight", "lowe", "stopsol", "sunergy", "ifcwindow", "crown",
+    "aperture", "skylight", "lowe", "stopsol", "sunergy", "ifcwindow",
 })
 _GLAZING_TOKENS = _GLAZING_TOKENS_ID | _GLAZING_TOKENS_EN
 _GLAZING_MAT_QUALIFIERS = frozenset({"clear", "tinted"})
@@ -101,6 +101,22 @@ def _tokenize_label(text: str) -> List[str]:
     return out
 
 
+def _singular_variants(tokens) -> set:
+    """Bentuk tunggal dari token jamak bahasa Inggris (mullions -> mullion, louvres -> louvre,
+    canopies -> canopy) agar nama layer jamak tetap dikenali. Token asli tetap dipertahankan."""
+    out = set()
+    for t in tokens:
+        if len(t) <= 3 or not t.isalpha():
+            continue
+        if t.endswith("ies") and len(t) > 4:
+            out.add(t[:-3] + "y")
+        elif t.endswith(("ses", "xes", "ches", "shes")):
+            out.add(t[:-2])
+        elif t.endswith("s") and not t.endswith(("ss", "us", "is")):
+            out.add(t[:-1])
+    return out
+
+
 def classify_layer_or_material_with_confidence(
     label: str,
     context: Optional[str] = None,
@@ -126,6 +142,10 @@ def classify_layer_or_material_with_confidence(
     mat_tokens = set(mat_tokens_seq)
     layer_tokens = set(layer_tokens_seq)
     ctx_tokens = set(ctx_tokens_seq)
+    # Nama jamak (CW_Vertical_Mullions, Louvres, Canopies) dicocokkan juga dalam bentuk tunggal
+    mat_tokens |= _singular_variants(mat_tokens)
+    layer_tokens |= _singular_variants(layer_tokens)
+    ctx_tokens |= _singular_variants(ctx_tokens)
     all_tokens = mat_tokens | layer_tokens | ctx_tokens
 
     # 0. Konteks sekitar (jalan, blok kota, taman, pohon): tampil di layar, tidak masuk hitungan

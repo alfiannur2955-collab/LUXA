@@ -3,7 +3,7 @@ Baseline Snapshot Tool for OTTV 3D Parametric Studio
 ====================================================
 Runs `universal_pipeline.load_universal_model_stages_1_and_2()` and
 `ottv_engine.analyze_building_ottv()` with default `ProjectConfig()`
-(mode `'sni'`, `sf_source='template_prodi'`, `sceff_table_mode='terkoreksi'`)
+(mode `'sni'`, `sf_source='sni2020'`, `sceff_table_mode='terkoreksi'`)
 on every 3D/BIM fixture inside `fixtures/` and saves a deterministic
 snapshot to `fixtures/baseline.json`.
 """
@@ -52,7 +52,7 @@ def list_fixture_files(fixtures_dir: str = FIXTURES_DIR) -> List[str]:
 def evaluate_fixture(filepath: str, filename: str) -> Dict[str, Any]:
     """
     Evaluates a single fixture using default `ProjectConfig()` (mode `'sni'`,
-    `sf_source='template_prodi'`) and extracts all Stage 1+2 geometry metrics
+    `sf_source='sni2020'`) and extracts all Stage 1+2 geometry metrics
     and full OTTV SNI 6389:2020 metrics.
     """
     params = ProjectConfig().to_envelope_parameters()

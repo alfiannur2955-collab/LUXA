@@ -290,11 +290,14 @@ def _parse_ifc_with_ifcopenshell(
                             elif etype == "IfcDoor":
                                 cat = "glazing" if ("glass" in style_or_mat.lower() or tr_val > 0.12) else "wall"
                             elif etype in ("IfcPlate", "IfcCurtainWall") or p_type == "IfcCurtainWall":
-                                sm_lo = style_or_mat.lower()
+                                # Nama elemen & ObjectType ikut dibaca: banyak ekspor (mis. Archicad) tidak membawa
+                                # material/style sama sekali, petunjuk satu-satunya ada di nama (CW_Vision_Glass_4).
+                                el_hint = f"{elem.Name or ''} {getattr(elem, 'ObjectType', '') or ''}".strip()
+                                sm_lo = f"{style_or_mat} {el_hint}".lower()
                                 has_glass_kw = any(k in sm_lo for k in ("glass", "glaz", "kaca", "vision"))
                                 if tr_val <= 0.12 and not has_glass_kw:
                                     # B1: Opaque IfcPlate/IfcCurtainWall without glass keyword -> spandrel (z<=1.35m) or wall, NEVER glazing.
-                                    base_cat = classify_layer_or_material_role(style_or_mat, context=p_type)
+                                    base_cat = classify_layer_or_material_role(f"{style_or_mat} {el_hint}".strip(), context=p_type)
                                     if base_cat in ("frame", "shading", "ignore", "spandrel"):
                                         cat = base_cat
                                     else:

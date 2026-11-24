@@ -3136,19 +3136,51 @@ def analyze_building_ottv(
         orientation_floor_breakdown[code] = fl_rows
 
     # Serialize Frame & Shading meshes cleanly for smooth 60 FPS Three.js rendering
+    def _face_components(faces_arr: np.ndarray) -> np.ndarray:
+        """Label komponen terhubung per face (face berbagi vertex = satu elemen, mis. satu sirip).
+        Numpy murni (tanpa scipy) agar jalan di Pyodide."""
+        if len(faces_arr) == 0:
+            return np.zeros(0, dtype=np.int64)
+        nv = int(faces_arr.max()) + 1
+        lab_v = np.arange(nv, dtype=np.int64)
+        flat = faces_arr.ravel()
+        k = faces_arr.shape[1]
+        for _ in range(200):
+            f_lab = lab_v[faces_arr].min(axis=1)
+            new_v = lab_v.copy()
+            np.minimum.at(new_v, flat, np.repeat(f_lab, k))
+            new_v = new_v[new_v]  # lompatan pointer: konvergen lebih cepat
+            if np.array_equal(new_v, lab_v):
+                break
+            lab_v = new_v
+        return lab_v[faces_arr].min(axis=1)
+
     def _serialize_raw_groups(rg_list: List[RawGroupMesh], max_faces: int = 18000) -> List[Dict[str, Any]]:
+        """Kirim mesh rangka/peneduh/atap ke viewer. Bila melebihi `max_faces`, yang dijarangkan adalah
+        ELEMEN UTUH (komponen terhubung), bukan face, supaya sirip/kotak tidak tampil bolong."""
         out = []
-        total_f = sum(len(r.faces) for r in rg_list)
-        stride = max(1, total_f // max_faces) if total_f > max_faces else 1
-        for r in rg_list:
-            if r.group_name in params.disabled_groups:
+        live = [r for r in rg_list if r.group_name not in params.disabled_groups]
+        total_f = sum(len(r.faces) for r in live)
+        stride = int(np.ceil(total_f / max_faces)) if total_f > max_faces else 1
+        for r in live:
+            f_arr = np.asarray(r.faces, dtype=np.int64)
+            if f_arr.ndim != 2 or len(f_arr) == 0:
                 continue
-            fs = r.faces[::stride]
-            vs = np.round(r.vertices, 3).tolist()
+            if stride > 1:
+                comp = _face_components(f_arr)
+                uniq, inv = np.unique(comp, return_inverse=True)
+                if len(uniq) >= stride:
+                    f_arr = f_arr[(inv % stride) == 0]
+                # Mesh yang menyatu jadi satu/sedikit komponen dikirim utuh: lebih baik berat daripada rusak.
+            used = np.unique(f_arr[:, :4] if f_arr.shape[1] >= 4 else f_arr)
+            remap = np.full(len(r.vertices), -1, dtype=np.int64)
+            remap[used] = np.arange(len(used))
+            vs = np.round(np.asarray(r.vertices, dtype=np.float64)[used], 3).tolist()
+            fr = remap[f_arr]
             tris: List[List[int]] = []
-            for f in fs:
+            for f in fr:
                 tris.append([int(f[0]), int(f[1]), int(f[2])])
-                if f[2] != f[3]:
+                if len(f) > 3 and f[2] != f[3]:
                     tris.append([int(f[0]), int(f[2]), int(f[3])])
             out.append({
                 "group_name": r.group_name,
@@ -3456,7 +3488,7 @@ def analyze_building_ottv(
         "solar_vectors": solar_vectors,
         "panels": panel_records,
         "frame_elements": _serialize_raw_groups(frame_groups, max_faces=14000),
-        "shading_elements": _serialize_raw_groups(shading_groups, max_faces=12000),
+        "shading_elements": _serialize_raw_groups(shading_groups, max_faces=48000),
         "roof_elements": _serialize_raw_groups(roof_groups, max_faces=4000),
         "context_elements": _serialize_raw_groups(context_groups, max_faces=40000),
     }
