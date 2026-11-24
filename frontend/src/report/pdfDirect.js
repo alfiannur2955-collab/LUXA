@@ -52,7 +52,10 @@ function loadImage(src) {
 
 /** Satu halaman → JPEG (Uint8Array) lewat SVG foreignObject. */
 async function rasterPage(xhtml, css, rootAttrs, w, h, scale, quality) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><foreignObject x="0" y="0" width="${w}" height="${h}">`
+  // SVG langsung berukuran akhir (viewBox menskalakan isi secara vektor), lalu digambar 1:1 ke kanvas CPU.
+  // Menskalakan di drawImage pada kanvas GPU membuat Chrome merender per petak dan meninggalkan garis sambungan.
+  const W = Math.round(w * scale), H = Math.round(h * scale);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${w} ${h}"><foreignObject x="0" y="0" width="${w}" height="${h}">`
     + `<html xmlns="http://www.w3.org/1999/xhtml"${rootAttrs}><head><style>${css}</style></head><body style="margin:0;background:transparent">${xhtml}</body></html>`
     + '</foreignObject></svg>';
   // data URL (bukan blob URL): Chrome menandai kanvas tercemar bila SVG foreignObject dimuat dari blob
@@ -61,13 +64,12 @@ async function rasterPage(xhtml, css, rootAttrs, w, h, scale, quality) {
     const im = await loadImage(url);
     try { await im.decode(); } catch { /* sudah termuat */ }
     const c = document.createElement('canvas');
-    c.width = Math.round(w * scale); c.height = Math.round(h * scale);
-    const g = c.getContext('2d');
-    g.imageSmoothingQuality = 'high';
-    g.drawImage(im, 0, 0, c.width, c.height);
+    c.width = W; c.height = H;
+    const g = c.getContext('2d', { willReadFrequently: true }); // kanvas CPU: tanpa garis sambungan petak GPU
+    g.drawImage(im, 0, 0);
     const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', quality));
     c.width = c.height = 0;
-    return { bytes: new Uint8Array(await blob.arrayBuffer()), pw: Math.round(w * scale), ph: Math.round(h * scale) };
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), pw: W, ph: H };
   }
 }
 
