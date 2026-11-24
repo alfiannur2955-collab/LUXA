@@ -3,7 +3,7 @@
 export const SHOTS = {
   beranda: { target: [0, 22, 0], az: 200, el: 35, dist: 1100 },
   bab1: { target: [0, 40, 0], az: 200, el: 32, dist: 860 },
-  bab2: { target: [-17.4, 56.8, -6], az: 215, el: 10, dist: 54, shadow: 26, shadowFocus: [-14, 55, -6] },
+  bab2: { target: [-12.8, 55.6, -1.6], az: 206, el: 14, dist: 40, shadow: 26, shadowFocus: [-14, 55, -3] }, // memandang potongan ruang di ujung sayap
   rumus: { target: [-14, 55, -6], az: 238, el: 11, dist: 150, shadow: 60, shadowFocus: [-14, 55, -6] },
   bab3: { target: [-14, 52, -6], az: 270, el: 3, dist: 340, shadow: 90, shadowFocus: [-14, 52, -6] },
   bab4: { target: [-40, 60, 10], az: 200, el: 40, dist: 1050 },

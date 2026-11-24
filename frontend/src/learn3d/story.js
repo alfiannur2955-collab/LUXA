@@ -8,8 +8,8 @@ import 'lenis/dist/lenis.css';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createStage, dirFrom } from './stage.js';
 import { SHOTS } from './shots.js';
-import { setGlazing, setOverhangDepth, setSkylightArea, sillFor, PODIUM_H, TOWER_TOP, PODIUM_ROOF_AREA, SKY_MAX_AREA } from './tower.js';
-import { createFacadeOverlay, createSunMarker, createHeatArrows, createWallSection, createFacadeBands } from './highlights.js';
+import { setGlazing, setOverhangDepth, setSkylightArea, sillFor, PODIUM_H, TOWER_TOP, PODIUM_ROOF_AREA, SKY_MAX_AREA, TOWER } from './tower.js';
+import { createFacadeOverlay, createSunMarker, createHeatArrows, createWallSection, createRoomSection, createFacadeBands } from './highlights.js';
 import { PRESETS, SYMS, PATH_NAMES, chapters, LUX } from './content.js';
 import { createClouds } from './clouds.js';
 import { createBirds } from './birds.js';
@@ -190,6 +190,8 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   const arrows = createHeatArrows(stage, { dark: theme === 'dark' });
   // Potongan dinding Bab 6: dinding asli fasad Barat di bawah jendela lantai 10 dipotong di z = −9.
   const wallSample = createWallSection(stage, { facadeX: -14, zCut: -9 });
+  // Potongan ruang Bab 2: ujung sayap barat daya lantai contoh diiris supaya ruang di balik fasad Barat terlihat.
+  const roomCut = createRoomSection(stage, { facadeX: -14, theme });
   const V0 = [0, 0, 0];
   const L = {
     sf: [
@@ -225,15 +227,19 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   function anchorsWest() {
     const gh = glassH('B'), sill = sillFor(gh), base = PODIUM_H + FLOOR * 4;
     return {
-      wall: new THREE.Vector3(-14, base + sill * 0.5, -11),
-      glass: new THREE.Vector3(-14, base + sill + gh * 0.5, -6.5),
-      solar: new THREE.Vector3(-14, base + sill + gh * 0.4, -1.5),
+      // ketiga jalur di teluk dekat bidang potong (z = 0,4) supaya kelanjutannya di dalam ruang terlihat
+      wall: new THREE.Vector3(-14, base + sill * 0.5, -2.2),
+      glass: new THREE.Vector3(-14, base + sill + gh * 0.5, -1.8),
+      solar: new THREE.Vector3(-14, base + sill + gh * 0.4, -1.3),
       overhang: new THREE.Vector3(-14.6, base + sill + gh + 0.18, -10),
       glassMid: new THREE.Vector3(-14.05, base + sill + gh * 0.6, -1.5),
       wallH: sill,
       glassH: gh,
       overhangDepth: sim.depth, // overhang Barat: bawahnya 0,10 m di atas kaca, tebal 0,16 m (tower.js)
       overhangBottom: base + sill + gh + 0.10,
+      sc: glassById(sim.glass).sc,
+      massa: wallById(sim.wall).massa_kg_m2,
+      room: { x0: -13.75, x1: -7, zN: -8, zCut: 0.4, zS: 2, floorY: base, ceilY: base + TOWER.tower.floorH - 0.3, wallT: 0.25, sillTop: base + sill, glassTop: base + sill + gh, overhangBottom: base + sill + gh + 0.10, overhangDepth: sim.depth },
     };
   }
 
@@ -276,7 +282,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     $('t-glass').textContent = fmt(w.qGlass, 1);
     $('t-solar').textContent = fmt(w.qSolar, 1);
     $('t-total').textContent = fmt(w.total, 1);
-    $('t-note').textContent = `Contoh: sisi Barat di Jakarta, kaca ${pct(effWwr('B'))}, ${glassById(sim.glass).name.toLowerCase()}, ${wallById(sim.wall).name.toLowerCase()}.`;
+    $('t-note').textContent = `Contoh: sisi Barat di Jakarta, kaca ${pct(effWwr('B'))}, ${glassById(sim.glass).name.toLowerCase()}, ${wallById(sim.wall).name.toLowerCase()}. Riak dan bercak di ruang potongan menggambarkan panas yang masuk, bukan suhu ruang.`;
     // Bab 3
     $('wwr').value = sim.wwr.B;
     $('wwr-out').textContent = pct(effWwr('B'));
@@ -345,6 +351,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     L.overhang.setPos(a.overhang);
     L.glassH.setPos(a.glassMid);
     arrows.update({ q: w, anchors: a });
+    roomCut.update(a.room);
     renderSym();
   }
 
@@ -645,6 +652,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     const w1 = Math.max(near(c, idx['bab-1']), near(c, idx['bab-7'])), w4 = near(c, idx['bab-4']);
     if (w1 >= w4) { overlay.setWeights(ottvWeights); overlay.setAmount(w1); } else { overlay.setWeights(sfWeights); overlay.setAmount(w4); }
     wallSample.setAmount(near(c, idx['bab-6'], 2));
+    roomCut.setAmount(near(c, idx['bab-2'], 2.2));
     bands.setAmount(near(c, idx.rumus, 2));
     bands.tick(now);
     L.sym.on = at(c, 'rumus');

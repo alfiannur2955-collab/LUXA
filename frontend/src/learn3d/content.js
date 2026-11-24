@@ -183,7 +183,7 @@ export function chapters({ gl }) {
 export const LUX = {
   beranda: ['wave', 'Aku Lux. Ayo cek seberapa panas sisi-sisi bangunanmu hari ini.'],
   'bab-1': ['guide', 'Bayangkan bangunan itu cooler box. OTTV menunjukkan seberapa bocor dindingnya. Coba pilih Hemat.'],
-  'bab-2': ['think', 'Sinar lewat kaca hampir selalu jadi penyumbang terbesar. Lihat panah yang paling tebal.'],
+  'bab-2': ['think', 'Sinar lewat kaca hampir selalu jadi penyumbang terbesar. Lihat bercaknya di lantai ruang: itu panas yang ikut masuk.'],
   rumus: ['guide', 'Mulai dari α. Perhatikan WWR muncul tiga kali, makanya porsi kaca berpengaruh besar.'],
   'bab-3': ['guide', 'Jendela lebar itu pintu masuk panas yang lebar juga.'],
   'bab-4': ['guide', 'Matahari sore itu pilih kasih: sisi Barat yang paling kena.'],

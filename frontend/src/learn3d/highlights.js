@@ -145,7 +145,10 @@ export function createHeatArrows(stage, { dark = false } = {}) {
     group.add(m);
     return m;
   };
-  const lines = mk(6); // semua garis (berkas, riak) dalam satu geometri yang dibangun ulang tiap bingkai
+  const lines = mk(6); // garis di luar gedung (berkas, riak) dalam satu geometri yang dibangun ulang tiap bingkai
+  // elemen di dalam ruang potongan: diuji kedalaman supaya tertutup fasad dan hanya terlihat lewat bidang potong
+  const inner = mk(6);
+  inner.material.depthTest = true;
   // bidang yang dilalui panas: lembar tipis di depan fasad + garis tepinya
   const glowMat = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
   const glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), glowMat);
@@ -155,7 +158,9 @@ export function createHeatArrows(stage, { dark = false } = {}) {
   glow.add(rim);
   group.add(glow);
 
-  const pos = [], col = [];
+  const posO = [], colO = [], posI = [], colI = [];
+  let pos = posO, col = colO;
+  const layer = (inside) => { pos = inside ? posI : posO; col = inside ? colI : colO; };
   const toCam = new THREE.Vector3(), tan = new THREE.Vector3(), side = new THREE.Vector3(), tmp = new THREE.Vector3();
   let cam = null;
   // pita menghadap kamera melalui titik-titik pts; w = setengah lebar (m), cAt(i) = [THREE.Color, alfa]
@@ -176,13 +181,37 @@ export function createHeatArrows(stage, { dark = false } = {}) {
     }
   }
   function flush() {
-    lines.geometry.dispose();
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
-    lines.geometry = g;
-    pos.length = 0; col.length = 0;
+    for (const [m, P, Cc] of [[lines, posO, colO], [inner, posI, colI]]) {
+      m.geometry.dispose();
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+      g.setAttribute('color', new THREE.Float32BufferAttribute(Cc, 4));
+      m.geometry = g;
+      P.length = 0; Cc.length = 0;
+    }
+    layer(false);
   }
+
+  // segi banyak datar (kipas segitiga) untuk bercak sinar dan bidang hangat
+  function fan(pts, c, a) {
+    for (let i = 1; i < pts.length - 1; i++) for (const v of [pts[0], pts[i], pts[i + 1]]) { pos.push(v.x, v.y, v.z); col.push(c.r, c.g, c.b, a); }
+  }
+  // potong segi banyak (bidang xz) dengan persegi panjang lantai ruang (Sutherland–Hodgman)
+  function clipXZ(poly, x0, x1, z0, z1) {
+    const edges = [[(p) => p.x - x0, 'x', x0], [(p) => x1 - p.x, 'x', x1], [(p) => p.z - z0, 'z', z0], [(p) => z1 - p.z, 'z', z1]];
+    let out = poly;
+    for (const [inside, ax, v] of edges) {
+      const inp = out; out = [];
+      for (let i = 0; i < inp.length; i++) {
+        const P = inp[i], Q = inp[(i + 1) % inp.length], a = inside(P), b = inside(Q);
+        if (a >= 0) out.push(P);
+        if ((a >= 0) !== (b >= 0)) { const t = a / (a - b); out.push(P.clone().lerp(Q, t)); }
+      }
+      if (!out.length) break;
+    }
+    return out;
+  }
+  const scK = () => 0.3 + 0.7 * Math.min(1, (A.sc ?? 0.5) / 0.8); // terang sinar setelah tembus kaca ≈ SC
 
   // ---- Arah sinar: matahari panggung bila menghadap fasad Barat, selain itu sore hari baku (SF Barat = sinar sore).
   const sunU = new THREE.Vector3();
@@ -231,14 +260,57 @@ export function createHeatArrows(stage, { dark = false } = {}) {
         }
       }
       if (!blocked) {
-        // menembus kaca: lanjutan pendek ke dalam yang memudar
-        const In = T.clone().addScaledVector(dIn, 1.1);
-        strip([T, In], wBeam * 1.3, (i) => [cSolar, (i ? 0 : 0.8) * k]);
+        // menembus kaca: lanjut sampai lantai ruang (terang ≈ SC), atau lanjutan pendek bila tanpa potongan ruang
+        const rm = A.room;
+        const sF = rm ? (T.y - rm.floorY) / Math.max(0.05, -dIn.y) : 1.1;
+        const F = T.clone().addScaledVector(dIn, sF);
+        const ki = rm ? scK() : 1;
+        layer(!!rm);
+        strip([T, F], wBeam * 1.2, (i) => [cSolar, (rm ? 0.7 : (i ? 0 : 0.8)) * ki * k]);
+        if (rm && !still) {
+          const lin = T.distanceTo(F);
+          const p = ((t * speed + dz * 1.3) % (lin + streak));
+          const a0 = Math.max(0, p - streak), a1 = Math.min(lin, p);
+          if (a1 - a0 > 0.05) {
+            const P0 = T.clone().addScaledVector(dIn, a0), P1 = T.clone().addScaledVector(dIn, a1);
+            strip([P0, P0.clone().lerp(P1, 0.5), P1], (i) => wStreak * 0.8 * (0.4 + 0.3 * i), (i) => [i === 2 ? cWhite : cSolar, [0, 0.6, 0.9][i] * ki * k]);
+          }
+        }
+        layer(false);
       }
     }
   }
+  // Bercak sinar di lantai: bukaan kaca yang tidak terbayangi overhang, diproyeksikan searah sinar ke lantai.
+  function drawPatch(warm, k, t, still) {
+    const rm = A.room;
+    if (!rm || warm <= 0.01) return;
+    const u = sunDir(), dIn = new THREE.Vector3().copy(u).negate();
+    const gb = A.glass.y - A.glassH / 2, gt = gb + A.glassH;
+    const d = A.overhangDepth || 0;
+    const yS = d > 0.02 ? A.overhangBottom - d * (u.y / Math.max(0.05, -u.x)) : gt; // di atas yS kaca terbayangi
+    const yTop = Math.min(gt, yS);
+    if (yTop <= gb + 0.01) return;
+    const z0 = rm.zN + 0.3, z1 = rm.zCut;
+    const fy = rm.floorY + 0.012;
+    const proj = (y, z) => { const P = new THREE.Vector3(FACADE_X, y, z); return P.addScaledVector(dIn, (y - fy) / Math.max(0.05, -dIn.y)); };
+    const poly = clipXZ([proj(gb, z0), proj(gb, z1), proj(yTop, z1), proj(yTop, z0)], rm.x0, rm.x1, rm.zN, rm.zCut);
+    if (poly.length < 3) return;
+    poly.forEach((p) => { p.y = fy; });
+    layer(true);
+    fan(poly, cSolar, (dark ? 0.5 : 0.42) * scK() * warm * k);
+    // lantai yang terkena sinar ikut memanaskan ruang: riak tipis naik dari bercak
+    if (still) { layer(false); return; }
+    const cx = poly.reduce((a, p) => a + p.x, 0) / poly.length;
+    const cRise = new THREE.Color(HEAT_COLORS.glass);
+    for (let j = 0; j < 3; j++) {
+      const zz = Math.min(rm.zCut - 0.5, Math.max(rm.zN + 0.5, -2.4 + j * 1.1)), pts = [];
+      for (let i = 0; i <= 14; i++) { const h = (i / 14) * 1.3; pts.push(new THREE.Vector3(cx + 0.06 * Math.sin(h * 7 - t * 2.2 + j), fy + 0.05 + h, zz)); }
+      strip(pts, 0.012, (i) => [cRise, Math.sin((i / 14) * Math.PI) * 0.55 * warm * k]);
+    }
+    layer(false);
+  }
   // Riak konduksi: tiga garis sinus tipis tegak lurus bidang, bergerak pelan dari udara luar ke bidang.
-  function drawConduction(kind, t, k, still) {
+  function drawConduction(kind, t, k, still, tLocal = 9) {
     const anchor = A[kind], h = kind === 'wall' ? A.wallH : A.glassH;
     const c = new THREE.Color(HEAT_COLORS[kind]);
     const strength = kind === 'wall' ? 1 : 0.62;
@@ -264,6 +336,30 @@ export function createHeatArrows(stage, { dark = false } = {}) {
         strip([a2, tip], w * 1.1, () => [c, 0.95 * k]);
       }
     });
+    // di dalam ruang: riak lebih lemah, muncul setelah jeda (dinding berat menunda dan meredam: TDek), kaca hampir tanpa jeda
+    const rm = A.room;
+    if (!rm) return;
+    const lag = kind === 'wall' ? 0.5 + 1.4 * Math.min(1, (A.massa ?? 120) / 300) : 0.15;
+    const tin = still ? 1 : smooth((tLocal - lag) / 0.6);
+    if (tin <= 0.01) return;
+    const ampIn = amp * (kind === 'wall' ? 0.5 : 0.7), xi0 = rm.x0 + 0.05, xi1 = rm.x0 + 1.9;
+    layer(true);
+    rows.forEach((fy, r) => {
+      const y = anchor.y + fy * Math.min(1.2, h) * 0.8, z = rm.zCut - 0.45 - r * 0.5; // dekat bidang potong supaya terlihat
+      const pts = [];
+      for (let i = 0; i <= 24; i++) {
+        const x = xi0 + (xi1 - xi0) * (i / 24);
+        const ph = (2 * Math.PI * (x - xi0)) / lam - (still ? 0 : (2 * Math.PI * v * t) / lam) + r * 1.9;
+        pts.push(new THREE.Vector3(x, y + ampIn * Math.sin(ph), z));
+      }
+      strip(pts, w * 0.8, (i) => [c, (1 - i / 24) * 0.6 * strength * tin * k]);
+    });
+    // muka dalam bidang ikut menghangat
+    const yb = kind === 'wall' ? rm.floorY : rm.sillTop, yt = kind === 'wall' ? rm.sillTop : rm.glassTop;
+    const xf = kind === 'wall' ? rm.x0 + 0.01 : FACADE_X + 0.02;
+    const za = rm.zCut - 3.4, zb = rm.zCut - 0.01;
+    fan([new THREE.Vector3(xf, yb, za), new THREE.Vector3(xf, yb, zb), new THREE.Vector3(xf, yt, zb), new THREE.Vector3(xf, yt, za)], c, 0.22 * tin * k);
+    layer(false);
   }
   function glowFor(kind, warm, k) {
     const h = kind === 'wall' ? A.wallH : A.glassH;
@@ -297,8 +393,8 @@ export function createHeatArrows(stage, { dark = false } = {}) {
       active = focus || ORDER[slot % 3];
       const env = focus || still ? 1 : smooth(t / FADE) * smooth((SLOT - t) / FADE);
       const k = amount * env;
-      if (active === 'solar') drawSolar(timeSec, k, still);
-      else drawConduction(active, timeSec, k, still);
+      if (active === 'solar') { drawSolar(timeSec, k, still); drawPatch(still ? 1 : smooth((t - 0.6) / 0.6), k, timeSec, still); }
+      else drawConduction(active, timeSec, k, still, focus ? 9 : t);
       // bidang: merambat menghangat bertahap; sinar menyala begitu berkas tiba
       const warm = still ? 0.6 : active === 'solar' ? smooth((t - 0.5) / 0.4) : smooth(t / (SLOT * 0.8));
       glowFor(active, warm, k);
@@ -475,6 +571,96 @@ export function createWallSection(stage, { facadeX = -14, zCut, gap = 1.1, stub 
   return {
     /** band = [y bawah, y atas] pita dinding padat antara overhang lantai bawah dan ambang kaca. */
     update(wallId, outerColor, band) { build(wallId, outerColor, band); },
+    setAmount(a) { if (Math.abs(a - amount) > 0.002 || (a === 0 && amount !== 0)) { amount = a; paint(); } },
+  };
+}
+
+// ---------- Bab 2: potongan ruang di ujung sayap barat daya ----------
+// Satu lantai contoh diiris di z = zCut: bagian selatan ujung sayap dibuang (kotak potong pada material tower),
+// sehingga dari kamera serong barat daya terlihat fasad Barat utuh di utara sekaligus penampang ruang di baliknya.
+// Ruang digambar sebagai kotak yang hanya terlihat sisi dalamnya (lantai, plafon, dinding belakang, dinding ujung utara),
+// dinding sisi fasad dibuat dari dalam (ambang, kaca, lintel), dan bidang potong dinding/overhang diberi poché.
+export function createRoomSection(stage, { facadeX = -14, theme = 'light' } = {}) {
+  const dark = theme === 'dark';
+  const group = new THREE.Group();
+  group.visible = false;
+  stage.scene.add(group);
+  stage.renderer.localClippingEnabled = true;
+  const mats = stage.tower.userData.mats;
+  // kotak potong dipakai bersama potongan dinding Bab 6 (bab berbeda, tidak pernah aktif bersamaan)
+  let planes = mats.wall.clippingPlanes;
+  if (!planes || planes.length !== 6) {
+    planes = [0, 1, 2, 3, 4, 5].map(() => new THREE.Plane());
+    for (const m of [mats.wall, mats.glass, mats.mull, mats.edge]) { m.clippingPlanes = planes; m.clipIntersection = true; m.needsUpdate = true; }
+  }
+  let R = null, amount = 0;
+  function setClip(on) {
+    if (!on || !R) { planes[0].set(new THREE.Vector3(1, 0, 0), 1e6); for (let i = 1; i < 6; i++) planes[i].set(new THREE.Vector3(-1, 0, 0), -1e6); return; }
+    const x0 = facadeX - 3, x1 = R.x1, y0 = R.floorY, y1 = R.ceilY, z0 = R.zCut, z1 = R.zS + 0.6;
+    planes[0].set(new THREE.Vector3(1, 0, 0), -x1);
+    planes[1].set(new THREE.Vector3(-1, 0, 0), x0);
+    planes[2].set(new THREE.Vector3(0, 1, 0), -y1);
+    planes[3].set(new THREE.Vector3(0, -1, 0), y0);
+    planes[4].set(new THREE.Vector3(0, 0, 1), -z1);
+    planes[5].set(new THREE.Vector3(0, 0, -1), z0);
+  }
+  const C = dark
+    ? { floor: '#5E5A55', wall: '#6E6A64', ceil: '#53504B', poche: '#151413', glass: '#5FA59B', edge: '#121110' }
+    : { floor: '#CFC6B8', wall: '#E7E1D6', ceil: '#D8D1C5', poche: '#3A3530', glass: '#7FC4BA', edge: '#2A2620' };
+  const mStd = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 1, side: THREE.BackSide });
+  const hidden = new THREE.MeshBasicMaterial({ visible: false });
+  // urutan muka BoxGeometry: +x (dinding belakang), −x (sisi fasad: dibuat terpisah), +y plafon, −y lantai, +z (terbuka), −z (ujung utara)
+  const room = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), [mStd(C.wall), hidden, mStd(C.ceil), mStd(C.floor), hidden, mStd(C.wall)]);
+  group.add(room);
+  const solid = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 1, side: THREE.DoubleSide });
+  const pocheMat = new THREE.MeshBasicMaterial({ color: C.poche, side: THREE.DoubleSide, toneMapped: false });
+  const glassMat = new THREE.MeshStandardMaterial({ color: C.glass, roughness: 0.15, transparent: true, opacity: 0.38, side: THREE.DoubleSide, depthWrite: false });
+  const edgeMat = new THREE.LineBasicMaterial({ color: C.edge, transparent: true, opacity: 0.7 });
+  let parts = [];
+  const label = stage.addLabel([0, 0, 0], 'Ruang dalam', { tag: true, lift: 22, maxDist: 90 });
+  label.on = false;
+
+  function plane(w, h, mat, pos, rotY = 0) {
+    const g = new THREE.PlaneGeometry(w, h);
+    const m = new THREE.Mesh(g, mat);
+    m.position.copy(pos); m.rotation.y = rotY;
+    m.add(new THREE.LineSegments(new THREE.EdgesGeometry(g), edgeMat));
+    group.add(m); parts.push(m);
+    return m;
+  }
+  /** r: { x0, x1, zN, zCut, zS, floorY, ceilY, wallT, sillTop, glassTop, overhangBottom, overhangDepth } */
+  function build(r) {
+    R = r;
+    for (const p of parts) { group.remove(p); p.geometry.dispose(); p.children.forEach((c) => c.geometry.dispose()); }
+    parts = [];
+    const W = r.x1 - r.x0, H = r.ceilY - r.floorY, L = r.zS - r.zN;
+    room.scale.set(W, H, L);
+    room.position.set((r.x0 + r.x1) / 2, (r.floorY + r.ceilY) / 2, (r.zN + r.zS) / 2);
+    // dinding sisi fasad dilihat dari dalam: ambang, kaca, lintel (muka di x = x0, menghadap +x)
+    // hanya di bagian ruang yang tersisa (utara bidang potong); irisan selatan dibiarkan kosong
+    const Lr = r.zCut - r.zN, zc = (r.zN + r.zCut) / 2, inner = r.x0 + 0.001;
+    const wallIn = solid(C.wall);
+    plane(Lr, r.sillTop - r.floorY, wallIn, new THREE.Vector3(inner, (r.floorY + r.sillTop) / 2, zc), Math.PI / 2);
+    plane(Lr, r.ceilY - r.glassTop, wallIn, new THREE.Vector3(inner, (r.glassTop + r.ceilY) / 2, zc), Math.PI / 2);
+    plane(Lr, r.glassTop - r.sillTop, glassMat, new THREE.Vector3(facadeX - 0.02, (r.sillTop + r.glassTop) / 2, zc), Math.PI / 2);
+    // poché di bidang potong (z = zCut, menghadap selatan): tebal dinding di ambang dan lintel, kaca, overhang
+    const zP = r.zCut + 0.002, wx = (facadeX + r.x0) / 2;
+    plane(r.wallT, r.sillTop - r.floorY, pocheMat, new THREE.Vector3(wx, (r.floorY + r.sillTop) / 2, zP));
+    plane(r.wallT, r.ceilY - r.glassTop, pocheMat, new THREE.Vector3(wx, (r.glassTop + r.ceilY) / 2, zP));
+    const gl = new THREE.MeshBasicMaterial({ color: C.glass, side: THREE.DoubleSide, toneMapped: false });
+    plane(0.06, r.glassTop - r.sillTop, gl, new THREE.Vector3(facadeX - 0.04, (r.sillTop + r.glassTop) / 2, zP));
+    if (r.overhangDepth > 0.02) plane(r.overhangDepth, 0.16, pocheMat, new THREE.Vector3(facadeX - r.overhangDepth / 2, r.overhangBottom + 0.08, zP));
+    label.setPos(new THREE.Vector3(r.x1 - 1.2, r.ceilY - 0.5, r.zCut - 1.5));
+    paint();
+  }
+  function paint() {
+    const on = amount > 0.01 && !!R;
+    group.visible = on;
+    setClip(on);
+    label.on = amount > 0.6;
+  }
+  return {
+    update(r) { build(r); },
     setAmount(a) { if (Math.abs(a - amount) > 0.002 || (a === 0 && amount !== 0)) { amount = a; paint(); } },
   };
 }
