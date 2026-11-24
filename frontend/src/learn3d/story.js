@@ -9,7 +9,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { createStage, dirFrom } from './stage.js';
 import { SHOTS } from './shots.js';
 import { setGlazing, setOverhangDepth, setSkylightArea, sillFor, PODIUM_H, TOWER_TOP, PODIUM_ROOF_AREA, SKY_MAX_AREA } from './tower.js';
-import { createFacadeOverlay, createSunMarker, createHeatArrows, createWallSection, createFacadeBands, SOLAR_DIR } from './highlights.js';
+import { createFacadeOverlay, createSunMarker, createHeatArrows, createWallSection, createFacadeBands } from './highlights.js';
 import { PRESETS, SYMS, PATH_NAMES, chapters, LUX } from './content.js';
 import { createClouds } from './clouds.js';
 import { createBirds } from './birds.js';
@@ -187,7 +187,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
   const birds = createBirds(stage, { dark: theme === 'dark' });
   const life = createLife(stage, { dark: theme === 'dark', city: stage.city });
   const sun = createSunMarker(stage, { radius: 170 });
-  const arrows = createHeatArrows(stage);
+  const arrows = createHeatArrows(stage, { dark: theme === 'dark' });
   // Potongan dinding Bab 6: dinding asli fasad Barat di bawah jendela lantai 10 dipotong di z = −9.
   const wallSample = createWallSection(stage, { facadeX: -14, zCut: -9 });
   const V0 = [0, 0, 0];
@@ -232,6 +232,8 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
       glassMid: new THREE.Vector3(-14.05, base + sill + gh * 0.6, -1.5),
       wallH: sill,
       glassH: gh,
+      overhangDepth: sim.depth, // overhang Barat: bawahnya 0,10 m di atas kaca, tebal 0,16 m (tower.js)
+      overhangBottom: base + sill + gh + 0.10,
     };
   }
 
@@ -340,7 +342,6 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     const out = new THREE.Vector3(-5.4, 0, 0);
     L.heat.wall.setPos(a.wall.clone().add(out));
     L.heat.glass.setPos(a.glass.clone().add(out));
-    L.heat.solar.setPos(a.solar.clone().addScaledVector(SOLAR_DIR, 5.6));
     L.overhang.setPos(a.overhang);
     L.glassH.setPos(a.glassMid);
     arrows.update({ q: w, anchors: a });
@@ -649,6 +650,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     L.sym.on = at(c, 'rumus');
     arrows.setAmount(near(c, idx['bab-2'], 2.2));
     arrows.tick(stage.camera, window.__l3dT ?? now / 1000, reduceMotion); // __l3dT: jam beku untuk uji otomatis
+    if (arrows.solarLabelPos) L.heat.solar.setPos(arrows.solarLabelPos); // label sinar mengikuti arah sinar matahari
     if (!reduceMotion) syncTerm(arrows.active);
     sun.setVisible(c > idx['bab-4'] - 0.45 && c < idx['bab-4'] + 0.55);
     L.total.on = at(c, 'bab-1');

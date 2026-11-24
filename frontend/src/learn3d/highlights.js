@@ -118,157 +118,191 @@ export function createSunMarker(stage, { radius = 330, center = [0, 0, 0] } = {}
   };
 }
 
-// Panah pita meliuk (gaya ilustrasi datar): ekor memudar, kepala chevron runcing.
-// Dibangun di bidang lokal 2D (x = arah alir, y = lebar), lalu bidangnya dihadapkan ke kamera.
-function ribbonGeometry({ L, w0, amp, wave, phase, head, color0, color1 }) {
-  const pos = [], col = [];
-  const c0 = new THREE.Color(color0), c1 = new THREE.Color(color1);
-  const bodyEnd = L - head * 0.15;
-  const N = 48;
-  const pt = (i) => {
-    const t = i / N, x = t * bodyEnd;
-    const env = Math.sin(Math.min(1, t / 0.85) * Math.PI) ** 1.2 * (1 - t) ** 0.3; // liukan hilang di dekat kepala
-    const y = amp * env * Math.sin((x / wave) * Math.PI * 2 + phase);
-    const w = w0 * (0.35 + 0.65 * Math.min(1, t * 1.6)); // ekor tipis, makin tebal ke kepala
-    const a = Math.min(1, t / 0.55) ** 1.4; // ekor memudar
-    const c = c0.clone().lerp(c1, Math.min(1, t * 1.2));
-    return { x, y, w, a, c };
-  };
-  const push = (x, y, c, a) => { pos.push(x, y, 0); col.push(c.r, c.g, c.b, a); };
-  for (let i = 0; i < N; i++) {
-    const p = pt(i), q = pt(i + 1);
-    push(p.x, p.y + p.w, p.c, p.a); push(p.x, p.y - p.w, p.c, p.a); push(q.x, q.y + q.w, q.c, q.a);
-    push(q.x, q.y + q.w, q.c, q.a); push(p.x, p.y - p.w, p.c, p.a); push(q.x, q.y - q.w, q.c, q.a);
-  }
-  // Kepala: barb melengkung ke belakang dengan takik di tengah
-  const e = pt(N), hw = w0;
-  const A = [bodyEnd, e.y + hw], B = [L - head * 0.55, e.y + hw * 3.1], T = [L + head * 0.55, e.y], C = [L - head * 0.55, e.y - hw * 3.1], D = [bodyEnd, e.y - hw];
-  for (const [p, q2, r] of [[A, B, T], [A, T, D], [D, T, C]]) for (const v of [p, q2, r]) push(v[0], v[1], c1, 1);
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
-  return g;
-}
-
-// Tiga jalur panas di fasad Barat (Bab 2): satu panah per jalur, tampil bergantian.
-// Tiap giliran: panah melaju dari arah datangnya, membentur bidang (kepala memipih, riak di bidang),
-// lalu bidang yang dibentur (dinding atau kaca) menyala sebentar. Urutan: dinding → kaca → radiasi → ulang.
-export const SOLAR_DIR = new THREE.Vector3(-0.35, 0.85, -0.4).normalize();
-export const HEAT_COLORS = { wall: '#C27A3E', glass: '#E7B04B', solar: '#F49B1A' };
-const TAIL_COLORS = { wall: '#E8B98C', glass: '#F6DCA0', solar: '#FAD199' };
+// Tiga jalur panas di fasad Barat (Bab 2), tampil bergantian (dinding → kaca → sinar), masing-masing dengan
+// bahasa gambar yang sesuai fisikanya:
+// - Merambat (konduksi, U·TDek dan U·ΔT): riak tipis yang bergerak pelan dari udara luar, tegak lurus bidang;
+//   bidang yang dilalui menghangat bertahap. Lewat kaca riaknya lebih lemah (ΔT SNI 5 K vs TDek dinding).
+// - Sinar langsung (SC·WWR·SF): berkas lurus searah sinar matahari sebenarnya, cepat; berkas yang mengenai
+//   overhang berhenti di permukaannya (dihitung geometris, sama dengan porsi bayangan di Bab 5).
+export const SOLAR_DIR = new THREE.Vector3(-0.35, 0.85, -0.4).normalize(); // cadangan arah sinar bila matahari di luar fasad Barat
+export const HEAT_COLORS = { wall: '#C8553D', glass: '#E8906F', solar: '#F5B915' };
 const ORDER = ['wall', 'glass', 'solar'];
-const SLOT = 2.9; // detik per giliran
-const T_HIT = 1.25; // detik sampai kepala membentur bidang
-const easeIn = (t) => t * t * t;
-const bump = (t, d) => (t > 0 && t < d ? Math.sin((t / d) * Math.PI) : 0);
-export function createHeatArrows(stage) {
+const SLOT = 3.4; // detik per giliran
+const FADE = 0.4;
+const FACADE_X = -14;
+const smooth = (t) => { const x = Math.min(1, Math.max(0, t)); return x * x * (3 - 2 * x); };
+
+export function createHeatArrows(stage, { dark = false } = {}) {
   const group = new THREE.Group();
   group.visible = false;
   stage.scene.add(group);
-  let amount = 0, focus = null, active = 'wall', w0 = { wall: 0.1, glass: 0.1, solar: 0.1 };
-  const P = {};
-  for (const k of ORDER) {
-    const mesh = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide, toneMapped: false }));
-    mesh.renderOrder = 6;
-    group.add(mesh);
-    // Bidang yang dibentur: lembar tipis di depan fasad + garis tepinya.
-    const glowMat = new THREE.MeshBasicMaterial({ color: HEAT_COLORS[k], transparent: true, opacity: 0, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), glowMat);
-    glow.rotation.y = Math.PI / 2; // bidang YZ, menghadap ±x
-    glow.renderOrder = 4;
-    const rim = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(1, 1)), new THREE.LineBasicMaterial({ color: HEAT_COLORS[k], transparent: true, opacity: 0, toneMapped: false }));
-    glow.add(rim);
-    group.add(glow);
-    // Riak di titik benturan.
-    const ripple = new THREE.Mesh(new THREE.RingGeometry(0.82, 1, 48), new THREE.MeshBasicMaterial({ color: HEAT_COLORS[k], transparent: true, opacity: 0, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
-    ripple.rotation.y = Math.PI / 2;
-    ripple.renderOrder = 5;
-    group.add(ripple);
-    P[k] = { mesh, glow, rim, ripple, a: new THREE.Vector3(), b: new THREE.Vector3() };
-  }
-  const tmpX = new THREE.Vector3(), tmpY = new THREE.Vector3(), tmpZ = new THREE.Vector3(), nrm = new THREE.Vector3(), m4 = new THREE.Matrix4();
-  const headOf = (k) => Math.min(0.9, 0.35 + w0[k] * 2.2);
-  function drawArrow(k, camera, from, len, alpha, squash) {
-    const p = P[k];
-    const dir = tmpX.copy(p.b).sub(p.a).normalize();
-    const toCam = tmpZ.copy(camera.position).sub(p.a).normalize();
-    const side = tmpY.crossVectors(toCam, dir).normalize();
-    nrm.crossVectors(dir, side).normalize();
-    m4.makeBasis(dir, side, nrm);
-    p.mesh.geometry.dispose();
-    const head = headOf(k);
-    p.mesh.geometry = ribbonGeometry({ L: Math.max(0.3, len), w0: w0[k] * (1 + 0.45 * squash), amp: 0.12 + w0[k] * 0.6, wave: 3.6, phase: 0.6, head: head * (1 - 0.35 * squash), color0: TAIL_COLORS[k], color1: HEAT_COLORS[k] });
-    p.mesh.quaternion.setFromRotationMatrix(m4);
-    p.mesh.position.copy(from);
-    p.mesh.material.opacity = alpha;
-  }
-  function hitFx(k, t, base) {
-    const p = P[k];
-    const since = t - T_HIT;
-    const flash = since >= 0 ? Math.exp(-since * 2.4) : 0;
-    p.glow.material.opacity = (0.55 * flash + base) * amount;
-    p.rim.material.opacity = Math.min(1, 0.9 * flash + base * 3) * amount;
-    const r = since >= 0 && since < 0.95 ? since / 0.95 : -1;
-    p.ripple.visible = r >= 0;
-    if (r >= 0) {
-      const sc = 0.2 + 0.85 * (1 - (1 - r) ** 2);
-      p.ripple.scale.set(sc, sc, sc);
-      p.ripple.material.opacity = (1 - r) * 0.85 * amount;
+  let amount = 0, focus = null, active = 'wall';
+  let A = null; // titik jangkar dari story
+  let rel = { wall: 1, glass: 0.5, solar: 1 }; // kekuatan relatif (akar q, dinormalkan ke yang terbesar)
+  const mk = (order) => {
+    const m = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide, toneMapped: false }));
+    m.renderOrder = order;
+    group.add(m);
+    return m;
+  };
+  const lines = mk(6); // semua garis (berkas, riak) dalam satu geometri yang dibangun ulang tiap bingkai
+  // bidang yang dilalui panas: lembar tipis di depan fasad + garis tepinya
+  const glowMat = new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false, toneMapped: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const glow = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), glowMat);
+  glow.rotation.y = Math.PI / 2;
+  glow.renderOrder = 4;
+  const rim = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(1, 1)), new THREE.LineBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, toneMapped: false }));
+  glow.add(rim);
+  group.add(glow);
+
+  const pos = [], col = [];
+  const toCam = new THREE.Vector3(), tan = new THREE.Vector3(), side = new THREE.Vector3(), tmp = new THREE.Vector3();
+  let cam = null;
+  // pita menghadap kamera melalui titik-titik pts; w = setengah lebar (m), cAt(i) = [THREE.Color, alfa]
+  function strip(pts, w, cAt) {
+    const n = pts.length;
+    if (n < 2) return;
+    const L = [], R = [];
+    for (let i = 0; i < n; i++) {
+      tan.copy(pts[Math.min(n - 1, i + 1)]).sub(pts[Math.max(0, i - 1)]).normalize();
+      toCam.copy(cam.position).sub(pts[i]).normalize();
+      side.crossVectors(tan, toCam).normalize().multiplyScalar(typeof w === 'function' ? w(i) : w);
+      L.push(pts[i].clone().add(side)); R.push(pts[i].clone().sub(side));
+    }
+    const put = (v, i) => { const [c, a] = cAt(i); pos.push(v.x, v.y, v.z); col.push(c.r, c.g, c.b, a); };
+    for (let i = 0; i < n - 1; i++) {
+      put(L[i], i); put(R[i], i); put(L[i + 1], i + 1);
+      put(L[i + 1], i + 1); put(R[i], i); put(R[i + 1], i + 1);
     }
   }
-  const paint = () => { group.visible = amount > 0.01; };
+  function flush() {
+    lines.geometry.dispose();
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 4));
+    lines.geometry = g;
+    pos.length = 0; col.length = 0;
+  }
+
+  // ---- Arah sinar: matahari panggung bila menghadap fasad Barat, selain itu sore hari baku (SF Barat = sinar sore).
+  const sunU = new THREE.Vector3();
+  function sunDir() {
+    sunU.copy(stage.sun.position).sub(stage.sun.target.position).normalize();
+    if (sunU.x > -0.15 || sunU.y < 0.12) sunU.set(Math.sin(262 * Math.PI / 180) * Math.cos(40 * Math.PI / 180), Math.sin(40 * Math.PI / 180), -Math.cos(262 * Math.PI / 180) * Math.cos(40 * Math.PI / 180));
+    return sunU;
+  }
+  // Titik akhir berkas yang menuju titik kaca T: T sendiri, atau titik masuknya ke overhang di atas kaca.
+  function rayEnd(T, u) {
+    const d = A.overhangDepth || 0;
+    if (d <= 0.02) return { E: T, blocked: false };
+    const ob = A.overhangBottom, ot = ob + 0.16, xo = FACADE_X - d;
+    const sB = (ob - T.y) / u.y, xB = T.x + u.x * sB;
+    if (xB < xo) return { E: T, blocked: false }; // lewat di luar ujung overhang
+    const sT = (ot - T.y) / u.y, xT = T.x + u.x * sT;
+    const s = xT >= xo ? sT : (xo - T.x) / u.x; // kena permukaan atas, atau muka ujungnya
+    return { E: T.clone().addScaledVector(u, s), blocked: true };
+  }
+  // Sasaran berkas di bidang kaca: tersebar merata pada tinggi dan lebar pita kaca contoh.
+  const RAYS = [[-1.2, 0.86], [-0.6, 0.38], [0, 0.66], [0.6, 0.16], [1.2, 0.52]];
+  // tema terang: kuning lebih pekat dan kepala jingga supaya terbaca di fasad krem; tema gelap: kuning terang berkepala putih
+  const cSolar = new THREE.Color(dark ? HEAT_COLORS.solar : '#E89A00'), cWhite = new THREE.Color(dark ? '#FFF6D8' : '#D9730D');
+  function drawSolar(t, k, still) {
+    const u = sunDir();
+    const dIn = tmp.copy(u).negate(); // arah rambat sinar (dari matahari ke fasad)
+    const gb = A.glass.y - A.glassH / 2;
+    const Lr = 6.5, speed = 7, streak = 0.9;
+    const wBeam = 0.022, wStreak = 0.05 * (0.75 + 0.25 * rel.solar);
+    for (const [dz, fy] of RAYS) {
+      const T = new THREE.Vector3(FACADE_X - 0.06, gb + A.glassH * fy, A.solar.z + dz);
+      const { E, blocked } = rayEnd(T, u);
+      const S = T.clone().addScaledVector(u, Lr);
+      const len = S.distanceTo(E);
+      if (len < 0.05) continue;
+      // garis bantu lintasan (redup), lurus
+      strip([S, E], wBeam, (i) => [cSolar, (i ? (dark ? 0.55 : 0.75) : 0.0) * k]);
+      if (!still) {
+        // butir cahaya yang melaju cepat sepanjang berkas
+        for (let j = 0; j < 3; j++) {
+          const p = ((t * speed + j * (len / 3) + dz * 1.7) % (len + streak));
+          const a0 = Math.max(0, p - streak), a1 = Math.min(len, p);
+          if (a1 - a0 < 0.05) continue;
+          const P0 = S.clone().addScaledVector(dIn, a0), P1 = S.clone().addScaledVector(dIn, a1);
+          strip([P0, P0.clone().lerp(P1, 0.5), P1], (i) => wStreak * (0.4 + 0.3 * i), (i) => [i === 2 ? cWhite : cSolar, [0.0, 0.7, 1][i] * k]);
+        }
+      }
+      if (!blocked) {
+        // menembus kaca: lanjutan pendek ke dalam yang memudar
+        const In = T.clone().addScaledVector(dIn, 1.1);
+        strip([T, In], wBeam * 1.3, (i) => [cSolar, (i ? 0 : 0.8) * k]);
+      }
+    }
+  }
+  // Riak konduksi: tiga garis sinus tipis tegak lurus bidang, bergerak pelan dari udara luar ke bidang.
+  function drawConduction(kind, t, k, still) {
+    const anchor = A[kind], h = kind === 'wall' ? A.wallH : A.glassH;
+    const c = new THREE.Color(HEAT_COLORS[kind]);
+    const strength = kind === 'wall' ? 1 : 0.62;
+    const amp = (0.05 + 0.05 * rel[kind]) * strength, lam = 0.85, v = 0.55;
+    const w = (0.016 + 0.012 * rel[kind]) * (kind === 'wall' ? 1 : 0.8);
+    const x0 = FACADE_X - 4.6, x1 = FACADE_X - 0.08, N = 46;
+    const rows = [-0.32, 0, 0.32];
+    rows.forEach((fy, r) => {
+      const y = anchor.y + fy * Math.min(1.2, h), z = anchor.z + (r - 1) * 0.55;
+      const pts = [], al = [];
+      for (let i = 0; i <= N; i++) {
+        const x = x0 + (x1 - x0) * (i / N);
+        const ph = (2 * Math.PI * (x - x0)) / lam - (still ? 0 : (2 * Math.PI * v * t) / lam) + r * 1.9;
+        pts.push(new THREE.Vector3(x, y + amp * Math.sin(ph), z));
+        al.push(smooth(i / N / 0.55) * (0.55 + 0.4 * strength));
+      }
+      strip(pts, w, (i) => [c, al[i] * k]);
+      // kepala kecil penunjuk arah di ujung baris tengah
+      if (r === 1) {
+        const tip = pts[N], hs = 0.13;
+        const a1 = tip.clone().add(new THREE.Vector3(-hs, hs * 0.7, 0)), a2 = tip.clone().add(new THREE.Vector3(-hs, -hs * 0.7, 0));
+        strip([a1, tip], w * 1.1, () => [c, 0.95 * k]);
+        strip([a2, tip], w * 1.1, () => [c, 0.95 * k]);
+      }
+    });
+  }
+  function glowFor(kind, warm, k) {
+    const h = kind === 'wall' ? A.wallH : A.glassH;
+    const a = kind === 'solar' ? A.solar : A[kind];
+    glow.position.set(FACADE_X - 0.14, kind === 'solar' ? A.glass.y : a.y, a.z);
+    glow.scale.set(3.4, h, 1);
+    glowMat.color.set(HEAT_COLORS[kind]);
+    rim.material.color.set(HEAT_COLORS[kind]);
+    glowMat.opacity = (kind === 'solar' ? 0.12 : 0.3) * warm * k;
+    rim.material.opacity = Math.min(1, (kind === 'solar' ? 0.45 : 0.85) * warm) * k;
+  }
+
+  const paint = () => { group.visible = amount > 0.01 && !!A; };
   return {
     get active() { return active; },
-    // q: { qWall, qGlass, qSolar } (W/m²); anchors: titik benturan + ukuran bidang (wallH, glassH) di fasad.
+    /** Posisi label sinar: di pangkal berkas tengah, searah sinar yang sedang dipakai. */
+    get solarLabelPos() { return A ? new THREE.Vector3(FACADE_X - 0.06, A.glass.y - A.glassH / 2 + A.glassH * 0.66, A.solar.z).addScaledVector(sunDir(), 5.8) : null; },
+    // q: { qWall, qGlass, qSolar } (W/m²); anchors: titik dan ukuran bidang, kedalaman overhang Barat.
     update({ q, anchors }) {
-      const out = new THREE.Vector3(-1, 0, 0);
-      const wOf = (x) => 0.07 + 0.036 * Math.sqrt(Math.max(0, x));
-      w0 = { wall: wOf(q.qWall), glass: wOf(q.qGlass), solar: wOf(q.qSolar) };
-      const hit = { wall: anchors.wall, glass: anchors.glass, solar: anchors.solar };
-      for (const k of ORDER) {
-        const p = P[k];
-        p.b.copy(hit[k]).addScaledVector(out, 0.12);
-        p.a.copy(p.b).addScaledVector(k === 'solar' ? SOLAR_DIR : out, k === 'solar' ? 5.6 : 5.2);
-        // bidang yang menyala: pita dinding padat (di bawah ambang) atau pita kaca lantai contoh
-        const h = k === 'wall' ? anchors.wallH : anchors.glassH;
-        p.glow.position.set(-14.14, hit[k].y, hit[k].z);
-        p.glow.scale.set(3.4, h, 1);
-        p.ripple.position.set(-14.16, hit[k].y, hit[k].z);
-      }
+      A = anchors;
+      const m = Math.max(1e-6, q.qWall, q.qGlass, q.qSolar);
+      rel = { wall: Math.sqrt(Math.max(0, q.qWall) / m), glass: Math.sqrt(Math.max(0, q.qGlass) / m), solar: Math.sqrt(Math.max(0, q.qSolar) / m) };
+      paint();
     },
     // Dipanggil tiap frame.
     tick(camera, timeSec, still) {
       if (!group.visible) return;
-      if (still) {
-        // Gerak dikurangi: tiga panah diam di posisi benturan, bidang menyala tipis.
-        for (const k of ORDER) {
-          const p = P[k], L = p.a.distanceTo(p.b);
-          drawArrow(k, camera, p.a, L - headOf(k) * 0.55, amount, 0);
-          hitFx(k, -1, focus && focus !== k ? 0.04 : 0.16);
-          p.ripple.visible = false;
-        }
-        return;
-      }
+      cam = camera;
       const slot = Math.floor(timeSec / SLOT);
       const t = timeSec - slot * SLOT;
       active = focus || ORDER[slot % 3];
-      for (const k of ORDER) {
-        const p = P[k];
-        if (k !== active) { p.mesh.material.opacity = 0; p.glow.material.opacity = 0; p.rim.material.opacity = 0; p.ripple.visible = false; continue; }
-        const L = p.a.distanceTo(p.b), head = headOf(k);
-        const full = L - head * 0.55; // panjang badan sampai ujung kepala tepat di bidang
-        // Kepala melaju (makin cepat) dari arah datang sampai membentur bidang, ekor menyusul.
-        const prog = Math.min(1, t / T_HIT);
-        const tipDist = 0.35 * full + 0.65 * full * easeIn(prog);
-        const len = Math.min(full * 0.82, tipDist);
-        const dir = tmpX.copy(p.b).sub(p.a).normalize();
-        const from = new THREE.Vector3().copy(p.a).addScaledVector(dir, tipDist - len);
-        const fadeIn = Math.min(1, t / 0.25);
-        const fadeOut = 1 - Math.min(1, Math.max(0, (t - T_HIT - 0.35) / 0.5));
-        const squash = bump(t - T_HIT, 0.32);
-        drawArrow(k, camera, from, len, amount * fadeIn * fadeOut, squash);
-        hitFx(k, t, t > T_HIT ? 0.1 : 0);
-      }
+      const env = focus || still ? 1 : smooth(t / FADE) * smooth((SLOT - t) / FADE);
+      const k = amount * env;
+      if (active === 'solar') drawSolar(timeSec, k, still);
+      else drawConduction(active, timeSec, k, still);
+      // bidang: merambat menghangat bertahap; sinar menyala begitu berkas tiba
+      const warm = still ? 0.6 : active === 'solar' ? smooth((t - 0.5) / 0.4) : smooth(t / (SLOT * 0.8));
+      glowFor(active, warm, k);
+      flush();
     },
     setAmount(a) { amount = a; paint(); },
     setFocus(k) { focus = k; },
