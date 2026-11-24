@@ -569,3 +569,13 @@ def test_saran_berbeda_per_grup_jadi_override_grup(tmp_path):
     assert gm["Kaca Bening :: Kaca Bening"] == "glz_kaca_polos_8"
     assert gm["Kaca Stopsol :: Kaca Stopsol"] == "glz_kaca_reflektif_8"
     assert patch.get("wall_material_id") == "wal_bata_merah_plester"
+
+
+@pytest.mark.parametrize("glz,wall", [("Glass", "Walls"), ("CW_Vision_Glass", "Dinding"), ("Kaca", "Exterior Walls")])
+def test_nama_generik_tanpa_saran_material(tmp_path, glz, wall):
+    """Nama yang tidak menyebut jenis material tidak diberi saran: pengguna diminta memilih sendiri."""
+    r = run(tmp_path, base_parts(wall=wall, glz=glz), f"generik_{glz}", confirmed=False)
+    w = [x for x in r["summary"]["warnings"] if x["code"] == "MATERIAL_NOT_CONFIRMED"][0]
+    assert w["detail"]["suggestions"] == []
+    assert w["detail"]["suggested_patch"] == {}
+    assert r["summary"]["is_provisional"] is True

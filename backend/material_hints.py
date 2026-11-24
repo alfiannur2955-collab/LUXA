@@ -5,7 +5,9 @@ Engine tidak boleh diam-diam memakai kaca terbaik di katalog. Bila pengguna belu
 material, nama layer seperti "Kaca Bening" atau "Dinding Bata" dipakai sebagai SARAN yang
 ditampilkan ke pengguna untuk dikonfirmasi. Saran tidak diterapkan otomatis.
 
-Aturan dicek berurutan; yang pertama cocok menang. Token mengikuti `loaders.classify._tokenize_label`.
+Aturan dicek berurutan; yang pertama cocok menang. Nama GENERIK ("Glass", "Kaca", "CW_Vision_Glass",
+"Dinding", "Wall") sengaja tidak diberi saran: jenis materialnya tidak tersirat, jadi pengguna diminta memilih
+sendiri (menebak kaca polos membuat hasil melonjak tanpa dasar). Token mengikuti `loaders.classify._tokenize_label`.
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ _GLAZING_RULES: Sequence[Tuple[Sequence[str], Sequence[str], str]] = (
     ((), ("igu", "dgu", "ganda", "double", "insulated"), "glz_igu_clear_24"),
     ((), ("reflektif", "reflective", "stopsol", "panasap", "sunergy", "mirror", "cermin"), "glz_kaca_reflektif_8"),
     ((), ("tinted", "warna", "bronze", "grey", "gray", "riben", "rayban", "gelap", "dark"), "glz_kaca_tinted_8"),
-    ((), ("bening", "clear", "polos", "float", "transparan", "transparent", "tempered", "laminated", "kaca", "glass", "jendela", "window"), "glz_kaca_polos_8"),
+    ((), ("bening", "clear", "polos", "float", "transparan", "transparent"), "glz_kaca_polos_8"),
 )
 
 _WALL_RULES: Sequence[Tuple[Sequence[str], Sequence[str], str]] = (
@@ -37,7 +39,7 @@ _WALL_RULES: Sequence[Tuple[Sequence[str], Sequence[str], str]] = (
     ((), ("precast", "pracetak", "beton", "concrete", "grc"), "wal_beton_pracetak_120"),
     ((), ("hebel", "aac", "ringan", "celcon", "citicon"), "wal_bata_ringan_aac_100"),
     ((), ("ekspos", "exposed", "expose"), "wal_bata_merah_ekspos"),
-    ((), ("bata", "brick", "masonry", "tembok", "plester", "dinding", "wall"), "wal_bata_merah_plester"),
+    ((), ("bata", "brick", "masonry", "plester"), "wal_bata_merah_plester"),
 )
 
 
