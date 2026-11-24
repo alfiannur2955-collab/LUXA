@@ -573,49 +573,78 @@ def raycast_z_slab_solar_rays(
 
     hits_out = np.zeros(num_rays, dtype=np.float64)
 
-    # Partition rays by Z slabs of 12 meters
-    orig_z = origins_np[:, 2]
-    z_min_all = float(np.min(orig_z))
-    z_max_all = float(np.max(orig_z))
-    slab_h = 12.0
-    num_slabs = max(1, int(math.ceil((z_max_all - z_min_all + 0.1) / slab_h)))
-    z_reach = max(4.0, max_dist * max(0.25, float(d[2])))
+    # Grid 2D pada bidang tegak lurus arah matahari: sinar hanya dapat mengenai segitiga yang proyeksinya
+    # menutupi proyeksi titik asal sinar. Ini saringan murni (superset), syarat u/v/t tetap sama persis.
+    # Pemangkasan lama per lapis Z juga saringan murni (sinar naik, jangkauan dibatasi max_dist).
+    ref = np.array([0.0, 0.0, 1.0]) if abs(float(d[2])) < 0.9 else np.array([1.0, 0.0, 0.0])
+    ax_a = np.cross(d, ref)
+    ax_a /= max(1e-12, float(np.linalg.norm(ax_a)))
+    ax_b = np.cross(d, ax_a)
+    tv = tris[valid_tri]
+    pa = tv @ ax_a
+    pb = tv @ ax_b
+    a_lo, a_hi = pa.min(axis=1), pa.max(axis=1)
+    b_lo, b_hi = pb.min(axis=1), pb.max(axis=1)
+    pad = 1e-3 * np.maximum(a_hi - a_lo, b_hi - b_lo) + 1e-4  # toleransi barisentrik 1e-4 aman tercakup
+    a_lo -= pad
+    a_hi += pad
+    b_lo -= pad
+    b_hi += pad
+    oa = origins_np @ ax_a
+    ob = origins_np @ ax_b
+    cell = 4.0
+    a0 = float(min(oa.min(), a_lo.min()))
+    b0 = float(min(ob.min(), b_lo.min()))
+    ia_lo = np.floor((a_lo - a0) / cell).astype(np.int64)
+    ia_hi = np.floor((a_hi - a0) / cell).astype(np.int64)
+    ib_lo = np.floor((b_lo - b0) / cell).astype(np.int64)
+    ib_hi = np.floor((b_hi - b0) / cell).astype(np.int64)
+    n_b = int(max(ib_hi.max(), np.floor((ob.max() - b0) / cell))) + 1
+    r_key = np.floor((oa - a0) / cell).astype(np.int64) * n_b + np.floor((ob - b0) / cell).astype(np.int64)
 
-    for s_idx in range(num_slabs):
-        z_lo = z_min_all + s_idx * slab_h
-        z_hi = z_lo + slab_h
-        ray_indices = np.where((orig_z >= z_lo - 0.01) & (orig_z < z_hi + 0.01))[0]
-        if len(ray_indices) == 0:
+    span_a = ia_hi - ia_lo + 1
+    span_b = ib_hi - ib_lo + 1
+    n_cells = span_a * span_b
+    big = n_cells > 400  # segitiga raksasa: uji ke semua sinar
+    big_idx = np.where(big)[0]
+    sm = np.where(~big)[0]
+    reps = n_cells[sm]
+    tri_rep = np.repeat(sm, reps.astype(np.intp))
+    local = np.arange(int(reps.sum())) - np.repeat(np.cumsum(reps) - reps, reps.astype(np.intp))
+    sb = np.repeat(span_b[sm], reps.astype(np.intp))
+    t_key = (np.repeat(ia_lo[sm], reps.astype(np.intp)) + local // sb) * n_b + (np.repeat(ib_lo[sm], reps.astype(np.intp)) + local % sb)
+    t_order = np.argsort(t_key, kind="stable")
+    t_key_s = t_key[t_order]
+    tri_s = tri_rep[t_order]
+
+    r_order = np.argsort(r_key, kind="stable")
+    r_key_s = r_key[r_order]
+    cut = np.flatnonzero(np.diff(r_key_s)) + 1
+    starts = np.concatenate(([0], cut))
+    ends = np.concatenate((cut, [len(r_key_s)]))
+    for st, en in zip(starts, ends):
+        key = r_key_s[st]
+        lo_i = np.searchsorted(t_key_s, key, side="left")
+        hi_i = np.searchsorted(t_key_s, key, side="right")
+        cand = tri_s[lo_i:hi_i]
+        if len(big_idx):
+            cand = np.concatenate((cand, big_idx))
+        if len(cand) == 0:
             continue
-
-        tri_mask = (tri_z_max >= (z_lo - 0.5)) & (tri_z_min <= (z_hi + z_reach + 0.5))
-        if not np.any(tri_mask):
+        cand = np.unique(cand)
+        r_idx = r_order[st:en]
+        o_batch = origins_np[r_idx]
+        u = o_batch @ p_u[cand].T - c_u[cand][None, :]
+        mask = (u >= -1e-4) & (u <= 1.0001)
+        if not np.any(mask):
             continue
-
-        pu_s = p_u[tri_mask]
-        pv_s = p_v[tri_mask]
-        pt_s = p_t[tri_mask]
-        cu_s = c_u[tri_mask]
-        cv_s = c_v[tri_mask]
-        ct_s = c_t[tri_mask]
-
-        for b_start in range(0, len(ray_indices), 512):
-            b_idx = ray_indices[b_start:b_start + 512]
-            o_batch = origins_np[b_idx]
-
-            u = o_batch @ pu_s.T - cu_s[None, :]
-            mask = (u >= -1e-4) & (u <= 1.0001)
-            if not np.any(mask):
-                continue
-
-            v = o_batch @ pv_s.T - cv_s[None, :]
-            mask &= (v >= -1e-4) & ((u + v) <= 1.0001)
-            if not np.any(mask):
-                continue
-
-            t = o_batch @ pt_s.T - ct_s[None, :]
-            mask &= (t >= min_dist) & (t <= max_dist)
-            hits_out[b_idx] = np.any(mask, axis=1).astype(np.float64)
+        v = o_batch @ p_v[cand].T - c_v[cand][None, :]
+        mask &= (v >= -1e-4) & ((u + v) <= 1.0001)
+        if not np.any(mask):
+            continue
+        t = o_batch @ p_t[cand].T - c_t[cand][None, :]
+        mask &= (t >= min_dist) & (t <= max_dist)
+        hits_out[r_idx] = np.any(mask, axis=1).astype(np.float64)
 
     return hits_out
 
@@ -1326,6 +1355,7 @@ def _measure_panel_sni_shading_ratios(
     shading_aabb: Optional[Tuple[np.ndarray, np.ndarray]] = None,
     detail: Optional[Dict[str, Any]] = None,
     shading_src: Optional[np.ndarray] = None,
+    shading_zindex: Optional[Dict[str, Any]] = None,
 ) -> Tuple[float, float, float]:
     """
     Measures SNI 6389:2020 Lampiran A overhang ratio `R1 = P_h / H` (horizontal overhang),
@@ -1350,6 +1380,15 @@ def _measure_panel_sni_shading_ratios(
         sh_min, sh_max = shading_aabb
         p_min = np.min(pv, axis=0)
         p_max = np.max(pv, axis=0)
+        if shading_zindex is not None:
+            # Kandidat dari indeks ember-Z (superset saringan Z di bawah) -> hasil identik, jauh lebih cepat
+            cand = _z_index_candidates(shading_zindex, p_min[2] - 0.5, p_max[2] + SHADE_MAX_RISE_M + 0.5)
+            if len(cand) == 0:
+                return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+            shading_tris = shading_tris[cand]
+            sh_min, sh_max = sh_min[cand], sh_max[cand]
+            if shading_src is not None:
+                shading_src = shading_src[cand]
         near_mask = (
             (sh_max[:, 2] >= p_min[2] - 0.5)
             & (sh_min[:, 2] <= p_max[2] + SHADE_MAX_RISE_M + 0.5)
@@ -1529,6 +1568,37 @@ def _measure_panel_sni_shading_ratios(
             detail["fin"] = {"gap": fin_gap, "depth": float(proj_v), "w": float(proj_v / r2_best)}
 
     return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+
+
+def _build_shading_z_index(sh_min: np.ndarray, sh_max: np.ndarray, bucket_m: float = 2.0) -> Dict[str, Any]:
+    """Indeks ember-Z segitiga peneduh: tiap ember (setinggi `bucket_m`) berisi indeks segitiga yang rentang
+    Z-nya menyentuhnya. Dipakai untuk memilih kandidat per panel tanpa menyaring semua segitiga (hasil identik:
+    kandidat selalu mencakup semua segitiga yang lolos saringan Z di _measure_panel_sni_shading_ratios)."""
+    z0 = float(np.min(sh_min[:, 2])) if len(sh_min) else 0.0
+    lo = np.floor((sh_min[:, 2] - z0) / bucket_m).astype(np.int64)
+    hi = np.floor((sh_max[:, 2] - z0) / bucket_m).astype(np.int64)
+    n_b = int(hi.max()) + 1 if len(hi) else 0
+    counts = np.zeros(n_b + 1, dtype=np.int64)
+    np.add.at(counts, lo, 1)
+    np.add.at(counts, hi + 1, -1)
+    span = hi - lo + 1
+    tri_ids = np.repeat(np.arange(len(lo)), span.astype(np.intp))
+    bucket_ids = np.repeat(lo, span.astype(np.intp)) + (np.arange(len(tri_ids)) - np.repeat(np.cumsum(span) - span, span.astype(np.intp)))
+    order = np.argsort(bucket_ids, kind="stable")
+    tri_sorted = tri_ids[order]
+    starts = np.searchsorted(bucket_ids[order], np.arange(n_b + 1))
+    return {"z0": z0, "bucket": bucket_m, "n": n_b, "tris": tri_sorted, "starts": starts}
+
+
+def _z_index_candidates(zi: Dict[str, Any], z_lo: float, z_hi: float) -> np.ndarray:
+    if zi["n"] == 0:
+        return np.zeros(0, dtype=np.int64)
+    b0 = max(0, int(math.floor((z_lo - zi["z0"]) / zi["bucket"])))
+    b1 = min(zi["n"] - 1, int(math.floor((z_hi - zi["z0"]) / zi["bucket"])))
+    if b1 < b0:
+        return np.zeros(0, dtype=np.int64)
+    seg = zi["tris"][zi["starts"][b0]:zi["starts"][b1 + 1]]
+    return np.unique(seg)  # urut naik = urutan asli segitiga (argmax/ties tidak berubah)
 
 
 def _superposed_sceff(orient: str, det: Dict[str, Any], r1: float, r2: float, phi1: float, table_mode: str) -> Optional[float]:
@@ -2520,12 +2590,34 @@ def analyze_building_ottv(
 
         sc_Display_mult_arr = np.ones(num_panels, dtype=np.float64)
         detached_shading_panels = 0
+        sni_shading_zindex = (
+            _build_shading_z_index(sni_shading_aabb[0], sni_shading_aabb[1]) if sni_shading_aabb is not None else None
+        )
+        # Panel yang pita Z-nya tidak menyentuh satu pun segitiga peneduh tidak perlu diukur (hasil pasti 0,0,0).
+        # Dicek sekaligus untuk semua panel dari jumlah kumulatif isi ember indeks-Z.
+        skip_shading_measure = np.zeros(num_panels, dtype=bool)
+        if not params.enable_parametric_louvers:
+            if sni_shading_zindex is None:
+                skip_shading_measure[:] = True
+            else:
+                zi = sni_shading_zindex
+                occ = (np.diff(zi["starts"]) > 0).astype(np.int64)
+                occ_cum = np.concatenate(([0], np.cumsum(occ)))
+                for idx_q, p_q in enumerate(panel_records):
+                    if p_q["element_type"] not in ("glazing", "composite_cw"):
+                        continue
+                    zs_q = [v[2] for v in p_q["vertices"]]
+                    b0 = max(0, int(math.floor((min(zs_q) - 0.5 - zi["z0"]) / zi["bucket"])))
+                    b1 = min(zi["n"] - 1, int(math.floor((max(zs_q) + SHADE_MAX_RISE_M + 0.5 - zi["z0"]) / zi["bucket"])))
+                    if b1 < b0 or occ_cum[b1 + 1] - occ_cum[b0] == 0:
+                        skip_shading_measure[idx_q] = True
         for idx_p, p_rec in enumerate(panel_records):
             if p_rec["element_type"] in ("glazing", "composite_cw"):
                 sh_det: Dict[str, Any] = {}
-                r1_v, r2_v, phi1_v = _measure_panel_sni_shading_ratios(
+                r1_v, r2_v, phi1_v = (0.0, 0.0, 0.0) if skip_shading_measure[idx_p] else _measure_panel_sni_shading_ratios(
                     detail=sh_det,
                     shading_src=sni_shading_src,
+                    shading_zindex=sni_shading_zindex,
                     panel_verts=p_rec["vertices"],
                     panel_normal=p_rec["normal"],
                     shading_tris=sni_shading_tris,

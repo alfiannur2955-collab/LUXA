@@ -137,7 +137,14 @@ def rematerial_analysis(
     """
     from ottv_engine import compute_panel_heatmap_color
 
-    out = copy.deepcopy(base_analysis)
+    # Salinan hemat (dulu copy.deepcopy seluruh hasil, ±70% waktu ganti material di browser): fungsi ini hanya
+    # mengganti nilai di tingkat atas tiap panel dan di dict summary/rttv/parameters_used/config. Geometri & mesh
+    # tidak pernah diubah, jadi aman dibagi dengan hasil dasar.
+    out = dict(base_analysis)
+    out["panels"] = [dict(p) for p in (base_analysis.get("panels") or [])]
+    for _k in ("summary", "rttv", "parameters_used", "config"):
+        if isinstance(base_analysis.get(_k), dict):
+            out[_k] = copy.deepcopy(base_analysis[_k])
     if not preserve_id:
         out["analysis_id"] = uuid.uuid4().hex[:12]
 

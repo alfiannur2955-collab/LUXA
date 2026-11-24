@@ -339,10 +339,10 @@ export function buildCity(pal) {
   for (const [x, z, s] of trees) {
     const c = new THREE.IcosahedronGeometry(2.2 * s, 1);
     c.translate(x, 4.2 * s + 0.25, z);
-    crown.push(c.toNonIndexed());
+    crown.push(c.index ? c.toNonIndexed() : c); // Icosahedron sudah non-indexed: hindari ratusan peringatan konsol
     const t = new THREE.CylinderGeometry(0.18 * s, 0.22 * s, 3 * s, 6);
     t.translate(x, 1.5 * s + 0.25, z);
-    trunk.push(t.toNonIndexed());
+    trunk.push(t.index ? t.toNonIndexed() : t);
   }
   const crownMesh = new THREE.Mesh(mergeGeometries(crown), new THREE.MeshStandardMaterial({ color: pal.tree, roughness: 0.95, flatShading: true }));
   crownMesh.castShadow = crownMesh.receiveShadow = true;

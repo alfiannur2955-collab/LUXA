@@ -81,7 +81,7 @@ export function buildTower(pal) {
   const mech = new THREE.BoxGeometry(8, 3, 6);
   mech.translate(4, TOWER_TOP + 1.5, -4);
   solids.push(mech);
-  const solid = new THREE.Mesh(mergeGeometries(solids.map((g) => g.toNonIndexed())), mats.wall);
+  const solid = new THREE.Mesh(mergeGeometries(solids.map((g) => (g.index ? g.toNonIndexed() : g))), mats.wall);
   solid.castShadow = solid.receiveShadow = true;
   group.add(solid);
   group.add(new THREE.LineSegments(mergeGeometries(solids.map((g) => new THREE.EdgesGeometry(g, 25))), mats.edge));
