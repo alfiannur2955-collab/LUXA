@@ -16,7 +16,9 @@ def test_clean_honeybee_model_is_not_provisional():
     res = analyze_building_ottv(path, "Honeybee_MultiZone_Office_3F.hbjson", EnvelopeParameters(materials_confirmed=True))
     summary = res["summary"]
     assert summary["is_provisional"] is False
-    assert summary["warnings"] == []
+    # Hanya catatan informatif lebar kusen asumsi yang boleh muncul (model tanpa grup rangka)
+    codes = {w["code"] for w in summary["warnings"]}
+    assert codes <= {"ASSUMED_FRAME_WIDTH"}
 
 
 def test_unknown_group_sets_provisional_warning_and_stays_excluded():

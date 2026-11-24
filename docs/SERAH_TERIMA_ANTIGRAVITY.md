@@ -6,12 +6,13 @@ Baca seluruhnya sebelum mengubah kode. Riwayat lengkap ada di `docs/LOG_PENGERJA
 
 ## 1. Status saat serah-terima
 
-- Branch `main`, commit terakhir kode `e8d604f`. Semua tes lulus (393 lulus, 1 dilewati), `tools/compare_baseline.py` 0 selisih.
-- Model acuan `backend/samples/Fasad_Tower_Twisted.3dm` (milik pengguna): OTTV **34,18** (triple-silver, material
-  dikonfirmasi). Opsi studi `corpus/_studi_peneduh/Fasad_Tower_Twisted_OpsiA_SiripTerakota.3dm`: **30,45**.
-- Selesai: AUDIT-01..03, A3-01, A3-02, A3-03, A3-04 Fase 0+1, A3-05, A3-06, A3-07, A3-08, A3-09, A3-10, A3-12 (sebagian), A3-14, A3-15, percepatan
+- Branch `main`. Semua tes lulus (401 lulus, 1 dilewati), `tools/compare_baseline.py` 0 selisih terhadap baseline pasca-T5.
+- Model acuan `backend/samples/Fasad_Tower_Twisted.3dm` (milik pengguna): OTTV **41,82** (triple-silver, material
+  dikonfirmasi, dengan `U_f` tiga zona 2,97 W/m²K dan kusen terukur 87,6 mm; dulu 34,18 sebelum T5). Opsi studi
+  `corpus/_studi_peneduh/Fasad_Tower_Twisted_OpsiA_SiripTerakota.3dm`: **38,09** (dulu 30,45).
+- Selesai: AUDIT-01..03, A3-01, A3-02, A3-03, A3-04 Fase 0+1, A3-05, A3-06, A3-07, A3-08, A3-09, A3-10, A3-11, A3-12 (sebagian), A3-13, A3-14, A3-15, percepatan
   engine (raycast, peneduh, rematerial, inspeksi, T7: cache indeks-Z, vektorisasi round/serializer, SF/SC/material cache), service worker.
-- Belum: A3-11, A3-13 (T5, butuh keputusan), A3-04 Fase 2–4 (T6, opsional; lihat §6).
+- Belum: A3-04 Fase 2–4 (T6, opsional; lihat §6).
 
 ## 2. Aturan kerja (wajib)
 
@@ -126,12 +127,12 @@ Tempel prompt di bawah ke Antigravity. Setiap prompt sudah memuat kriteria seles
 > TIDAK mengubah angka default. Tambahkan uji di `tests/test_invariants.py` (dua massa berjarak 1 m → peringatan
 > muncul; 6 m → tidak). Kriteria selesai: semua tes + baseline 0 selisih.
 
-### T5 — A3-11 & A3-13: konsistensi rangka (KECIL, perlu keputusan pengguna)
+### T5 — A3-11 & A3-13: konsistensi rangka — **SELESAI**
 
-> Baca bagian A3-11 dan A3-13 di audit. Tanyakan dulu ke pengguna: (a) di mode simulasi, apakah konduksi rangka 8%
-> diterapkan ke semua kaca (tidak bergantung ada/tidaknya grup rangka)? (b) di mode SNI, apakah muka depan profil
-> rangka masuk luas selubung A_o sebagai fenestrasi? Implementasikan sesuai jawaban dengan uji, perbarui baseline
-> dengan penjelasan selisih.
+> Selesai (Nov 2026): fenestrasi = kaca + kusen (muka luar rangka masuk `A_f` & `A_o`), `U_f` tiga zona per bukaan
+> (persegi panjang ekuivalen untuk panel tidak persegi, invarian triangulasi), `U_frame` Tabel 3 (aluminium/metal 8,0;
+> kayu 3,0; vinyl/plastik 2,0; thermal break tidak menurunkan `U_frame` di mode SNI), `frame_cond_adder` lama dihapus,
+> isian `settings.frame_width_mm` (bawaan 50 mm) di panel Material, tampil di hasil & laporan Excel/PDF, baseline diperbarui.
 
 ### T6 — A3-04 Fase 2: tabel kolom panel (opsional)
 

@@ -352,8 +352,11 @@ def test_dobel_sebagian_tidak_mengubah_ottv(tmp_path, base):
 ])
 def test_mullion_nama_ambigu_bukan_kaca(tmp_path, base, name):
     """Kotak tipis-dalam di depan kaca secara geometri adalah rangka, apa pun namanya."""
+    ref_mul = run(tmp_path, base_parts() + [mullion_part("Rangka Mullion")], "mul_ref")
     r = run(tmp_path, base_parts() + [mullion_part(name)], f"mul_ambigu_{name}")
-    assert_same(base, r, f"mullion bernama '{name}'")
+    assert_same(ref_mul, r, f"mullion bernama '{name}' vs Rangka Mullion")
+    assert glz_area(r) <= glz_area(base) * (1 + AREA_RTOL)
+    assert env_area(r) <= env_area(base) * (1 + AREA_RTOL)
 
 
 @pytest.mark.parametrize("name", ["Layer 03", "Object 12"])

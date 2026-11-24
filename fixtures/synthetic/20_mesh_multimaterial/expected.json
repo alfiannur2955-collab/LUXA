@@ -25,11 +25,11 @@
     },
     "total_envelope_area_m2": 1600.0,
     "wwr_total": 0.4,
-    "ottv_total_wm2": 19.3653,
+    "ottv_total_wm2": 20.0571,
     "ottv_by_orientation": {
-      "U": 18.0412,
+      "U": 19.7705,
       "T": 20.1561,
-      "S": 14.7309,
+      "S": 16.4602,
       "B": 22.5469
     },
     "rttv": {
@@ -46,5 +46,5 @@
     "area_rel": 0.005,
     "ottv_abs": 0.1
   },
-  "derivation": "SNI 6389:2020 (sf_source=sni2020 Tabel 8, Jakarta): Uw=0.62, alpha=0.4, massa_w=46.0 kg/m2 -> TDek=15.0 K; Uf=1.1, SHGC=0.2 -> SCk=SHGC/0.87=0.229885, dT=5.0 K; Peneduh: R1=0, R2=0 (SCeff interpolasi Tabel A.5-A.12); Atap: Ur=0.58, alpha_r=0.5, TDeq=16.0 K, SF_roof=427.0. OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf*WWR*dT + SF_i*WWR*(SCk*SCeff_i). Satu node GLB berisi primitif kaca (BLEND) + primitif rangka opak -> dipecah per material, luas kaca = Kasus 1."
+  "derivation": "SNI 6389:2020 (sf_source=sni2020 Tabel 8, Jakarta; U_f 3-zona Tabel 3 & Lampiran C): Uw=0.62, alpha=0.4, massa_w=46.0 kg/m2 -> TDek=15.0 K; U_cog=1.1, U_frame=8.0, kusen 50 mm, SHGC=0.2 -> SCk=SHGC/0.87=0.229885, dT=5.0 K; Peneduh: R1=0, R2=0 (SCeff interpolasi Tabel A.5-A.12); Atap: Ur=0.58, alpha_r=0.5, TDeq=16.0 K, SF_roof=427.0. OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf_3zona*WWR*dT + SF_i*WWR*(SCk*SCeff_i). Satu node GLB berisi primitif kaca (BLEND) + primitif rangka opak -> dipecah per material, luas kaca = Kasus 1; mullion 80 mm terukur pada U/S."
 }

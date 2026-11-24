@@ -43,16 +43,16 @@
     },
     "total_envelope_area_m2": 1004.0342,
     "wwr_total": 0.4,
-    "ottv_total_wm2": 18.9199,
+    "ottv_total_wm2": 20.682,
     "ottv_by_orientation": {
-      "U": 18.0412,
-      "TL": 19.2366,
-      "T": 20.1561,
-      "TGR": 17.1217,
-      "S": 14.7309,
-      "BD": 18.409,
-      "B": 22.5469,
-      "BL": 21.0757
+      "U": 19.8033,
+      "TL": 20.9987,
+      "T": 21.9182,
+      "TGR": 18.8838,
+      "S": 16.493,
+      "BD": 20.1711,
+      "B": 24.3091,
+      "BL": 22.8378
     },
     "rttv": {
       "applicable": true,
@@ -68,7 +68,7 @@
     "area_rel": 0.005,
     "ottv_abs": 0.1
   },
-  "derivation": "SNI 6389:2020 (sf_source=sni2020 Tabel 8, Jakarta): Uw=0.62, alpha=0.4, massa_w=46.0 kg/m2 -> TDek=15.0 K; Uf=1.1, SHGC=0.2 -> SCk=SHGC/0.87=0.229885, dT=5.0 K; Peneduh: R1=0, R2=0 (SCeff interpolasi Tabel A.5-A.12); Atap: Ur=0.58, alpha_r=0.5, TDeq=16.0 K, SF_roof=427.0. OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf*WWR*dT + SF_i*WWR*(SCk*SCeff_i). Silinder r=10m, 36 segmen (lebar chord=1.743115m); 4 segmen untuk U/T/S/B, 5 segmen untuk TL/TGR/BD/BL.",
+  "derivation": "SNI 6389:2020 (sf_source=sni2020 Tabel 8, Jakarta; U_f 3-zona Tabel 3 & Lampiran C): Uw=0.62, alpha=0.4, massa_w=46.0 kg/m2 -> TDek=15.0 K; U_cog=1.1, U_frame=8.0, kusen 50 mm, SHGC=0.2 -> SCk=SHGC/0.87=0.229885, dT=5.0 K; Peneduh: R1=0, R2=0 (SCeff interpolasi Tabel A.5-A.12); Atap: Ur=0.58, alpha_r=0.5, TDeq=16.0 K, SF_roof=427.0. OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf_3zona*WWR*dT + SF_i*WWR*(SCk*SCeff_i). Silinder r=10m, 36 segmen (lebar chord=1.743115m); 4 segmen untuk U/T/S/B, 5 segmen untuk TL/TGR/BD/BL.",
   "per_format_overrides": {
     "obj": {
       "is_provisional": true,

@@ -52,7 +52,7 @@
       "z_ground_offset_m": 0.0,
       "slivers_removed": 0,
       "outer_area_by_role": {
-        "frame": 0.0,
+        "frame": 134.08,
         "glazing": 1217.18,
         "spandrel": 434.1,
         "wall": 298.73
@@ -60,38 +60,38 @@
       "total_envelope_area_m2": 1950.02,
       "total_floors": 6,
       "wwr": 0.624,
-      "ottv_total_wm2": 26.73,
+      "ottv_total_wm2": 35.38,
       "ottv_by_orientation": {
         "U": {
-          "ottv_wm2": 30.26,
+          "ottv_wm2": 40.41,
           "area_m2": 243.77
         },
         "TL": {
-          "ottv_wm2": 32.47,
+          "ottv_wm2": 42.62,
           "area_m2": 243.74
         },
         "T": {
-          "ottv_wm2": 15.0,
+          "ottv_wm2": 19.15,
           "area_m2": 243.76
         },
         "TGR": {
-          "ottv_wm2": 28.55,
+          "ottv_wm2": 38.71,
           "area_m2": 243.74
         },
         "S": {
-          "ottv_wm2": 24.12,
+          "ottv_wm2": 34.27,
           "area_m2": 243.77
         },
         "BD": {
-          "ottv_wm2": 30.94,
+          "ottv_wm2": 41.09,
           "area_m2": 243.74
         },
         "B": {
-          "ottv_wm2": 16.64,
+          "ottv_wm2": 20.79,
           "area_m2": 243.76
         },
         "BL": {
-          "ottv_wm2": 35.88,
+          "ottv_wm2": 46.03,
           "area_m2": 243.74
         }
       }
@@ -171,45 +171,45 @@
       "z_ground_offset_m": 0.12,
       "slivers_removed": 7816,
       "outer_area_by_role": {
-        "frame": 0.0,
+        "frame": 2125.72,
         "glazing": 6988.29,
         "ignore": 0.0,
         "shading": 0.0,
         "spandrel": 2381.51,
         "unknown": 0.0
       },
-      "total_envelope_area_m2": 9369.0,
+      "total_envelope_area_m2": 11445.68,
       "total_floors": 24,
-      "wwr": 0.746,
-      "ottv_total_wm2": 25.03,
+      "wwr": 0.792,
+      "ottv_total_wm2": 37.04,
       "ottv_by_orientation": {
         "U": {
-          "ottv_wm2": 25.39,
-          "area_m2": 2280.28
+          "ottv_wm2": 35.8,
+          "area_m2": 2689.71
         },
         "TL": {
           "ottv_wm2": 0.0,
           "area_m2": 0.0
         },
         "T": {
-          "ottv_wm2": 25.57,
-          "area_m2": 2402.67
+          "ottv_wm2": 38.99,
+          "area_m2": 3041.42
         },
         "TGR": {
           "ottv_wm2": 0.0,
           "area_m2": 0.0
         },
         "S": {
-          "ottv_wm2": 20.33,
-          "area_m2": 2280.28
+          "ottv_wm2": 30.52,
+          "area_m2": 2689.71
         },
         "BD": {
           "ottv_wm2": 0.0,
           "area_m2": 0.0
         },
         "B": {
-          "ottv_wm2": 28.59,
-          "area_m2": 2405.76
+          "ottv_wm2": 41.97,
+          "area_m2": 3024.84
         },
         "BL": {
           "ottv_wm2": 0.0,
@@ -292,45 +292,45 @@
       "z_ground_offset_m": 0.12,
       "slivers_removed": 0,
       "outer_area_by_role": {
-        "frame": 0.0,
+        "frame": 2125.72,
         "glazing": 6988.29,
         "ignore": 0.0,
         "shading": 0.0,
         "spandrel": 2381.51,
         "unknown": 0.0
       },
-      "total_envelope_area_m2": 9369.0,
+      "total_envelope_area_m2": 11445.68,
       "total_floors": 24,
-      "wwr": 0.746,
-      "ottv_total_wm2": 25.03,
+      "wwr": 0.792,
+      "ottv_total_wm2": 37.04,
       "ottv_by_orientation": {
         "U": {
-          "ottv_wm2": 25.39,
-          "area_m2": 2280.29
+          "ottv_wm2": 35.8,
+          "area_m2": 2689.71
         },
         "TL": {
           "ottv_wm2": 0.0,
           "area_m2": 0.0
         },
         "T": {
-          "ottv_wm2": 25.57,
-          "area_m2": 2402.67
+          "ottv_wm2": 38.99,
+          "area_m2": 3041.42
         },
         "TGR": {
           "ottv_wm2": 0.0,
           "area_m2": 0.0
         },
         "S": {
-          "ottv_wm2": 20.33,
-          "area_m2": 2280.29
+          "ottv_wm2": 30.52,
+          "area_m2": 2689.71
         },
         "BD": {
           "ottv_wm2": 0.0,
           "area_m2": 0.0
         },
         "B": {
-          "ottv_wm2": 28.59,
-          "area_m2": 2405.76
+          "ottv_wm2": 41.97,
+          "area_m2": 3024.84
         },
         "BL": {
           "ottv_wm2": 0.0,
@@ -390,10 +390,10 @@
       "total_envelope_area_m2": 240.0,
       "total_floors": 3,
       "wwr": 0.2,
-      "ottv_total_wm2": 11.3,
+      "ottv_total_wm2": 12.58,
       "ottv_by_orientation": {
         "U": {
-          "ottv_wm2": 10.88,
+          "ottv_wm2": 12.16,
           "area_m2": 60.0
         },
         "TL": {
@@ -401,7 +401,7 @@
           "area_m2": 0.0
         },
         "T": {
-          "ottv_wm2": 11.94,
+          "ottv_wm2": 13.22,
           "area_m2": 60.0
         },
         "TGR": {
@@ -409,7 +409,7 @@
           "area_m2": 0.0
         },
         "S": {
-          "ottv_wm2": 9.23,
+          "ottv_wm2": 10.51,
           "area_m2": 60.0
         },
         "BD": {
@@ -417,7 +417,7 @@
           "area_m2": 0.0
         },
         "B": {
-          "ottv_wm2": 13.14,
+          "ottv_wm2": 14.42,
           "area_m2": 60.0
         },
         "BL": {
@@ -651,42 +651,42 @@
       "z_ground_offset_m": 0.05,
       "slivers_removed": 2496,
       "outer_area_by_role": {
-        "frame": 0.0,
+        "frame": 2729.45,
         "glazing": 1800.05,
         "wall": 78.56
       },
-      "total_envelope_area_m2": 1878.46,
+      "total_envelope_area_m2": 4607.91,
       "total_floors": 13,
-      "wwr": 0.958,
-      "ottv_total_wm2": 38.82,
+      "wwr": 0.983,
+      "ottv_total_wm2": 63.98,
       "ottv_by_orientation": {
         "U": {
-          "ottv_wm2": 38.64,
-          "area_m2": 554.2
+          "ottv_wm2": 62.53,
+          "area_m2": 1297.12
         },
         "TL": {
           "ottv_wm2": 3.72,
           "area_m2": 2.12
         },
         "T": {
-          "ottv_wm2": 42.77,
-          "area_m2": 380.9
+          "ottv_wm2": 68.75,
+          "area_m2": 1009.19
         },
         "TGR": {
           "ottv_wm2": 3.72,
           "area_m2": 4.24
         },
         "S": {
-          "ottv_wm2": 30.32,
-          "area_m2": 559.45
+          "ottv_wm2": 54.19,
+          "area_m2": 1308.13
         },
         "BD": {
           "ottv_wm2": 3.72,
           "area_m2": 2.12
         },
         "B": {
-          "ottv_wm2": 49.05,
-          "area_m2": 371.19
+          "ottv_wm2": 74.82,
+          "area_m2": 980.76
         },
         "BL": {
           "ottv_wm2": 3.72,

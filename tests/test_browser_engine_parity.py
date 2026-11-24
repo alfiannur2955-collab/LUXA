@@ -146,3 +146,28 @@ def test_browser_engine_matches_native_on_meshless_brep_and_extrusion(tmp_path) 
 
     assert abs(browser["ottv_total_wm2"] - native["ottv_total_wm2"]) <= 0.01, f"browser {browser} vs native {native['ottv_total_wm2']}"
     assert browser["panels"] == len(native["panels"]), f"browser {browser} vs native {len(native['panels'])}"
+
+
+@pytest.mark.skipif(not NODE or not os.path.isfile(MANIFEST), reason="Node.js atau aset engine browser tidak ada")
+def test_browser_engine_matches_native_with_mullion_frame(tmp_path) -> None:
+    """T5 (A3-11/A3-13): paritas browser Pyodide vs native Python pada model kotak dengan mullion (U_f 3-zona)."""
+    from test_three_zone_uf import _write_box_3dm
+
+    fp = _write_box_3dm(str(tmp_path / "box_mullion_parity.3dm"), with_mullions=True, frame_w=0.05)
+    proc = subprocess.run(
+        [NODE, SCRIPT, fp],
+        capture_output=True, text=True, timeout=600, cwd=ROOT,
+    )
+    line = next((ln for ln in proc.stdout.splitlines() if ln.startswith("PARITY_JSON ")), None)
+    assert line, f"engine_parity.mjs gagal:\n{proc.stdout[-2000:]}\n{proc.stderr[-2000:]}"
+    browser = json.loads(line[len("PARITY_JSON "):])[fp]
+    assert "error" not in browser, f"mullion browser error: {browser.get('error')}"
+
+    mid = "native-mullion-t5"
+    browser_api.register_upload(mid, fp, os.path.basename(fp), fp)
+    cfg = browser_api.default_config(os.path.basename(fp))
+    cfg["model"]["model_scope"] = "full_building"
+    native = browser_api.analyze(mid, cfg)
+
+    assert abs(browser["ottv_total_wm2"] - native["ottv_total_wm2"]) <= 0.01, f"browser {browser} vs native {native['ottv_total_wm2']}"
+    assert browser["panels"] == len(native["panels"]), f"browser {browser} vs native {len(native['panels'])}"

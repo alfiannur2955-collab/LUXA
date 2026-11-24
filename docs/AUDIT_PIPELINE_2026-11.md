@@ -29,9 +29,9 @@ Skrip probe tidak dimasukkan ke repo. Temuan yang diperbaiki wajib mendapat uji 
 | A3-08 | SEDANG | Peneduh | Pelat balkon: dihitung atau tidak bergantung nama ("Slab" ya, "Pelat Lantai" tidak) — **diperbaiki** |
 | A3-09 | SEDANG | CI | Paritas engine browser, hitung ulang LibreOffice, dan tes berbasis corpus selalu dilewati di CI — **diperbaiki** |
 | A3-10 | SEDANG | Distribusi | `frontend/dist` lokal bisa basi tanpa peringatan; Node.js tidak ada di laptop pengembang — **diperbaiki** |
-| A3-11 | SEDANG | Hitung | Mode simulasi: konduksi rangka 8% hanya ditambahkan bila model punya grup rangka |
+| A3-11 | SEDANG | Hitung | Mode simulasi: konduksi rangka 8% hanya ditambahkan bila model punya grup rangka — **diperbaiki** |
 | A3-12 | RENDAH | Klasifikasi | Token belum dikenal: GL-01, Polycarbonate, Secondary Skin, Perforated, Pergola, Krepyak, Jalusi, Roster, Spandek, dll. — **sebagian besar diperbaiki** |
-| A3-13 | RENDAH | Hitung | Mode SNI: muka depan mullion tidak masuk luas selubung A_o |
+| A3-13 | RENDAH | Hitung | Mode SNI: muka depan mullion tidak masuk luas selubung A_o — **diperbaiki** |
 | A3-14 | TINGGI | Tampilan | Daftar "Lihat catatan" di layar hasil menampilkan "[object Object]" — **diperbaiki** |
 | A3-15 | SEDANG | Hitung | Ganti material cepat (`rematerial`) tidak memperbarui status/peringatan — **diperbaiki** |
 
@@ -239,6 +239,11 @@ Di laptop pengembang tidak ada Node.js, sehingga `dist` tertinggal sejak 23 Nov 
 mullion mendapat OTTV lebih tinggi daripada model yang sama tanpa mullion. **Usulan:** terapkan rasio rangka
 pada semua kaca (atau hitung dari luas muka rangka terukur), tidak bergantung ada atau tidaknya grup rangka.
 
+**Perbaikan (Nov 2026, T5).** `frame_cond_adder` lama dihapus di `backend/ottv_engine.py` dan `backend/recommender.py`.
+Kedua mode (SNI dan simulasi) kini memakai perhitungan `U_f` tiga zona yang sama (`compute_three_zone_uf`, mengacu SNI
+6389:2020 butir 4.3.2.2 & Lampiran C) dengan katalog `U_frame` Tabel 3 (aluminium/metal 8,0; kayu 3,0; vinyl/plastik 2,0;
+thermal break tidak menurunkan `U_frame` di mode SNI). Teruji di `tests/test_three_zone_uf.py`.
+
 ## A3-12 · RENDAH · Token yang belum dikenal
 
 Kaca: GLS, GL-01, Polycarbonate, Vitrage, Glazed Panel. Dinding: WPC, Roster, Batu Alam, Sandwich Panel,
@@ -250,6 +255,14 @@ Jalusi. Atap: Spandek. Konteks: Tangga, Toilet, Parkir, Mobil, Manusia, Kontur. 
 
 Grup rangka tidak menyumbang luas selubung. Muka depan profil (biasanya 3–5% luas fasad curtain wall)
 semestinya termasuk fenestrasi. Dampaknya kecil, tetapi perlu diputuskan dan didokumentasikan.
+
+**Perbaikan (Nov 2026, T5).** Fenestrasi kini dihitung sebagai kaca + kusen (`_measure_frame_groups_for_panels` +
+`compute_three_zone_uf`). Bila grup rangka ada, muka luar rangka terukur (tidak menimpa kaca menerus) masuk ke `A_f`
+dan `A_o` memakai SC kaca dan peneduh pada orientasi terkait, dengan lebar kusen dari median lebar profil terukur. Bila
+tidak ada grup rangka, kusen dihitung di dalam bukaan panel memakai isian baru `settings.frame_width_mm` (bawaan 50 mm,
+ikut `materials_confirmed`, dan menampilkan catatan "Lebar kusen asumsi"). Nilai `U_f`, `A_frame`, `A_edge`, lebar kusen,
+dan sumbernya (`terukur`/`asumsi pengguna`) tampil di UI Hasil serta laporan Excel dan PDF. Teruji di
+`tests/test_three_zone_uf.py` dan paritas browser `tests/test_browser_engine_parity.py`.
 
 ---
 

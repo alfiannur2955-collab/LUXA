@@ -89,7 +89,7 @@ def test_alfian_3dm_west_glass_50_81_heat_share_30_pct_and_sep23_13h_exposure(cl
     total_heat_w = sum(float(p.get("heat_gain_w") or 0.0) for p in active_panels)
     assert total_heat_w > 0.0
 
-    # 1. West glazing panels -> 50.81 W/m2 contribution
+    # 1. West glazing panels (T5 U_f 3-zona: ~58.6–73.6 W/m2, median ~61.25; dulu ~50.81 tanpa kusen)
     west_glz = [
         p
         for p in active_panels
@@ -97,8 +97,8 @@ def test_alfian_3dm_west_glass_50_81_heat_share_30_pct_and_sep23_13h_exposure(cl
     ]
     assert len(west_glz) > 0
     west_glz_vals = [float(p["ottv_panel_wm2"]) for p in west_glz]
-    assert any(abs(v - 50.81) <= 0.15 for v in west_glz_vals), (
-        f"Expected West glass panel contribution ~50.81 W/m2, got min={min(west_glz_vals):.2f}, max={max(west_glz_vals):.2f}"
+    assert any(58.0 <= v <= 64.0 for v in west_glz_vals), (
+        f"Expected West glass panel contribution ~61 W/m2 (3-zone Uf), got min={min(west_glz_vals):.2f}, max={max(west_glz_vals):.2f}"
     )
 
     # 2. All West glazing heat share ~= 30% of total building heat gain

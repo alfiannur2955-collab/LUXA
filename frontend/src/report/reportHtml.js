@@ -131,9 +131,9 @@ export function buildReportHtml(state, { userName = '', images = {}, logoUrl = '
   pages.push(`<section class="page">${head}
     <p class="kicker">Material</p><h2>Material selubung yang dihitung</h2>
     <p class="lead">Nilai termal di bawah adalah yang dipakai engine. Warna kotak hanya penanda tampilan, tidak ikut dihitung.</p>
-    ${matCard('Kaca', hexOf(mat.glazing_id, 'glazing'), mat.glazing_name, mat.glazing_brand, [['SC', f3(mat.sc_glass)], ['SHGC', f3(mat.shgc_glass)], ['U kaca', `${f2(mat.u_fenestration)}`], ['ΔT', `${f1(mat.delta_t)} K`]])}
+    ${matCard('Kaca', hexOf(mat.glazing_id, 'glazing'), mat.glazing_name, mat.glazing_brand, [['SC', f3(mat.sc_glass)], ['SHGC', f3(mat.shgc_glass)], ['U_f 3-zona', `${f2(s.avg_u_fen_wm2k ?? mat.u_fenestration)}`], ['ΔT', `${f1(mat.delta_t)} K`]])}
     ${matCard('Dinding', hexOf(mat.wall_id, 'wall'), mat.wall_name, mat.wall_brand, [['α', f2(mat.alpha_wall)], ['U dinding', f2(mat.u_wall)], ['TDek', `${f1(mat.td_ek)} K`], ['', '']].filter((x) => x[0]))}
-    ${mat.frame_name ? matCard('Rangka', hexOf(mat.frame_id, 'frame'), mat.frame_name, '', [['U rangka', f2(mat.u_frame)], ['Kedalaman sirip', `${f2(mat.louver_depth_m)} m`], ['Jarak sirip', `${f2(mat.louver_spacing_m)} m`], ['Kemiringan', `${f0(mat.louver_tilt_deg)}°`]]) : ''}
+    ${mat.frame_name ? matCard('Rangka & Kusen (3 zona)', hexOf(mat.frame_id, 'frame'), mat.frame_name, s.frame_source === 'terukur' ? 'Terukur dari model' : 'Lebar kusen asumsi', [['U_frame', f2(s.u_frame_eff_wm2k ?? mat.u_frame)], ['Lebar kusen', `${f1(s.frame_width_mm ?? mat.frame_width_mm ?? 50)} mm`], ['A_frame', `${f2(s.total_a_frame_m2 ?? 0)} m²`], ['A_edge', `${f2(s.total_a_edge_m2 ?? 0)} m²`]]) : ''}
     ${hasRttv ? `<div class="card" style="margin-top:6mm"><p class="kicker">Atap</p><h3>RTTV ${f2(rttv.rttv_wm2)} W/m² ${pill(rttv.compliant !== false)}</h3>
       ${stats([['Batas', `${f0(rttv.limit_wm2 ?? 10)} W/m²`], ['Luas atap', `${f1(rttv.total_roof_area_m2)} m²`], ['Skylight', `${f1(rttv.skylight_area_m2)} m²`], ['Porsi skylight', pct(rttv.srr)]])}</div>` : ''}
   </section>`);
@@ -152,6 +152,7 @@ export function buildReportHtml(state, { userName = '', images = {}, logoUrl = '
       <p class="muted" style="font-size:8pt;margin:2.5mm 0 0">Sumber: ${esc(a.sf_source_label || 'Tabel 8 SNI 6389:2020')}. Lokasi ${esc(a.location_info?.city || '-')}${a.location_info?.station ? `, stasiun ${esc(a.location_info.station)}` : ''}.</p></div>
     <div class="card"><h3>Catatan</h3><ul class="notes">
       <li>Model: ${esc(a.filename || '-')} (${esc(a.format || '')}). Mode: ${esc(a.mode_label || '-')}.</li>
+      ${Number(s.total_glazing_area_m2 || 0) > 0.01 ? `<li>Fenestrasi tiga zona: U<sub>f</sub> rata-rata ${f2(s.avg_u_fen_wm2k ?? mat.u_fenestration)} W/m²K, A<sub>frame</sub> ${f2(s.total_a_frame_m2 ?? 0)} m², A<sub>edge</sub> ${f2(s.total_a_edge_m2 ?? 0)} m², lebar kusen ${f1(s.frame_width_mm ?? 50)} mm (sumber: ${esc(s.frame_source || 'asumsi pengguna')}${s.frame_source !== 'terukur' ? ' — Lebar kusen asumsi' : ''}).</li>` : ''}
       <li>Luas, porsi kaca, dan orientasi tiap bidang dibaca otomatis dari model 3D. Periksa hasil pengelompokan bidang di aplikasi bila ada keraguan.</li>
       <li>Rincian tiap bidang dan rumus yang bisa ditelusuri ada di laporan Excel LUXA.</li>
       <li>Laporan ini membantu analisis desain. Untuk pengajuan resmi, sertakan perhitungan yang diperiksa oleh tenaga ahli.</li>

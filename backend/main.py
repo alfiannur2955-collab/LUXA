@@ -818,6 +818,7 @@ class RematerialRequest(BaseModel):
     wall_material_id: Optional[str] = None
     frame_material_id: Optional[str] = None
     roof_material_id: Optional[str] = None
+    frame_width_mm: Optional[float] = Field(default=None, ge=0.0, le=300.0)
     orientation_material_overrides: Optional[Dict[str, str]] = None
     group_material_map: Optional[Dict[str, str]] = None
     custom_materials: List[Dict[str, Any]] = Field(default_factory=list)
@@ -858,6 +859,7 @@ def rematerial_analysis_endpoint(
         wall_material_id=req.wall_material_id,
         frame_material_id=req.frame_material_id,
         roof_material_id=req.roof_material_id,
+        frame_width_mm=req.frame_width_mm,
         orientation_material_overrides=req.orientation_material_overrides,
         group_material_map=req.group_material_map,
         custom_materials=req.custom_materials,
@@ -874,6 +876,8 @@ def rematerial_analysis_endpoint(
             cfg_s["frame_material_id"] = req.frame_material_id
         if req.roof_material_id is not None:
             cfg_s["roof_material_id"] = req.roof_material_id
+        if req.frame_width_mm is not None:
+            cfg_s["frame_width_mm"] = float(req.frame_width_mm)
         if req.orientation_material_overrides is not None:
             cfg_s["orientation_material_overrides"] = dict(req.orientation_material_overrides)
         if req.custom_materials:

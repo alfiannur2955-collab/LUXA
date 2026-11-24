@@ -276,8 +276,57 @@ export function createRailPanelBuilders(handlers) {
           if (activeMat?.id === 'glz_kaca_elektrokromik') {
             hint += ' · Catatan: nilai katalog adalah kondisi paling gelap; saat terang SC lebih tinggi.';
           }
+          if (
+            cat === 'frame' &&
+            (state.config?.settings?.mode || 'sni') === 'sni' &&
+            activeMat?.sni_u_frame != null &&
+            Math.abs(Number(activeMat.sni_u_frame) - Number(activeMat.u_value)) > 0.05
+          ) {
+            hint += ` · Mode SNI Tabel 3: dihitung U_frame ${fmtId(activeMat.sni_u_frame, 1)} W/m²K (thermal break tidak menurunkan U_frame di mode SNI).`;
+          }
 
           container.appendChild(makeField(label, rowCtrl, hint));
+
+          if (cat === 'frame') {
+            const summ = state.analysisData?.summary || null;
+            const isMeasured = summ?.frame_source === 'terukur';
+            const fwVal = isMeasured
+              ? Number(summ?.frame_width_mm ?? 50)
+              : Number(state.config?.settings?.frame_width_mm ?? 50);
+
+            const fwRow = document.createElement('div');
+            fwRow.style.display = 'flex';
+            fwRow.style.alignItems = 'center';
+            fwRow.style.gap = '6px';
+
+            const fwInp = document.createElement('input');
+            fwInp.type = 'number';
+            fwInp.className = 'field-input num';
+            fwInp.min = '0';
+            fwInp.max = '300';
+            fwInp.step = '5';
+            fwInp.value = String(Number.isFinite(fwVal) ? fwVal : 50);
+            fwInp.style.flex = '1';
+            fwInp.setAttribute('aria-label', 'Lebar kusen dalam milimeter');
+            fwInp.disabled = isMeasured;
+            fwInp.addEventListener('change', () => {
+              const num = Math.max(0, Math.min(300, Number(fwInp.value)));
+              if (!Number.isFinite(num)) return;
+              fwInp.value = String(num);
+              handlers.onChangeFrameWidthMm?.(num);
+            });
+
+            const unitSpan = document.createElement('span');
+            unitSpan.className = 'lbl';
+            unitSpan.textContent = 'mm';
+
+            fwRow.append(fwInp, unitSpan);
+
+            const fwHint = isMeasured
+              ? `Terukur otomatis dari grup rangka model (${fmtId(fwVal, 1)} mm).`
+              : 'Lebar kusen asumsi (bawaan 50 mm) bila model tidak memiliki grup rangka. Mengubah nilai ini sekaligus mengonfirmasi material.';
+            container.appendChild(makeField('Lebar kusen', fwRow, fwHint));
+          }
         }
 
         // Lanjut workspace: Per-orientation glazing override (`docs/FASE4_UI_SPEC.md` §5)

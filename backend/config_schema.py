@@ -162,6 +162,7 @@ class SettingsConfig(BaseModel):
     materials_confirmed: bool = False
 
     # Envelope thermal options (delta_t is always 5 K in SNI mode; TD_ek always derived from massa_kg_m2)
+    frame_width_mm: float = Field(default=50.0, ge=0.0, le=300.0)
     include_frame_conduction: bool = True
     frame_area_ratio: float = Field(default=0.08, ge=0.0, le=0.35)
     wwr_override: Optional[float] = Field(default=None, ge=0.05, le=0.95)
@@ -243,6 +244,7 @@ class ProjectConfig(BaseModel):
             custom_materials=self.custom_material_dicts(),
             orientation_material_overrides=dict(self.settings.orientation_material_overrides),
             materials_confirmed=bool(self.settings.materials_confirmed),
+            frame_width_mm=float(self.settings.frame_width_mm),
             include_frame_conduction=self.settings.include_frame_conduction,
             frame_area_ratio=self.settings.frame_area_ratio,
             wwr_override=self.settings.wwr_override,
@@ -467,6 +469,7 @@ def migrate_v1(raw: Dict[str, Any]) -> ProjectConfig:
         "roof_material_id",
         "custom_materials",
         "orientation_material_overrides",
+        "frame_width_mm",
         "include_frame_conduction",
         "frame_area_ratio",
         "wwr_override",

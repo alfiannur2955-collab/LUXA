@@ -44,6 +44,7 @@ export function createDefaultConfig() {
       roof_material_id: 'rf_dak_beton_120_insulasi',
       custom_materials: [],
       orientation_material_overrides: {},
+      frame_width_mm: 50,
       include_frame_conduction: true,
       frame_area_ratio: 0.08,
       wwr_override: null,

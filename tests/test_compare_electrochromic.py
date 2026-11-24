@@ -49,16 +49,17 @@ def test_compare_electrochromic_alfian_3dm_gives_26_46_vs_36_76(client):
     r_base = client.post(f"/api/models/{model_id}/analyze", json=base_cfg)
     assert r_base.status_code == 200, r_base.text
     d_base = r_base.json()
-    assert abs(float(d_base["ottv_total_wm2"]) - 36.76) <= 0.05
+    # T5 (U_f 3-zona SNI Lampiran C + Tabel 3): 47.11 W/m2 (dulu 36.76 tanpa kusen)
+    assert abs(float(d_base["ottv_total_wm2"]) - 47.11) <= 0.05
 
     alt_cfg = ProjectConfig().model_dump(mode="json")
     alt_cfg["settings"]["glazing_material_id"] = "glz_kaca_elektrokromik"
     r_alt = client.post(f"/api/models/{model_id}/analyze", json=alt_cfg)
     assert r_alt.status_code == 200, r_alt.text
     d_alt = r_alt.json()
-    assert abs(float(d_alt["ottv_total_wm2"]) - 26.46) <= 0.05
+    # T5: 36.40 W/m2 (dulu 26.46 tanpa kusen)
+    assert abs(float(d_alt["ottv_total_wm2"]) - 36.40) <= 0.05
     assert d_alt["ottv_total_wm2"] < d_base["ottv_total_wm2"]
-    assert d_alt["ottv_total_wm2"] <= 35.0
 
     # Verify every active orientation improves
     base_ori = {o["code"]: o["ottv_orientation_wm2"] for o in d_base["orientation_breakdown"] if o["total_area_m2"] > 0.1}

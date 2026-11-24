@@ -296,7 +296,7 @@ def export_report(analysis_id: str, fmt: str) -> Dict[str, Any]:
 def rematerial(analysis_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
     base = _get_analysis(analysis_id)
     keys = ("glazing_material_id", "wall_material_id", "frame_material_id", "roof_material_id",
-            "orientation_material_overrides", "group_material_map")
+            "frame_width_mm", "orientation_material_overrides", "group_material_map")
     kwargs = {k: req.get(k) for k in keys}
     kwargs["custom_materials"] = list(req.get("custom_materials") or [])
     kwargs["materials_confirmed"] = req.get("materials_confirmed")
@@ -306,6 +306,8 @@ def rematerial(analysis_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
         for k in ("glazing_material_id", "wall_material_id", "frame_material_id", "roof_material_id"):
             if req.get(k) is not None:
                 cfg_s[k] = req[k]
+        if req.get("frame_width_mm") is not None:
+            cfg_s["frame_width_mm"] = float(req["frame_width_mm"])
         if req.get("orientation_material_overrides") is not None:
             cfg_s["orientation_material_overrides"] = dict(req["orientation_material_overrides"])
         if req.get("custom_materials"):

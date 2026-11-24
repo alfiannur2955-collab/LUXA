@@ -51,7 +51,7 @@
     "area_rel": 0.005,
     "ottv_abs": 0.1
   },
-  "derivation": "SNI 6389:2020 (sf_source=sni2020 Tabel 8, Jakarta): Uw=0.62, alpha=0.4, massa_w=46.0 kg/m2 -> TDek=15.0 K; Uf=1.1, SHGC=0.2 -> SCk=SHGC/0.87=0.229885, dT=5.0 K; Peneduh: R1=0, R2=0 (SCeff interpolasi Tabel A.5-A.12); Atap: Ur=0.58, alpha_r=0.5, TDeq=16.0 K, SF_roof=427.0. OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf*WWR*dT + SF_i*WWR*(SCk*SCeff_i). Regresi K2: model hanya memiliki dinding opak (tanpa grup kaca) -> WWR=0%, OTTV=3.72 W/m2, is_provisional=True, peringatan NO_GLAZING (tidak lagi memakai default_wall_wwr=0.35 diam-diam).",
+  "derivation": "SNI 6389:2020 (sf_source=sni2020 Tabel 8, Jakarta; U_f 3-zona Tabel 3 & Lampiran C): Uw=0.62, alpha=0.4, massa_w=46.0 kg/m2 -> TDek=15.0 K; U_cog=1.1, U_frame=8.0, kusen 50 mm, SHGC=0.2 -> SCk=SHGC/0.87=0.229885, dT=5.0 K; Peneduh: R1=0, R2=0 (SCeff interpolasi Tabel A.5-A.12); Atap: Ur=0.58, alpha_r=0.5, TDeq=16.0 K, SF_roof=427.0. OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf_3zona*WWR*dT + SF_i*WWR*(SCk*SCeff_i). Regresi K2: model hanya memiliki dinding opak (tanpa grup kaca) -> WWR=0%, OTTV=3.72 W/m2, is_provisional=True, peringatan NO_GLAZING (tidak lagi memakai default_wall_wwr=0.35 diam-diam).",
   "per_format_overrides": {
     "obj": {
       "is_provisional": true,

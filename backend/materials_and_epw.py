@@ -369,52 +369,92 @@ BUILTIN_MATERIALS: List[Dict[str, Any]] = [
     },
 
     # ------------------------------------------------------------------------
-    # C. CURTAIN WALL FRAME & SHADING FINS (RANGKA MULLION/TRANSOM GENERIK)
+    # C. CURTAIN WALL FRAME & SHADING FINS (RANGKA MULLION/TRANSOM — SNI TABEL 3)
     # ------------------------------------------------------------------------
     {
         "id": "frm_aluminium_standar",
-        "name": "Rangka Aluminium Non-Thermal Break (Anodized/Powder Coat)",
+        "name": "Rangka Aluminium / Metal (SNI Tabel 3)",
         "brand": "Generik (Nilai Tipikal)",
         "category": "frame",
-        "technology": "Extruded Aluminium Standar",
-        "u_value": 5.80,
+        "frame_material_class": "aluminium",
+        "sni_u_frame": 8.0,
+        "technology": "Extruded Aluminium / Metal Standar",
+        "u_value": 8.0,
         "alpha": 0.40,
         "reflectance": 0.60,
         "massa_kg_m2": 15.0,
-        "sumber": "SNI 6389:2020 Tabel 1 (Cat alumunium α=0,40) & Tabel 3 (Kusen metal tanpa pemutus termal)",
+        "sumber": "SNI 6389:2020 Tabel 1 (Cat alumunium α=0,40) & Tabel 3 (Kusen aluminium/metal U_frame=8,0)",
         "status": "nilai_tipikal",
         "market_availability": "Material Umum",
-        "description": "Profil rangka aluminium standar tanpa pemutus jembatan termal.",
+        "description": "Profil rangka aluminium/metal standar (SNI Tabel 3: U_frame = 8,0 W/m²K).",
     },
     {
         "id": "frm_aluminium_thermal_break",
         "name": "Rangka Aluminium Curtain Wall + Thermal Break",
         "brand": "Generik (Nilai Tipikal)",
         "category": "frame",
+        "frame_material_class": "aluminium",
+        "sni_u_frame": 8.0,
         "technology": "Polyamide Thermal Break Frame",
         "u_value": 2.10,
         "alpha": 0.40,
         "reflectance": 0.60,
         "massa_kg_m2": 18.0,
-        "sumber": "SNI 6389:2020 Tabel 1 (Cat alumunium α=0,40) & nilai tipikal kusen thermal break",
+        "sumber": "SNI 6389:2020 Tabel 3 (di mode SNI rangka aluminium/metal tetap 8,0 W/m²K; thermal break 2,10 hanya mode simulasi)",
         "status": "nilai_tipikal",
         "market_availability": "Material Umum Proyek High-Rise",
-        "description": "Profil mullion/transom dengan pemutus jembatan termal poliamida.",
+        "description": "Profil mullion/transom dengan pemutus jembatan termal poliamida. Di mode SNI, thermal break tidak menurunkan U_frame (tetap 8,0 W/m²K sesuai Tabel 3).",
+    },
+    {
+        "id": "frm_kayu",
+        "name": "Rangka Kusen Kayu (SNI Tabel 3)",
+        "brand": "Generik (Nilai Tipikal)",
+        "category": "frame",
+        "frame_material_class": "wood",
+        "sni_u_frame": 3.0,
+        "technology": "Kusen Kayu Solid / Rekayasa",
+        "u_value": 3.0,
+        "alpha": 0.60,
+        "reflectance": 0.40,
+        "massa_kg_m2": 18.0,
+        "sumber": "SNI 6389:2020 Tabel 3 (Kusen kayu U_frame=3,0)",
+        "status": "nilai_tipikal",
+        "market_availability": "Material Umum",
+        "description": "Rangka kusen jendela berbahan kayu (SNI Tabel 3: U_frame = 3,0 W/m²K).",
+    },
+    {
+        "id": "frm_vinyl_plastik",
+        "name": "Rangka Kusen Vinyl / Plastik uPVC (SNI Tabel 3)",
+        "brand": "Generik (Nilai Tipikal)",
+        "category": "frame",
+        "frame_material_class": "vinyl",
+        "sni_u_frame": 2.0,
+        "technology": "Kusen Vinyl / uPVC",
+        "u_value": 2.0,
+        "alpha": 0.45,
+        "reflectance": 0.55,
+        "massa_kg_m2": 12.0,
+        "sumber": "SNI 6389:2020 Tabel 3 (Kusen vinyl/plastik U_frame=2,0)",
+        "status": "nilai_tipikal",
+        "market_availability": "Material Umum",
+        "description": "Rangka kusen jendela berbahan vinyl/plastik uPVC (SNI Tabel 3: U_frame = 2,0 W/m²K).",
     },
     {
         "id": "frm_sirip_peneduh_aluminium",
         "name": "Sirip Peneduh / Louver Aluminium Eksternal",
         "brand": "Generik (Nilai Tipikal)",
         "category": "frame",
+        "frame_material_class": "aluminium",
+        "sni_u_frame": 8.0,
         "technology": "External Shading Fin / Louver",
-        "u_value": 1.80,
+        "u_value": 8.0,
         "alpha": 0.30,
         "reflectance": 0.70,
         "massa_kg_m2": 14.0,
-        "sumber": "SNI 6389:2020 Tabel 2 (Putih semi kilap α=0,30) & nilai tipikal",
+        "sumber": "SNI 6389:2020 Tabel 2 (Putih semi kilap α=0,30) & Tabel 3 (Aluminium/metal U_frame=8,0)",
         "status": "nilai_tipikal",
         "market_availability": "Material Umum",
-        "description": "Sirip peneduh matahari eksternal untuk mereduksi faktor bayangan SC_eff.",
+        "description": "Sirip peneduh/rangka aluminium eksternal (SNI Tabel 3: U_frame = 8,0 W/m²K).",
     },
 
     # ------------------------------------------------------------------------
@@ -546,6 +586,57 @@ def _load_brand_material_library() -> List[Dict[str, Any]]:
 
 _enrich_generic_builtin_materials()
 BRAND_MATERIALS: List[Dict[str, Any]] = _load_brand_material_library()
+
+
+SNI_TABLE_3_U_FRAME: Dict[str, float] = {
+    "aluminium": 8.0,
+    "wood": 3.0,
+    "vinyl": 2.0,
+}
+
+
+def classify_frame_material_class(frm_mat: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Mengelompokkan material rangka ke kelas Tabel 3 SNI 6389:2020 ('aluminium' | 'wood' | 'vinyl')."""
+    if not isinstance(frm_mat, dict):
+        return None
+    explicit = str(frm_mat.get("frame_material_class") or "").strip().lower()
+    if explicit in SNI_TABLE_3_U_FRAME:
+        return explicit
+    hay = " ".join(
+        str(frm_mat.get(k) or "")
+        for k in ("id", "name", "technology", "configuration", "description")
+    ).lower()
+    if any(tok in hay for tok in ("vinyl", "upvc", "pvc", "plastik", "plastic")):
+        return "vinyl"
+    if any(tok in hay for tok in ("kayu", "wood", "timber", "jati", "merbau", "kamper")):
+        return "wood"
+    if any(tok in hay for tok in ("aluminium", "aluminum", "metal", "logam", "baja", "steel", "besi", "thermal break")):
+        return "aluminium"
+    return None
+
+
+def resolve_u_frame(
+    frm_mat: Optional[Dict[str, Any]],
+    is_sni_mode: bool = True,
+    fallback_u_frame: float = 8.0,
+) -> float:
+    """Nilai U_frame (W/m²K) efektif.
+    Di mode SNI, mengikuti Tabel 3 (aluminium/metal 8,0; kayu 3,0; vinyl/plastik 2,0) —
+    thermal break TIDAK boleh menurunkan U_frame di bawah nilai Tabel 3."""
+    if not isinstance(frm_mat, dict):
+        return float(fallback_u_frame)
+    if is_sni_mode:
+        if frm_mat.get("sni_u_frame") is not None:
+            return float(frm_mat["sni_u_frame"])
+        cls = classify_frame_material_class(frm_mat)
+        if cls in SNI_TABLE_3_U_FRAME:
+            return float(SNI_TABLE_3_U_FRAME[cls])
+        if frm_mat.get("u_value") is not None:
+            return float(frm_mat["u_value"])
+        return float(fallback_u_frame)
+    if frm_mat.get("u_value") is not None:
+        return float(frm_mat["u_value"])
+    return float(fallback_u_frame)
 
 
 def get_all_materials(extra_materials: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:

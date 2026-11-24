@@ -212,19 +212,25 @@ LUXA_SHEET = {"U": "U Utara", "TL": "TL Timur Laut", "T": "T Timur", "TGR": "TG 
 
 
 def test_case1_box_wwr40_jakarta_matches_manual_calculation():
-    """Case 1: 10x10x4m box, WWR 40%, Jakarta (no shading)."""
-    # Manual calculation (SNI 6389:2020 Tabel 7 & Tabel 8):
-    # alpha=0.50, Uw=1.40, TDek=12.0, WWR=0.40, Uf=1.90, deltaT=5.0, SC=0.35*1.0=0.35
-    # Q_wall  = 0.50 * 1.40 * 0.60 * 12.0 = 5.04 W/m2
-    # Q_glass = 1.90 * 0.40 * 5.0         = 3.80 W/m2
+    """Case 1: 10x10x4m box, WWR 40%, Jakarta (no shading), dengan U_f tiga zona (kusen 50 mm, U_frame 8,0)."""
+    # Manual calculation (SNI 6389:2020 Tabel 3, Tabel 7, Tabel 8 & Lampiran C):
+    # Window 8m x 2m (A=16.0 m2), kusen asumsi 50mm, U_cog=1.90, U_frame=8.0, U_edge=4.95:
+    #   Wg=7.90, Hg=1.90 -> Ag=15.01, A_frame=0.99
+    #   Wcog=7.70, Hcog=1.70 -> A_cog=13.09, A_edge=1.92
+    #   U_f = (1.90*13.09 + 8.0*0.99 + 4.95*1.92) / 16.0 = 2.6434375 W/m2K
+    # alpha=0.50, Uw=1.40, TDek=12.0, WWR=0.40, deltaT=5.0, SC=0.35*1.0=0.35
+    # Q_wall  = 0.50 * 1.40 * 0.60 * 12.0       = 5.040000 W/m2
+    # Q_glass = 2.6434375 * 0.40 * 5.0          = 5.286875 W/m2
+    # Q_base  = Q_wall + Q_glass                = 10.326875 W/m2
     # SF Jakarta: U=148, T=171, S=112, B=197
-    # OTTV_U = 5.04 + 3.80 + 148*0.40*0.35 = 29.56
-    # OTTV_T = 5.04 + 3.80 + 171*0.40*0.35 = 32.78
-    # OTTV_S = 5.04 + 3.80 + 112*0.40*0.35 = 24.52
-    # OTTV_B = 5.04 + 3.80 + 197*0.40*0.35 = 36.42
-    # OTTV_total = (29.56 + 32.78 + 24.52 + 36.42) / 4 = 30.82 W/m2
-    expected_by_ori = {"U": 29.56, "T": 32.78, "S": 24.52, "B": 36.42}
-    expected_total = 30.82
+    q_base = 5.04 + 2.6434375 * 0.40 * 5.0  # 10.326875
+    expected_by_ori = {
+        "U": round(q_base + 148.0 * 0.40 * 0.35, 2),  # 31.05
+        "T": round(q_base + 171.0 * 0.40 * 0.35, 2),  # 34.27
+        "S": round(q_base + 112.0 * 0.40 * 0.35, 2),  # 26.01
+        "B": round(q_base + 197.0 * 0.40 * 0.35, 2),  # 37.91
+    }
+    expected_total = round(sum(expected_by_ori.values()) / 4.0, 2)  # 32.31
     expected_rttv = 0.50 * 0.58 * 16.0  # 4.64 W/m2 (opaque roof <= 10 W/m2)
 
     fd, tmp_path = tempfile.mkstemp(suffix=".hbjson")
@@ -268,15 +274,16 @@ def test_case1_box_wwr40_jakarta_matches_manual_calculation():
 
 
 def test_case2_box_wwr40_surabaya_matches_manual_calculation():
-    """Case 2: 10x10x4m box, WWR 40%, Surabaya (no shading)."""
-    # SF Surabaya (Tabel 8, hlm. 11): U=155, T=194, S=110, B=211
-    # OTTV_U = 8.84 + 155*0.14 = 30.54
-    # OTTV_T = 8.84 + 194*0.14 = 36.00
-    # OTTV_S = 8.84 + 110*0.14 = 24.24
-    # OTTV_B = 8.84 + 211*0.14 = 38.38
-    # OTTV_total = (30.54 + 36.00 + 24.24 + 38.38) / 4 = 32.29 W/m2
-    expected_by_ori = {"U": 30.54, "T": 36.00, "S": 24.24, "B": 38.38}
-    expected_total = 32.29
+    """Case 2: 10x10x4m box, WWR 40%, Surabaya (no shading), dengan U_f tiga zona (kusen 50 mm, U_frame 8,0)."""
+    # SF Surabaya (Tabel 8, hlm. 11): U=155, T=194, S=110, B=211; Q_base = 10.326875 W/m2
+    q_base = 5.04 + 2.6434375 * 0.40 * 5.0
+    expected_by_ori = {
+        "U": round(q_base + 155.0 * 0.14, 2),
+        "T": round(q_base + 194.0 * 0.14, 2),
+        "S": round(q_base + 110.0 * 0.14, 2),
+        "B": round(q_base + 211.0 * 0.14, 2),
+    }
+    expected_total = round(sum(expected_by_ori.values()) / 4.0, 2)
 
     fd, tmp_path = tempfile.mkstemp(suffix=".hbjson")
     os.close(fd)
@@ -304,13 +311,14 @@ def test_case3_box_wwr40_jakarta_with_overhang_matches_manual_calculation():
     assert sceff_us == pytest.approx(0.7210, abs=1e-4)
     assert sceff_tb == pytest.approx(0.7248, abs=1e-4)
 
+    q_base = 5.04 + 2.6434375 * 0.40 * 5.0
     expected_by_ori = {
-        "U": 8.84 + 148.0 * 0.40 * (0.35 * sceff_us),
-        "T": 8.84 + 171.0 * 0.40 * (0.35 * sceff_tb),
-        "S": 8.84 + 112.0 * 0.40 * (0.35 * sceff_us),
-        "B": 8.84 + 197.0 * 0.40 * (0.35 * sceff_tb),
+        "U": q_base + 148.0 * 0.40 * (0.35 * sceff_us),
+        "T": q_base + 171.0 * 0.40 * (0.35 * sceff_tb),
+        "S": q_base + 112.0 * 0.40 * (0.35 * sceff_us),
+        "B": q_base + 197.0 * 0.40 * (0.35 * sceff_tb),
     }
-    expected_total = sum(expected_by_ori.values()) / 4.0  # 24.7365 W/m2
+    expected_total = sum(expected_by_ori.values()) / 4.0
 
     fd, tmp_path = tempfile.mkstemp(suffix=".hbjson")
     os.close(fd)
@@ -368,8 +376,8 @@ def test_sf_source_default_sni2020_and_old_table_honest_labeling():
         assert ori_map["T"]["sni_sf_wm2"] == 179.0
         assert ori_map["S"]["sni_sf_wm2"] == 111.0
         assert ori_map["B"]["sni_sf_wm2"] == 219.0
-        # Fase 5c: SC = SHGC / 0.87 in every mode, so SHGC = 0.35 * 0.87 maps back to SC 0.35
-        exp_u = 8.84 + 152.0 * 0.40 * (round(0.35 * 0.87, 4) / 0.87)
+        # Fase 5c + T5: SC = SHGC / 0.87 dan U_f tiga zona (Q_base = 10.326875)
+        exp_u = (5.04 + 2.6434375 * 0.40 * 5.0) + 152.0 * 0.40 * (round(0.35 * 0.87, 4) / 0.87)
         assert abs(ori_map["U"]["ottv_orientation_wm2"] - exp_u) <= 0.01
 
         xlsx_bytes = generate_excel_report(res)

@@ -72,6 +72,8 @@ MASS_WALL = float(DEFAULT_WALL_MAT["massa_kg_m2"])
 TDEK_WALL = float(get_tdek_wall(MASS_WALL))
 
 U_GLZ = float(DEFAULT_GLAZING_MAT["u_value"])
+U_FRAME_SNI_ALU = 8.0  # SNI 6389:2020 Tabel 3 (aluminium/metal)
+FRAME_WIDTH_DEFAULT_M = 0.05  # Bawaan settings.frame_width_mm = 50 mm
 SHGC_GLZ = float(DEFAULT_GLAZING_MAT["shgc"])
 SCK_GLZ = SHGC_GLZ / SC_TO_SHGC_RATIO  # 0.20 / 0.87
 
@@ -149,6 +151,55 @@ def analytical_sni_sceff(orient_code: str, r1: float = 0.0, r2: float = 0.0, til
     return 1.0
 
 
+def analytical_three_zone_uf(
+    w_m: float,
+    h_m: float,
+    *,
+    u_cog: float = U_GLZ,
+    u_frame: float = U_FRAME_SNI_ALU,
+    fw_m: float = FRAME_WIDTH_DEFAULT_M,
+    measured_ov_frame_m2: Optional[float] = None,
+) -> float:
+    """U_f tiga zona analitis SNI 6389:2020 Lampiran C untuk bukaan persegi W x H (tanpa memanggil engine)."""
+    a_tot = w_m * h_m
+    if a_tot <= 1e-12:
+        return u_cog
+    u_edge = 0.5 * (u_cog + u_frame)
+    if measured_ov_frame_m2 is None:
+        w_g = max(0.0, w_m - 2.0 * fw_m)
+        h_g = max(0.0, h_m - 2.0 * fw_m)
+        a_g = min(a_tot, w_g * h_g)
+        a_f = max(0.0, a_tot - a_g)
+        w_c = max(0.0, w_g - 4.0 * fw_m)
+        h_c = max(0.0, h_g - 4.0 * fw_m)
+        a_c = min(a_g, w_c * h_c)
+        a_e = max(0.0, a_g - a_c)
+    else:
+        a_f = min(a_tot, max(0.0, measured_ov_frame_m2))
+        a_g = max(0.0, a_tot - a_f)
+        if a_f <= 1e-12 or a_g <= 1e-12:
+            a_c, a_e = a_g, 0.0
+        else:
+            sc = math.sqrt(a_g / a_tot)
+            w_g, h_g = w_m * sc, h_m * sc
+            w_c = max(0.0, w_g - 4.0 * fw_m)
+            h_c = max(0.0, h_g - 4.0 * fw_m)
+            a_c = min(a_g, w_c * h_c)
+            a_e = max(0.0, a_g - a_c)
+    return (u_cog * a_c + u_frame * a_f + u_edge * a_e) / a_tot
+
+
+def std_box_uf_by_orient(
+    codes_20: Tuple[str, ...] = ("U", "S"),
+    codes_30: Tuple[str, ...] = ("T", "B"),
+) -> Dict[str, float]:
+    uf20 = analytical_three_zone_uf(20.0, 1.6)
+    uf30 = analytical_three_zone_uf(30.0, 1.6)
+    out = {c: uf20 for c in codes_20}
+    out.update({c: uf30 for c in codes_30})
+    return out
+
+
 def compute_analytical_expected(
     area_by_orient: Dict[str, Dict[str, float]],
     r1: float = 0.0,
@@ -160,9 +211,11 @@ def compute_analytical_expected(
     flags_expected: Optional[List[str]] = None,
     error_expected: bool = False,
     extra_notes: str = "",
+    uf_by_orient: Optional[Dict[str, float]] = None,
 ) -> Tuple[Dict[str, Any], str]:
     clean_areas: Dict[str, Dict[str, float]] = {}
     ottv_by_orient: Dict[str, float] = {}
+    eff_uf_map = uf_by_orient if uf_by_orient is not None else std_box_uf_by_orient()
 
     total_area = 0.0
     total_glz = 0.0
@@ -181,8 +234,9 @@ def compute_analytical_expected(
         sf_o = float(SF_JAKARTA[code])
         sceff_o = analytical_sni_sceff(code, r1=r1, r2=r2, tilt_deg=tilt_deg)
         sc_eff_total = SCK_GLZ * sceff_o
+        uf_o = float(eff_uf_map.get(code, U_GLZ))
         q_w = ALPHA_WALL * U_WALL * (1.0 - wwr_o) * TDEK_WALL
-        q_g = U_GLZ * wwr_o * DELTA_T
+        q_g = uf_o * wwr_o * DELTA_T
         q_s = sf_o * wwr_o * sc_eff_total
         ottv_o = q_w + q_g + q_s
         clean_areas[code] = {"glazing": round(a_g, 4), "wall": round(a_w, 4)}
@@ -228,12 +282,12 @@ def compute_analytical_expected(
 
     sh_desc = f"R1={r1:.4g}, R2={r2:.4g} (SCeff interpolasi Tabel A.5-A.12)"
     derivation = (
-        f"SNI 6389:2020 (sf_source=sni2020 Tabel 8, Jakarta): "
+        f"SNI 6389:2020 (sf_source=sni2020 Tabel 8, Jakarta; U_f 3-zona Tabel 3 & Lampiran C): "
         f"Uw={U_WALL}, alpha={ALPHA_WALL}, massa_w={MASS_WALL} kg/m2 -> TDek={TDEK_WALL} K; "
-        f"Uf={U_GLZ}, SHGC={SHGC_GLZ} -> SCk=SHGC/0.87={SCK_GLZ:.6f}, dT={DELTA_T} K; "
+        f"U_cog={U_GLZ}, U_frame={U_FRAME_SNI_ALU}, kusen 50 mm, SHGC={SHGC_GLZ} -> SCk=SHGC/0.87={SCK_GLZ:.6f}, dT={DELTA_T} K; "
         f"Peneduh: {sh_desc}; "
         f"Atap: Ur={U_ROOF}, alpha_r={ALPHA_ROOF}, TDeq={TDEQ_ROOF} K, SF_roof={SF_JAKARTA['ROOF']}. "
-        f"OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf*WWR*dT + SF_i*WWR*(SCk*SCeff_i)."
+        f"OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf_3zona*WWR*dT + SF_i*WWR*(SCk*SCeff_i)."
     )
     if extra_notes:
         derivation += " " + extra_notes
@@ -1688,6 +1742,7 @@ def generate_all() -> None:
     }
     exp, drv = compute_analytical_expected(
         areas_rot30,
+        uf_by_orient=std_box_uf_by_orient(codes_20=("TL", "BD"), codes_30=("TGR", "BL")),
         extra_notes="Bangunan diputar 30 deg CW: U->TL(30), T->TGR(120), S->BD(210), B->BL(300). "
         "Ekuivalen dengan Kasus 1 + north_angle_deg=330 (Utara sejati diputar 30 deg CCW).",
     )
@@ -1717,7 +1772,14 @@ def generate_all() -> None:
         "S": {"glazing": 192.0, "wall": 288.0},
         "B": {"glazing": 192.0, "wall": 288.0},
     }
-    exp, drv = compute_analytical_expected(areas_L, opaque_roof_area=675.0, extra_notes="Denah L 6 sisi, total selubung 1920 m2, atap 675 m2.")
+    uf_15 = analytical_three_zone_uf(15.0, 1.6)
+    uf_30 = analytical_three_zone_uf(30.0, 1.6)
+    exp, drv = compute_analytical_expected(
+        areas_L,
+        opaque_roof_area=675.0,
+        uf_by_orient={"U": uf_15, "T": uf_15, "S": uf_30, "B": uf_30},
+        extra_notes="Denah L 6 sisi, total selubung 1920 m2, atap 675 m2.",
+    )
     save_expected(cdir, "05_denah_L", ["3dm", "obj", "glb", "ifc"], exp, drv, per_format_overrides={"obj": obj_unit_warn})
 
     # ------------------------------------------------------------------
@@ -1748,9 +1810,11 @@ def generate_all() -> None:
         "S": {"glazing": 256.0, "wall": 384.0},
         "B": {"glazing": 256.0, "wall": 384.0},
     }
+    uf_cy = 0.75 * analytical_three_zone_uf(30.0, 1.6) + 0.25 * analytical_three_zone_uf(10.0, 1.6)
     exp, drv = compute_analytical_expected(
         areas_cy,
         opaque_roof_area=800.0,
+        uf_by_orient={c: uf_cy for c in ("U", "T", "S", "B")},
         extra_notes="Luar 30x30 (480 m2/sisi) + courtyard 10x10 (160 m2/sisi) = 640 m2/arah, total 2560 m2.",
     )
     save_expected(cdir, "06_courtyard", ["3dm", "obj", "glb", "ifc"], exp, drv, per_format_overrides={"obj": obj_unit_warn})
@@ -1791,9 +1855,12 @@ def generate_all() -> None:
         areas_cyl[oc]["glazing"] += w_seg * (4 * 1.6)
         areas_cyl[oc]["wall"] += w_seg * (4 * 2.4)
     roof_cyl_area = 0.5 * N_seg * (R_cyl ** 2) * math.sin(math.radians(10.0))
+    # Silinder menerus 36 segmen = 1 pita kaca melingkar keliling 36*w_seg tanpa kusen vertikal di antaranya
+    uf_cyl = analytical_three_zone_uf(N_seg * w_seg, 1.6)
     exp, drv = compute_analytical_expected(
         areas_cyl,
         opaque_roof_area=roof_cyl_area,
+        uf_by_orient={c: uf_cyl for c in ORIENTATION_ORDER},
         extra_notes=f"Silinder r=10m, 36 segmen (lebar chord={w_seg:.6f}m); 4 segmen untuk U/T/S/B, 5 segmen untuk TL/TGR/BD/BL.",
     )
     save_expected(cdir, "07_silinder", ["3dm", "obj", "glb"], exp, drv, per_format_overrides={"obj": obj_unit_warn})
@@ -1863,9 +1930,12 @@ def generate_all() -> None:
         "S": {"glazing": 21.6 * 16.0, "wall": 0.0},
         "B": {"glazing": 31.6 * 16.0, "wall": 0.0},
     }
+    uf_ds_us = analytical_three_zone_uf(21.6, 16.0)
+    uf_ds_tb = analytical_three_zone_uf(31.6, 16.0)
     exp, drv = compute_analytical_expected(
         areas_ds,
         opaque_roof_area=600.0,
+        uf_by_orient={"U": uf_ds_us, "S": uf_ds_us, "T": uf_ds_tb, "B": uf_ds_tb},
         extra_notes="Double-skin: kulit kaca luar 21.6x31.6x16 m (1702.4 m2, WWR=100%); dinding dalam 20x30x16 tertutup sehingga tidak dihitung.",
     )
     save_expected(cdir, "10_double_skin", ["3dm", "obj", "glb"], exp, drv, per_format_overrides={"obj": obj_unit_warn})
@@ -1929,9 +1999,9 @@ def generate_all() -> None:
     export_standard_formats(cdir, ["3dm", "obj", "glb"], std_box_parts() + [pohon_part, tanah_part, tetangga_part])
     exp, drv = compute_analytical_expected(
         std_box_areas(),
-        is_provisional=True,
-        flags_expected=["UNKNOWN_GROUPS"],
-        extra_notes="Z0=0 (dari alas bangunan, bukan Tanah z=-0.5); Pohon & Bangunan Tetangga -> unknown, Tanah -> ignore; OTTV = Kasus 1.",
+        is_provisional=False,
+        flags_expected=[],
+        extra_notes="Z0=0 (dari alas bangunan, bukan Tanah z=-0.5); Pohon & Bangunan Tetangga -> context, Tanah -> ignore; OTTV = Kasus 1.",
     )
     save_expected(
         cdir,
@@ -1940,7 +2010,7 @@ def generate_all() -> None:
         exp,
         drv,
         per_format_overrides={
-            "obj": {"is_provisional": True, "flags_expected": ["UNKNOWN_GROUPS", "UNIT_NEEDS_CONFIRMATION"]},
+            "obj": {"is_provisional": True, "flags_expected": ["UNIT_NEEDS_CONFIRMATION"]},
         },
     )
 
@@ -2105,9 +2175,11 @@ def generate_all() -> None:
         merged_single_node_parts=[glz_p, frame_p],
         merged_node_name="Fasad_CurtainWall",
     )
+    uf_20_us = analytical_three_zone_uf(20.0, 1.6, fw_m=0.08, measured_ov_frame_m2=5.0 * 0.08 * 1.6)
     exp, drv = compute_analytical_expected(
         std_box_areas(),
-        extra_notes="Satu node GLB berisi primitif kaca (BLEND) + primitif rangka opak -> dipecah per material, luas kaca = Kasus 1.",
+        uf_by_orient={"U": uf_20_us, "S": uf_20_us, "T": U_GLZ, "B": U_GLZ},
+        extra_notes="Satu node GLB berisi primitif kaca (BLEND) + primitif rangka opak -> dipecah per material, luas kaca = Kasus 1; mullion 80 mm terukur pada U/S.",
     )
     save_expected(cdir, "20_mesh_multimaterial", ["glb"], exp, drv)
 

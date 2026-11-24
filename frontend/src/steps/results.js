@@ -780,7 +780,19 @@ export function renderResultsScreen(state, handlers) {
     noteP.style.fontWeight = '500';
     noteP.textContent = 'Status memenuhi atau tidak hanya dinilai dari OTTV total.';
 
-    selCard.append(subP, metricsGrid, contribP, noteP);
+    selCard.append(subP, metricsGrid);
+    if (selSummary.primaryIsGlz && (p.a_frame_m2 != null || p.a_edge_m2 != null || p.frame_width_mm != null)) {
+      const fenP = document.createElement('p');
+      fenP.className = 'muted num';
+      fenP.style.margin = '7px 0 0';
+      fenP.style.fontSize = '11.5px';
+      fenP.style.lineHeight = '16px';
+      const srcLbl = p.frame_source || summary.frame_source || 'asumsi pengguna';
+      const fwVal = p.frame_width_mm ?? summary.frame_width_mm ?? 50;
+      fenP.textContent = `3-zona: A_frame ${fmtId(p.a_frame_m2 ?? 0, 2)} m² · A_edge ${fmtId(p.a_edge_m2 ?? 0, 2)} m² · kusen ${fmtId(fwVal, 1)} mm (${srcLbl})`;
+      selCard.appendChild(fenP);
+    }
+    selCard.append(contribP, noteP);
   }
 
   // 2. Per arah (8 horizontal bars + 35 limit dashed line)
@@ -992,6 +1004,71 @@ export function renderResultsScreen(state, handlers) {
   }
 
   rttvCard.append(rtTitle, compGrid);
+
+  // Ringkasan Fenestrasi 3-Zona (SNI 6389:2020 Tabel 3 & Lampiran C)
+  if (Number(summary.total_glazing_area_m2 ?? 0) > 0.01) {
+    const fenWrap = document.createElement('div');
+    fenWrap.style.marginTop = '10px';
+    fenWrap.style.paddingTop = '10px';
+    fenWrap.style.borderTop = '1px solid var(--line)';
+
+    const fenHead = document.createElement('div');
+    fenHead.style.display = 'flex';
+    fenHead.style.justifyContent = 'space-between';
+    fenHead.style.alignItems = 'baseline';
+    fenHead.style.gap = '6px';
+
+    const fenTitle = document.createElement('span');
+    fenTitle.className = 'lbl';
+    fenTitle.style.color = 'var(--ink)';
+    fenTitle.textContent = 'Fenestrasi 3-zona (SNI)';
+
+    const fSrc = summary.frame_source || 'asumsi pengguna';
+    const srcTag = document.createElement('span');
+    srcTag.className = `chip chip-xs ${fSrc === 'terukur' ? 'st-ok' : 'st-warn'}`;
+    srcTag.textContent = fSrc === 'terukur' ? 'kusen terukur' : 'Lebar kusen asumsi';
+    fenHead.append(fenTitle, srcTag);
+
+    const fenGrid = document.createElement('div');
+    fenGrid.className = 'num';
+    fenGrid.style.display = 'grid';
+    fenGrid.style.gridTemplateColumns = '1fr 1fr';
+    fenGrid.style.gap = '6px';
+    fenGrid.style.marginTop = '6px';
+    fenGrid.style.fontSize = '12px';
+
+    for (const [lbl, val] of [
+      ['U_f rata-rata', `${fmtId(summary.avg_u_fen_wm2k ?? summary.active_materials?.u_fenestration ?? 0, 2)} W/m²K`],
+      ['Lebar kusen', `${fmtId(summary.frame_width_mm ?? 50, 1)} mm`],
+      ['A_frame', `${fmtId(summary.total_a_frame_m2 ?? 0, 2)} m²`],
+      ['A_edge', `${fmtId(summary.total_a_edge_m2 ?? 0, 2)} m²`],
+    ]) {
+      const cell = document.createElement('div');
+      cell.className = 'glass-thin';
+      cell.style.borderRadius = '10px';
+      cell.style.padding = '5px 8px';
+      const l = document.createElement('div');
+      l.className = 'lbl';
+      l.textContent = lbl;
+      const v = document.createElement('b');
+      v.textContent = val;
+      cell.append(l, v);
+      fenGrid.appendChild(cell);
+    }
+
+    const fenNote = document.createElement('p');
+    fenNote.className = 'muted';
+    fenNote.style.margin = '6px 0 0';
+    fenNote.style.fontSize = '11.5px';
+    fenNote.style.lineHeight = '16px';
+    fenNote.textContent =
+      fSrc === 'terukur'
+        ? `Sumber: terukur dari grup rangka model (U_frame ${fmtId(summary.u_frame_eff_wm2k ?? 8, 1)} W/m²K).`
+        : `Sumber: asumsi pengguna — Lebar kusen asumsi ${fmtId(summary.frame_width_mm ?? 50, 1)} mm (U_frame ${fmtId(summary.u_frame_eff_wm2k ?? 8, 1)} W/m²K).`;
+
+    fenWrap.append(fenHead, fenGrid, fenNote);
+    rttvCard.appendChild(fenWrap);
+  }
 
   // RTTV (Pasal 4.4) opsional: tampil bila dinyalakan, atau di Mode lanjut sebagai sakelar.
   const rttvOn = state.config?.settings?.compute_rttv === true;

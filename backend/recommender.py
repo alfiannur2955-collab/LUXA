@@ -23,6 +23,7 @@ from materials_and_epw import (
     get_all_materials,
     get_material_by_id,
     get_material_shgc,
+    resolve_u_frame,
 )
 from sni_tables import (
     SNI_DELTA_T_K,
@@ -125,6 +126,7 @@ def rematerial_analysis(
     wall_material_id: Optional[str] = None,
     frame_material_id: Optional[str] = None,
     roof_material_id: Optional[str] = None,
+    frame_width_mm: Optional[float] = None,
     orientation_material_overrides: Optional[Dict[str, str]] = None,
     group_material_map: Optional[Dict[str, str]] = None,
     custom_materials: Optional[List[Dict[str, Any]]] = None,
@@ -181,15 +183,32 @@ def rematerial_analysis(
     fallback_alpha = float(prev_params.get("alpha_wall", 0.40))
     fallback_tdek = float(prev_params.get("td_ek", 15.0))
 
-    has_frame_elements = bool(out.get("frame_elements"))
-    include_frame = bool(prev_params.get("include_frame_conduction", True))
-    frame_ratio = float(prev_params.get("frame_area_ratio", 0.08))
-    u_frame_eff = float(frm_mat["u_value"]) if frm_mat else float(prev_params.get("u_frame", 2.10))
-    frame_cond_adder = (
-        0.0
-        if is_sni_mode
-        else (u_frame_eff * frame_ratio * delta_t if (include_frame and has_frame_elements) else 0.0)
+    from ottv_engine import compute_panel_perimeter, compute_three_zone_uf
+
+    prev_summary = out.get("summary") or {}
+    u_frame_eff = resolve_u_frame(
+        frm_mat,
+        is_sni_mode=is_sni_mode,
+        fallback_u_frame=float(prev_params.get("u_frame", prev_summary.get("u_frame_eff_wm2k", 8.0))),
     )
+    frame_source = str(prev_params.get("frame_source") or prev_summary.get("frame_source") or "asumsi pengguna")
+    if frame_source == "terukur":
+        eff_frame_width_mm = round(
+            max(0.0, float(prev_params.get("frame_width_mm") or prev_summary.get("frame_width_mm") or 50.0)), 1
+        )
+    else:
+        raw_fw = (
+            frame_width_mm
+            if frame_width_mm is not None
+            else (
+                prev_params.get("frame_width_mm")
+                if prev_params.get("frame_width_mm") is not None
+                else prev_summary.get("frame_width_mm", 50.0)
+            )
+        )
+        eff_frame_width_mm = round(max(0.0, float(raw_fw)), 1)
+    eff_frame_width_m = eff_frame_width_mm / 1000.0
+    frame_measured = frame_source == "terukur"
 
     # Prepare orientation & floor accumulators
     prev_orient_meta = {r["code"]: r for r in (out.get("orientation_breakdown") or [])}
@@ -235,6 +254,10 @@ def rematerial_analysis(
 
     total_envelope_area = 0.0
     total_glazing_area = 0.0
+    total_a_frame_m2 = 0.0
+    total_a_edge_m2 = 0.0
+    total_a_cog_m2 = 0.0
+    sum_uf_fen_area = 0.0
     total_wall_cond_w = 0.0
     total_glass_cond_w = 0.0
     total_solar_rad_w = 0.0
@@ -248,7 +271,7 @@ def rematerial_analysis(
 
         if cat in ("glazing", "composite_cw"):
             eff_g = resolved if (resolved and resolved.get("category") == "glazing") else glz_mat
-            u_f_k = float(eff_g["u_value"]) if eff_g else fallback_u_f
+            u_cog_k = float(eff_g["u_value"]) if eff_g else fallback_u_f
             shgc_k, sc_1_k = _glazing_sc_and_shgc(eff_g, fallback_sc, is_template_method)
             u_w_k = float(wal_mat["u_value"]) if wal_mat else fallback_u_w
             alpha_k = float(wal_mat["alpha"]) if (wal_mat and wal_mat.get("alpha") is not None) else fallback_alpha
@@ -258,7 +281,7 @@ def rematerial_analysis(
             u_w_k = float(eff_w["u_value"]) if eff_w else fallback_u_w
             alpha_k = float(eff_w["alpha"]) if (eff_w and eff_w.get("alpha") is not None) else fallback_alpha
             tdek_k = _wall_tdek_from_mat(eff_w, fallback_tdek, is_sni_mode)
-            u_f_k = float(glz_mat["u_value"]) if glz_mat else fallback_u_f
+            u_cog_k = float(glz_mat["u_value"]) if glz_mat else fallback_u_f
             shgc_k, sc_1_k = _glazing_sc_and_shgc(glz_mat, fallback_sc, is_template_method)
 
         wwr_k = float(p.get("wwr_panel", 1.0 if cat == "glazing" else 0.0))
@@ -266,12 +289,66 @@ def rematerial_analysis(
         sc_mult = float(p.get("sc_shading_multiplier", 1.0))
         sc_eff = sc_1_k * sc_mult
 
+        area = float(p.get("area_m2", 0.0))
+        gap_a = float(p.get("added_frame_area_m2") or 0.0)
+        ov_a = float(p.get("overlap_frame_area_m2") or 0.0)
+        if wwr_k > 1e-6:
+            if p.get("opening_area_m2") and p.get("opening_perimeter_m"):
+                op_area = float(p["opening_area_m2"])
+                op_perim = float(p["opening_perimeter_m"])
+                op_gap = float(p.get("opening_gap_frame_m2") or 0.0)
+                op_ov = float(p.get("opening_ov_frame_m2") or 0.0)
+                share = float(p.get("opening_share") if p.get("opening_share") is not None else 1.0)
+                tz = compute_three_zone_uf(
+                    area_m2=op_area,
+                    perimeter_m=op_perim,
+                    u_cog=u_cog_k,
+                    u_frame=u_frame_eff,
+                    frame_width_m=eff_frame_width_m,
+                    measured_a_frame_m2=op_gap if frame_measured else None,
+                    overlap_a_frame_m2=op_ov if frame_measured else 0.0,
+                )
+                u_f_k = tz["u_f"]
+                u_edge_k = tz["u_edge"]
+                a_cog_k = tz["a_cog"] * share
+                a_edge_k = tz["a_edge"] * share
+                a_frame_k = tz["a_frame"] * share
+            else:
+                base_glz = (
+                    float(p["glass_area_m2"])
+                    if p.get("glass_area_m2") is not None
+                    else max(0.0, area * wwr_k - gap_a)
+                )
+                base_area = max(1e-9, area - gap_a)
+                wwr_base = min(1.0, max(0.0, base_glz / base_area))
+                perim_p = float(p.get("perimeter_m") or compute_panel_perimeter(p.get("vertices") or []))
+                perim_fen = perim_p if wwr_base >= 1.0 - 1e-6 else perim_p * math.sqrt(max(0.0, wwr_base))
+                tz = compute_three_zone_uf(
+                    area_m2=base_glz,
+                    perimeter_m=perim_fen,
+                    u_cog=u_cog_k,
+                    u_frame=u_frame_eff,
+                    frame_width_m=eff_frame_width_m,
+                    measured_a_frame_m2=gap_a if frame_measured else None,
+                    overlap_a_frame_m2=ov_a if frame_measured else 0.0,
+                )
+                u_f_k = tz["u_f"]
+                u_edge_k = tz["u_edge"]
+                a_cog_k = tz["a_cog"]
+                a_edge_k = tz["a_edge"]
+                a_frame_k = tz["a_frame"]
+        else:
+            u_f_k = u_cog_k
+            u_edge_k = 0.5 * (u_cog_k + u_frame_eff)
+            a_cog_k = 0.0
+            a_edge_k = 0.0
+            a_frame_k = 0.0
+
         q_wall_wm2 = alpha_k * u_w_k * (1.0 - wwr_k) * tdek_k
-        q_glass_cond_wm2 = (u_f_k * wwr_k * delta_t) + (frame_cond_adder * wwr_k)
+        q_glass_cond_wm2 = u_f_k * wwr_k * delta_t
         q_solar_wm2 = sf_k * wwr_k * sc_eff
         ottv_panel_wm2 = q_wall_wm2 + q_glass_cond_wm2 + q_solar_wm2
 
-        area = float(p.get("area_m2", 0.0))
         heat_w = ottv_panel_wm2 * area
 
         p["shgc_glass"] = round(shgc_k, 4)
@@ -280,7 +357,15 @@ def rematerial_analysis(
         p["u_wall_eff"] = round(u_w_k, 4)
         p["alpha_wall_eff"] = round(alpha_k, 4)
         p["td_ek_eff"] = round(tdek_k, 2)
+        p["u_cog"] = round(u_cog_k, 4)
+        p["u_frame_eff"] = round(u_frame_eff, 4)
+        p["u_edge_eff"] = round(u_edge_k, 4)
         p["u_fen_eff"] = round(u_f_k, 4)
+        p["a_cog_m2"] = round(a_cog_k, 4)
+        p["a_edge_m2"] = round(a_edge_k, 4)
+        p["a_frame_m2"] = round(a_frame_k, 4)
+        p["frame_width_mm"] = eff_frame_width_mm
+        p["frame_source"] = frame_source
         p["solar_exposure_wm2"] = round(sf_k * sc_eff, 2)
         p["q_wall_wm2"] = round(q_wall_wm2, 2)
         p["q_glass_cond_wm2"] = round(q_glass_cond_wm2, 2)
@@ -311,6 +396,10 @@ def rematerial_analysis(
 
             total_envelope_area += area
             total_glazing_area += glz_a
+            total_a_frame_m2 += a_frame_k
+            total_a_edge_m2 += a_edge_k
+            total_a_cog_m2 += a_cog_k
+            sum_uf_fen_area += u_f_k * glz_a
             total_wall_cond_w += qw_w
             total_glass_cond_w += qgc_w
             total_solar_rad_w += qsol_w
@@ -352,9 +441,7 @@ def rematerial_analysis(
             avg_alpha = (b["_sum_alpha_wall"] / a_wal) if a_wal > 1e-4 else 0.0
             avg_uw = (b["_sum_uw_wall"] / a_wal) if a_wal > 1e-4 else 0.0
             avg_tdek = (b["_sum_tdek_wall"] / a_wal) if a_wal > 1e-4 else 0.0
-            avg_uf = (b["_sum_uf_glz"] / a_glz if a_glz > 1e-4 else 0.0) + (
-                frame_cond_adder / delta_t if (a_glz > 1e-4 and delta_t > 1e-6) else 0.0
-            )
+            avg_uf = b["_sum_uf_glz"] / a_glz if a_glz > 1e-4 else 0.0
             qw = b["_sum_q_wall_w"] / a_tot
             qgc = b["_sum_q_glass_w"] / a_tot
             qsol = b["_sum_q_solar_w"] / a_tot
@@ -471,26 +558,85 @@ def rematerial_analysis(
     out["q_solar_radiation_wm2"] = q_solar_tot
     out["total_heat_gain_kw"] = round(total_heat_w / 1000.0, 2)
 
+    avg_u_fen_bldg = round(sum_uf_fen_area / total_glazing_area, 3) if total_glazing_area > 1e-4 else round(fallback_u_f, 3)
+
     if isinstance(out.get("summary"), dict):
         out["summary"]["ottv_total_wm2"] = ottv_total_wm2
         out["summary"]["avg_sc_effective"] = avg_sc_eff
+        out["summary"]["avg_u_fen_wm2k"] = avg_u_fen_bldg
+        out["summary"]["u_frame_eff_wm2k"] = round(u_frame_eff, 3)
+        out["summary"]["total_a_frame_m2"] = round(total_a_frame_m2, 2)
+        out["summary"]["total_a_edge_m2"] = round(total_a_edge_m2, 2)
+        out["summary"]["total_a_cog_m2"] = round(total_a_cog_m2, 2)
+        out["summary"]["frame_width_mm"] = eff_frame_width_mm
+        out["summary"]["frame_source"] = frame_source
         out["summary"]["q_wall_conduction_wm2"] = q_wall_tot
         out["summary"]["q_glass_conduction_wm2"] = q_glass_tot
         out["summary"]["q_solar_radiation_wm2"] = q_solar_tot
         out["summary"]["total_heat_gain_kw"] = round(total_heat_w / 1000.0, 2)
         out["summary"]["compliant_sni"] = ottv_total_wm2 <= SNI_OTTV_LIMIT_WM2
+        if isinstance(out["summary"].get("active_materials"), dict):
+            am = out["summary"]["active_materials"]
+            if glz_mat:
+                am["glazing_id"] = glz_mat["id"]
+                am["glazing_name"] = glz_mat["name"]
+                am["glazing_brand"] = glz_mat.get("brand") or ""
+                am["u_cog"] = round(float(glz_mat["u_value"]), 3)
+                shgc_g, sc_g = _glazing_sc_and_shgc(glz_mat, fallback_sc, is_template_method)
+                am["sc_glass"] = round(sc_g, 3)
+                am["shgc_glass"] = round(shgc_g, 4)
+            if wal_mat:
+                am["wall_id"] = wal_mat["id"]
+                am["wall_name"] = wal_mat["name"]
+                am["wall_brand"] = wal_mat.get("brand") or ""
+                am["u_wall"] = round(float(wal_mat["u_value"]), 3)
+                am["alpha_wall"] = round(float(wal_mat.get("alpha") or fallback_alpha), 3)
+                am["td_ek"] = round(_wall_tdek_from_mat(wal_mat, fallback_tdek, is_sni_mode), 2)
+            if frm_mat:
+                am["frame_id"] = frm_mat["id"]
+                am["frame_name"] = frm_mat["name"]
+            am["u_fenestration"] = avg_u_fen_bldg
+            am["u_frame"] = round(u_frame_eff, 3)
+            am["frame_width_mm"] = eff_frame_width_mm
+            am["frame_source"] = frame_source
+            am["a_frame_m2"] = round(total_a_frame_m2, 2)
+            am["a_edge_m2"] = round(total_a_edge_m2, 2)
+            am["a_cog_m2"] = round(total_a_cog_m2, 2)
         # A3-01: status & peringatan ikut diperbarui (dulu tertinggal dari hasil hitung penuh)
         from ottv_engine import build_material_warning, resolve_result_status
         summ = out["summary"]
         confirmed = bool(summ.get("materials_confirmed", False)) if materials_confirmed is None else bool(materials_confirmed)
-        warns = [w for w in (summ.get("warnings") or []) if (w or {}).get("code") != "MATERIAL_NOT_CONFIRMED"]
+        warns = [
+            w for w in (summ.get("warnings") or [])
+            if (w or {}).get("code") not in ("MATERIAL_NOT_CONFIRMED", "ASSUMED_FRAME_WIDTH")
+        ]
         if not confirmed:
             grp_info = [
                 (g.get("group_name"), g.get("category"), g.get("source_layer") or "", g.get("source_material") or "")
                 for g in (out.get("groups") or [])
                 if g.get("category") in ("glazing", "wall", "spandrel", "composite_cw")
             ]
-            warns.insert(0, build_material_warning(eff_glz_id, eff_wal_id, grp_map, grp_info, extra_materials=extra_mats))
+            warns.insert(0, build_material_warning(
+                eff_glz_id, eff_wal_id, grp_map, grp_info,
+                extra_materials=extra_mats,
+                frame_material_id=eff_frm_id,
+                frame_width_mm=eff_frame_width_mm,
+                frame_source=frame_source,
+            ))
+        if total_glazing_area > 1e-4 and frame_source == "asumsi pengguna":
+            fw_txt = f"{eff_frame_width_mm:.0f}" if float(eff_frame_width_mm).is_integer() else f"{eff_frame_width_mm:.1f}".replace(".", ",")
+            warns.append({
+                "code": "ASSUMED_FRAME_WIDTH",
+                "message": (
+                    f"Lebar kusen asumsi ({fw_txt} mm) dipakai untuk menghitung U_f tiga zona karena model tidak "
+                    "memiliki grup rangka terukur. Ubah isian Lebar kusen di panel Material bila berbeda."
+                ),
+                "detail": {
+                    "frame_width_mm": eff_frame_width_mm,
+                    "frame_source": frame_source,
+                    "u_frame_eff": round(u_frame_eff, 3),
+                },
+            })
         is_prov, label, comp = resolve_result_status(ottv_total_wm2, warns, is_sni_mode)
         summ["warnings"] = warns
         summ["is_provisional"] = is_prov
@@ -504,6 +650,9 @@ def rematerial_analysis(
         out["parameters_used"]["wall_material_id"] = eff_wal_id
         out["parameters_used"]["frame_material_id"] = eff_frm_id
         out["parameters_used"]["roof_material_id"] = eff_rf_id
+        out["parameters_used"]["u_frame"] = round(u_frame_eff, 3)
+        out["parameters_used"]["frame_width_mm"] = eff_frame_width_mm
+        out["parameters_used"]["frame_source"] = frame_source
         out["parameters_used"]["orientation_material_overrides"] = ori_overrides
         out["parameters_used"]["group_material_map"] = grp_map
 
@@ -524,17 +673,9 @@ def _extract_orientation_terms(analysis: Dict[str, Any]) -> Dict[str, Any]:
     sf_source = str(analysis.get("sf_source") or "sni2020").lower()
     is_template_method = is_sni_mode and (sf_source == "template_prodi")
     prev_params = analysis.get("parameters_used") or {}
+    prev_summary = analysis.get("summary") or {}
     delta_t = float(SNI_DELTA_T_K if is_sni_mode else prev_params.get("delta_t", 5.0))
-
-    has_frame_elements = bool(analysis.get("frame_elements"))
-    include_frame = bool(prev_params.get("include_frame_conduction", True))
-    frame_ratio = float(prev_params.get("frame_area_ratio", 0.08))
-    u_frame_eff = float(prev_params.get("u_frame", 2.10))
-    frame_cond_adder = (
-        0.0
-        if is_sni_mode
-        else (u_frame_eff * frame_ratio * delta_t if (include_frame and has_frame_elements) else 0.0)
-    )
+    u_frame_eff = float(prev_params.get("u_frame", prev_summary.get("u_frame_eff_wm2k", 8.0)))
 
     orient_stats: Dict[str, Dict[str, float]] = {}
     total_area = 0.0
@@ -552,14 +693,27 @@ def _extract_orientation_terms(analysis: Dict[str, Any]) -> Dict[str, Any]:
 
         glz_a = area * wwr
         wal_a = area * (1.0 - wwr)
-        # Current heat contributions in Watts
+        # Current heat contributions in Watts (exact 3-zone linear decomposition in U_cog)
         cur_wall_w = float(p.get("alpha_wall_eff", 0.4)) * float(p.get("u_wall_eff", 0.62)) * float(p.get("td_ek_eff", 15.0)) * wal_a
-        cur_glz_cond_w = (float(p.get("u_fen_eff", 1.1)) * delta_t + frame_cond_adder) * glz_a
+        cur_glz_cond_w = float(p.get("u_fen_eff", 1.1)) * delta_t * glz_a
         cur_glz_sol_w = sf * float(p.get("sc_glass", 0.23)) * sc_mult * glz_a
+
+        if p.get("a_cog_m2") is not None and p.get("a_edge_m2") is not None and p.get("a_frame_m2") is not None and glz_a > 1e-9:
+            a_cog_p = float(p["a_cog_m2"])
+            a_edge_p = float(p["a_edge_m2"])
+            a_frame_p = float(p["a_frame_m2"])
+            u_fr_p = float(p.get("u_frame_eff", u_frame_eff))
+            eff_cog_a = a_cog_p + 0.5 * a_edge_p
+            frame_const_w = u_fr_p * (a_frame_p + 0.5 * a_edge_p) * delta_t
+        else:
+            eff_cog_a = glz_a
+            frame_const_w = 0.0
 
         st = orient_stats.setdefault(code, {
             "total_area": 0.0,
             "glz_area": 0.0,
+            "eff_cog_area": 0.0,
+            "frame_const_w": 0.0,
             "wal_area": 0.0,
             "sf_scmult_glz_area": 0.0,  # sum(sf * sc_mult * glz_area)
             "cur_wall_w": 0.0,
@@ -567,6 +721,8 @@ def _extract_orientation_terms(analysis: Dict[str, Any]) -> Dict[str, Any]:
         })
         st["total_area"] += area
         st["glz_area"] += glz_a
+        st["eff_cog_area"] += eff_cog_a
+        st["frame_const_w"] += frame_const_w
         st["wal_area"] += wal_a
         st["sf_scmult_glz_area"] += sf * sc_mult * glz_a
         st["cur_wall_w"] += cur_wall_w
@@ -577,7 +733,6 @@ def _extract_orientation_terms(analysis: Dict[str, Any]) -> Dict[str, Any]:
         "is_sni_mode": is_sni_mode,
         "is_template_method": is_template_method,
         "delta_t": delta_t,
-        "frame_cond_adder": frame_cond_adder,
         "total_area": total_area,
         "orient_stats": orient_stats,
     }
@@ -588,9 +743,9 @@ def _glazing_watts_for_orientation(
     mat: Dict[str, Any],
     meta: Dict[str, Any],
 ) -> float:
-    u_f = float(mat.get("u_value", 1.1))
+    u_cog = float(mat.get("u_value", 1.1))
     _, sc_k = _glazing_sc_and_shgc(mat, float(mat.get("sc") or 0.35), meta["is_template_method"])
-    cond_w = (u_f * meta["delta_t"] + meta["frame_cond_adder"]) * st["glz_area"]
+    cond_w = (u_cog * st["eff_cog_area"] * meta["delta_t"]) + st["frame_const_w"]
     sol_w = sc_k * st["sf_scmult_glz_area"]
     return cond_w + sol_w
 

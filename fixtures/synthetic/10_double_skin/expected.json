@@ -27,12 +27,12 @@
     },
     "total_envelope_area_m2": 1702.4,
     "wwr_total": 1.0,
-    "ottv_total_wm2": 42.7587,
+    "ottv_total_wm2": 43.4453,
     "ottv_by_orientation": {
-      "U": 39.523,
-      "T": 44.8103,
-      "S": 31.2471,
-      "B": 50.7874
+      "U": 40.2687,
+      "T": 45.4565,
+      "S": 31.9928,
+      "B": 51.4335
     },
     "rttv": {
       "applicable": true,
@@ -48,7 +48,7 @@
     "area_rel": 0.005,
     "ottv_abs": 0.1
   },
-  "derivation": "SNI 6389:2020 (sf_source=sni2020 Tabel 8, Jakarta): Uw=0.62, alpha=0.4, massa_w=46.0 kg/m2 -> TDek=15.0 K; Uf=1.1, SHGC=0.2 -> SCk=SHGC/0.87=0.229885, dT=5.0 K; Peneduh: R1=0, R2=0 (SCeff interpolasi Tabel A.5-A.12); Atap: Ur=0.58, alpha_r=0.5, TDeq=16.0 K, SF_roof=427.0. OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf*WWR*dT + SF_i*WWR*(SCk*SCeff_i). Double-skin: kulit kaca luar 21.6x31.6x16 m (1702.4 m2, WWR=100%); dinding dalam 20x30x16 tertutup sehingga tidak dihitung.",
+  "derivation": "SNI 6389:2020 (sf_source=sni2020 Tabel 8, Jakarta; U_f 3-zona Tabel 3 & Lampiran C): Uw=0.62, alpha=0.4, massa_w=46.0 kg/m2 -> TDek=15.0 K; U_cog=1.1, U_frame=8.0, kusen 50 mm, SHGC=0.2 -> SCk=SHGC/0.87=0.229885, dT=5.0 K; Peneduh: R1=0, R2=0 (SCeff interpolasi Tabel A.5-A.12); Atap: Ur=0.58, alpha_r=0.5, TDeq=16.0 K, SF_roof=427.0. OTTV_i = alpha*Uw*(1-WWR)*TDek + Uf_3zona*WWR*dT + SF_i*WWR*(SCk*SCeff_i). Double-skin: kulit kaca luar 21.6x31.6x16 m (1702.4 m2, WWR=100%); dinding dalam 20x30x16 tertutup sehingga tidak dihitung.",
   "per_format_overrides": {
     "obj": {
       "is_provisional": true,

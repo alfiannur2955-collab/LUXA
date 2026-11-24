@@ -60,6 +60,13 @@ def generate_csv_report(analysis: Dict[str, Any]) -> bytes:
     writer.writerow(["Konduksi Kaca & Rangka (W/m2)", s.get("q_glass_conduction_wm2", 0)])
     writer.writerow(["Radiasi Surya Bukaan (W/m2)", s.get("q_solar_radiation_wm2", 0)])
     writer.writerow(["Total Beban Panas Selubung (kW)", s.get("total_heat_gain_kw", 0)])
+    if float(s.get("total_glazing_area_m2") or 0) > 1e-4:
+        writer.writerow(["U_f Rata-rata Tiga Zona (W/m2K)", s.get("avg_u_fen_wm2k", 0)])
+        writer.writerow(["U_frame Efektif (W/m2K)", s.get("u_frame_eff_wm2k", 0)])
+        writer.writerow(["Luas Rangka A_frame (m2)", s.get("total_a_frame_m2", 0)])
+        writer.writerow(["Luas Tepi Kaca A_edge (m2)", s.get("total_a_edge_m2", 0)])
+        writer.writerow(["Lebar Kusen (mm)", s.get("frame_width_mm", 50.0)])
+        writer.writerow(["Sumber Lebar Kusen", s.get("frame_source", "asumsi pengguna")])
     writer.writerow([])
 
     # 8-Orientation breakdown
@@ -262,6 +269,41 @@ def generate_pdf_report(analysis: Dict[str, Any]) -> bytes:
         ])
     )
     elements.append(t_sum)
+
+    if float(s.get("total_glazing_area_m2") or 0) > 1e-4:
+        f_src_pdf = s.get("frame_source", "asumsi pengguna")
+        fw_pdf = float(s.get("frame_width_mm") if s.get("frame_width_mm") is not None else 50.0)
+        fen_note = " (Lebar kusen asumsi)" if f_src_pdf != "terukur" else ""
+        elements.append(Paragraph(f"1b. Fenestrasi Tiga Zona (SNI Tabel 3 & Lampiran C){fen_note}", sec_style))
+        fen_data = [
+            ["U_f Tiga Zona (W/m²K)", "U_frame (W/m²K)", "A_frame (m²)", "A_edge (m²)", "Lebar Kusen (mm)", "Sumber"],
+            [
+                f"{float(s.get('avg_u_fen_wm2k') or 0):.2f}".replace(".", ","),
+                f"{float(s.get('u_frame_eff_wm2k') or 0):.2f}".replace(".", ","),
+                f"{float(s.get('total_a_frame_m2') or 0):,.2f}".replace(",", "_").replace(".", ",").replace("_", "."),
+                f"{float(s.get('total_a_edge_m2') or 0):,.2f}".replace(",", "_").replace(".", ",").replace("_", "."),
+                f"{fw_pdf:.1f}".replace(".", ","),
+                str(f_src_pdf),
+            ],
+        ]
+        t_fen = Table(fen_data, repeatRows=1)
+        t_fen.setStyle(
+            TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F766E")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("BACKGROUND", (0, 1), (-1, 1), colors.HexColor("#F8FAFC")),
+            ])
+        )
+        elements.append(t_fen)
+        if f_src_pdf != "terukur":
+            elements.append(Paragraph(
+                f"Catatan: Lebar kusen asumsi ({f'{fw_pdf:.1f}'.replace('.', ',')} mm) dipakai karena model tidak memiliki grup rangka terukur.",
+                sub_style,
+            ))
 
     warnings_pdf = s.get("warnings") or analysis.get("warnings") or []
     if warnings_pdf:

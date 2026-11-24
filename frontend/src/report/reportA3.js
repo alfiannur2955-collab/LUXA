@@ -108,9 +108,10 @@ export function buildReportA3(state, { theme = 'dark', orient = 'landscape', use
           <dl class="inputs">
             <div><dt>Luas A₀</dt><dd>${f0(m.ao_m2 ?? hot?.total_area_m2)} m²</dd></div><div><dt>WWR</dt><dd>${f3(m.wwr ?? hot?.wwr)}</dd></div>
             <div><dt>α dinding</dt><dd>${f2(m.alpha)}</dd></div><div><dt>U dinding</dt><dd>${f2(m.u_wall)}</dd></div><div><dt>TDek</dt><dd>${f1(m.td_ek)} K</dd></div>
-            <div><dt>U kaca</dt><dd>${f2(m.u_f)}</dd></div><div><dt>ΔT</dt><dd>${f1(m.delta_t)} K</dd></div><div><dt>SC kaca</dt><dd>${f3(m.sc_k)}</dd></div>
+            <div><dt>U<sub>f</sub> 3-zona</dt><dd>${f2(m.u_f)}</dd></div><div><dt>ΔT</dt><dd>${f1(m.delta_t)} K</dd></div><div><dt>SC kaca</dt><dd>${f3(m.sc_k)}</dd></div>
             <div><dt>Faktor peneduh</dt><dd>${f3(m.sc_eff)}</dd></div><div><dt>SF</dt><dd>${f0(m.sf ?? hot?.sni_sf_wm2)}</dd></div>
           </dl>
+          ${Number(s.total_glazing_area_m2 || 0) > 0.01 ? `<p class="note" style="margin-top:2mm">Kusen 3-zona: U<sub>f</sub> rata-rata ${f2(s.avg_u_fen_wm2k ?? m.u_f)} W/m²K · A<sub>frame</sub> ${f2(s.total_a_frame_m2 ?? 0)} m² · A<sub>edge</sub> ${f2(s.total_a_edge_m2 ?? 0)} m² · lebar kusen ${f1(s.frame_width_mm ?? 50)} mm (${esc(s.frame_source || 'asumsi pengguna')}${s.frame_source !== 'terukur' ? ' · Lebar kusen asumsi' : ''}).</p>` : ''}
           ${m.formula_substitution ? `<p class="formula">${esc(m.formula_substitution)}</p>` : ''}
         </div>
         <div class="panel facp"><div class="facp-hd"><p class="kick">Fasad terbentang 360° · selubung dibuka searah jarum jam, tiap panel diwarnai OTTV-nya</p>

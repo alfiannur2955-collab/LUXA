@@ -114,8 +114,8 @@ def test_z_index_cache_mengembalikan_array_identik() -> None:
         assert np.array_equal(c1, c_ref)
 
 
-def test_twisted_tower_ottv_tetap_34_18() -> None:
-    """Model acuan Fasad_Tower_Twisted.3dm tetap menghasilkan OTTV 34,18 W/m² setelah optimasi T7."""
+def test_twisted_tower_ottv_tetap_konsisten() -> None:
+    """Model acuan Fasad_Tower_Twisted.3dm menghasilkan OTTV 41,82 W/m² (dengan U_f tiga zona SNI T5; dulu 34,18)."""
     fp = os.path.join(ROOT_DIR, "backend", "samples", "Fasad_Tower_Twisted.3dm")
     if not os.path.isfile(fp):
         pytest.skip("Fasad_Tower_Twisted.3dm tidak ada")
@@ -123,5 +123,5 @@ def test_twisted_tower_ottv_tetap_34_18() -> None:
     prm.calculation_mode = "sni"
     prm.materials_confirmed = True
     res = analyze_building_ottv(fp, "Fasad_Tower_Twisted.3dm", prm)
-    assert res["ottv_total_wm2"] == pytest.approx(34.18, abs=0.01)
+    assert res["ottv_total_wm2"] == pytest.approx(41.82, abs=0.01)
     assert len(res["panels"]) == 12096

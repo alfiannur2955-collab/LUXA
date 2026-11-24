@@ -175,10 +175,14 @@ def _rows_for_orientation(panels: List[Dict[str, Any]], code: str) -> List[Dict[
                 "material_id": p.get("material_id"),
                 "material_name": p.get("material_name") or p.get("material_id") or "-",
                 "element": p.get("element_type"),
-                "wall": wall, "glass": glass, "a_w": 0.0, "a_f": 0.0, "n": 0,
+                "wall": wall, "glass": glass, "a_w": 0.0, "a_f": 0.0,
+                "a_frame": 0.0, "a_edge": 0.0, "frame_width_mm": p.get("frame_width_mm"),
+                "frame_source": p.get("frame_source"), "n": 0,
             }
         r["a_w"] += a_w
         r["a_f"] += a_f
+        r["a_frame"] += float(p.get("a_frame_m2") or 0.0)
+        r["a_edge"] += float(p.get("a_edge_m2") or 0.0)
         r["n"] += 1
     return list(rows.values())
 
@@ -196,8 +200,8 @@ def _sheet_orientation(wb: Workbook, analysis: Dict[str, Any], code: str, name: 
     last = first + max(len(rows), 1) - 1
 
     labels = ["No", "Kelompok bidang", "Lantai", "Material", "Jumlah bidang",
-              "Luas dinding A_w (m²)", "Luas kaca A_f (m²)", "α dinding", "U dinding (W/m²K)", "TD_ek (K)",
-              "U kaca (W/m²K)", "SC kaca (=SHGC/0,87)", "SC efektif (peneduh 3D)", "Pengali peneduh",
+              "Luas dinding A_w (m²)", "Luas fenestrasi A_f (m²)", "α dinding", "U dinding (W/m²K)", "TD_ek (K)",
+              "U_f 3-zona (W/m²K)", "SC kaca (=SHGC/0,87)", "SC efektif (peneduh 3D)", "Pengali peneduh",
               "SF (W/m²)", "Konduksi dinding (W)", "Konduksi kaca (W)", "Radiasi kaca (W)", "Total panas (W)", "Catatan"]
     _header(ws, first - 1, labels)
     if not rows:
@@ -235,7 +239,12 @@ def _sheet_orientation(wb: Workbook, analysis: Dict[str, Any], code: str, name: 
         _set(ws, f"Q{n}", f"=G{n}*N(K{n})*DELTA_T", fmt=NUM2, border=True)
         _set(ws, f"R{n}", f"=G{n}*N(M{n})*N(O{n})", fmt=NUM2, border=True)
         _set(ws, f"S{n}", f"=P{n}+Q{n}+R{n}", fmt=NUM2, border=True)
-        _set(ws, f"T{n}", "Elemen: " + str(r["element"] or "-"), F_NOTE, border=True)
+        note_t = "Elemen: " + str(r["element"] or "-")
+        if r["glass"] and (r.get("a_frame") or r.get("a_edge")):
+            fw_t = _fmt_id(r.get("frame_width_mm"), 1) if r.get("frame_width_mm") is not None else "-"
+            src_t = r.get("frame_source") or "-"
+            note_t += f" · A_frame {_fmt_id(r['a_frame'], 2)} m² · A_edge {_fmt_id(r['a_edge'], 2)} m² · kusen {fw_t} mm ({src_t})"
+        _set(ws, f"T{n}", note_t, F_NOTE, border=True)
 
     rng = lambda col: f"{col}{first}:{col}{last}"  # noqa: E731 - explicit ranges, never whole columns
     # Result block (fixed cells, referenced by Ringkasan)
@@ -290,6 +299,10 @@ def _sheet_material(wb: Workbook, analysis: Dict[str, Any], extra: List[Dict[str
             if code and code not in used[p["material_id"]]:
                 used[p["material_id"]].append(code)
     settings = (analysis.get("config") or {}).get("settings") or {}
+    summ = analysis.get("summary") or {}
+    frame_id = settings.get("frame_material_id") or (summ.get("active_materials") or {}).get("frame_id")
+    if frame_id and float(summ.get("total_glazing_area_m2") or 0.0) > 1e-4:
+        used.setdefault(frame_id, []).append("Rangka")
     roof_id = settings.get("roof_material_id")
     if roof_id and (analysis.get("rttv") or {}).get("applicable"):
         used.setdefault(roof_id, []).append("Atap")
@@ -535,11 +548,42 @@ def _sheet_summary(ws, analysis: Dict[str, Any], refs: Dict[str, Dict[str, str]]
         _set(ws, f"A{n}", "  " + lab)
         _set(ws, f"B{n}", f"=IF($B${tr}=0,0,({expr})/$B${tr})", fmt=NUM2, border=True)
 
-    r = r + 7
+    # Ringkasan Fenestrasi 3-Zona (SNI 6389:2020 butir 4.3.2.2, Tabel 3 & Lampiran C)
+    if float(summ.get("total_glazing_area_m2") or 0.0) > 1e-4:
+        r_fen = r + 7
+        _set(ws, f"A{r_fen}", "Fenestrasi tiga zona (SNI Tabel 3 & Lampiran C)", F_H)
+        ws.merge_cells(f"A{r_fen}:D{r_fen}")
+        f_src = summ.get("frame_source") or "asumsi pengguna"
+        fw_mm = summ.get("frame_width_mm")
+        fen_rows = [
+            ("U_f rata-rata tiga zona (W/m²K)", summ.get("avg_u_fen_wm2k"), NUM2),
+            ("U_frame efektif (W/m²K)", summ.get("u_frame_eff_wm2k"), NUM2),
+            ("Luas rangka A_frame (m²)", summ.get("total_a_frame_m2"), NUM2),
+            ("Luas tepi kaca A_edge (m²)", summ.get("total_a_edge_m2"), NUM2),
+            ("Lebar kusen (mm)", fw_mm, "0.0"),
+            ("Sumber lebar kusen", f_src, None),
+        ]
+        for idx_f, (flab, fval, ffmt) in enumerate(fen_rows):
+            nf = r_fen + 1 + idx_f
+            _set(ws, f"A{nf}", "  " + flab)
+            _set(ws, f"B{nf}", fval, fill=FILL_INPUT, fmt=ffmt, border=True)
+        r = r_fen + len(fen_rows) + 2
+    else:
+        r = r + 7
     _set(ws, f"A{r}", "Catatan dan asumsi", F_H)
     notes: List[str] = []
     notes.append(f"Tabel SF: {analysis.get('sf_source_label') or '-'}.")
     notes.append("SC kaca = SHGC / 0,87. SC efektif memasukkan peneduh luar yang dihitung dari geometri 3D (sirip, overhang, bangunan sendiri).")
+    if float(summ.get("total_glazing_area_m2") or 0.0) > 1e-4:
+        f_src_n = summ.get("frame_source") or "asumsi pengguna"
+        fw_n = _fmt_id(summ.get("frame_width_mm"), 1)
+        notes.append(
+            f"U_f tiga zona (SNI Lampiran C): U_f rata-rata {_fmt_id(summ.get('avg_u_fen_wm2k'), 2)} W/m²K, "
+            f"A_frame {_fmt_id(summ.get('total_a_frame_m2'), 2)} m², A_edge {_fmt_id(summ.get('total_a_edge_m2'), 2)} m², "
+            f"lebar kusen {fw_n} mm ({f_src_n})."
+        )
+        if f_src_n != "terukur":
+            notes.append(f"Lebar kusen asumsi ({fw_n} mm) digunakan karena model tidak memiliki grup rangka terukur.")
     notes.append("Peneduh yang tidak menempel di tepi atas jendela (berjarak dari fasad atau lebih tinggi) dihitung dengan selisih bayangan dari tabel SNI Lampiran A; SNI sendiri hanya mendefinisikan peneduh menempel.")
     notes.append("Luas diambil dari bidang 3D sisi luar yang aktif; bidang di bawah muka tanah dan sisi dalam tidak dihitung.")
     for w in (summ.get("warnings") or analysis.get("warnings") or []):

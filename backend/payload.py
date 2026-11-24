@@ -28,13 +28,15 @@ ACTIVE_PANEL_FIELDS: Tuple[str, ...] = (
     "group_name", "material_id", "ottv_panel_wm2", "heat_gain_w", "sunlit_mask", "tilt_deg",
     "sc_shading_multiplier", "floor_number", "floor_label",
     "sc_effective", "sc_glass", "shgc_glass", "sf_wm2", "alpha_wall_eff", "td_ek_eff", "u_fen_eff",
+    "a_edge_m2", "a_frame_m2",
     "u_wall_eff", "q_solar_wm2", "q_wall_wm2",
 )
 # `centroid` tidak dikirim: frontend menghitungnya dari rata-rata vertex (sama persis dengan engine).
 # Field per panel yang dihitung ulang oleh recommender.rematerial_analysis.
 REMATERIAL_FIELDS: Tuple[str, ...] = (
-    "ottv_panel_wm2", "heat_gain_w", "sc_effective", "sc_glass", "shgc_glass", "u_fen_eff", "u_wall_eff",
-    "alpha_wall_eff", "td_ek_eff", "q_wall_wm2", "q_solar_wm2", "material_id",
+    "ottv_panel_wm2", "heat_gain_w", "sc_effective", "sc_glass", "shgc_glass", "u_fen_eff",
+    "a_edge_m2", "a_frame_m2",
+    "u_wall_eff", "alpha_wall_eff", "td_ek_eff", "q_wall_wm2", "q_solar_wm2", "material_id",
 )
 INTERNED_FIELDS: Tuple[str, ...] = ("group_name", "material_id")
 MESH_KEYS: Tuple[str, ...] = ("shading_elements", "frame_elements", "roof_elements", "context_elements")
