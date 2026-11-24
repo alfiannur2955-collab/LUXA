@@ -833,13 +833,17 @@ def _raycast_arbitrary_rays_against_tris(
     return min_t_out
 
 
+NARROW_GAP_THRESHOLD_M = 1.50
+
+
 def detect_exterior_faces_raycast(
     centroids: np.ndarray,
     normals: np.ndarray,
     all_shell_tris: np.ndarray,
     roof_tris: np.ndarray,
     max_span: float,
-) -> np.ndarray:
+    return_narrow_gap: bool = False,
+) -> Any:
     """
     3-Layer Universal Exterior Skin Visibility Engine:
     Determines which vertical/tilted facade faces truly face the exterior atmosphere
@@ -848,7 +852,10 @@ def detect_exterior_faces_raycast(
     """
     n_p = len(centroids)
     if n_p == 0 or len(all_shell_tris) == 0:
-        return np.ones(n_p, dtype=bool)
+        ones = np.ones(n_p, dtype=bool)
+        if return_narrow_gap:
+            return ones, np.zeros(n_p, dtype=bool)
+        return ones
 
     # Build horizontal unit outward direction per panel
     n_h = np.zeros_like(normals)
@@ -916,6 +923,27 @@ def detect_exterior_faces_raycast(
         t_roof = _raycast_arbitrary_rays_against_tris(sky_origins, sky_dirs, roof_tris, min_dist=0.10, max_dist=reach)
         is_courtyard = ~np.isfinite(t_roof)
         is_outer[idx_sb[is_courtyard]] = True
+
+    if return_narrow_gap:
+        # A3-07: bidang terbuang karena menghadapi massa lain berjarak < 1,5 m (bukan ketebalan dinding <= 0,42 m)
+        is_narrow_gap = (
+            (~is_outer)
+            & (~confirmed_inner)
+            & np.isfinite(t_center)
+            & (t_center > 0.42)
+            & ((t_center + 0.06) < NARROW_GAP_THRESHOLD_M)
+        )
+        if np.any(is_narrow_gap) and len(roof_tris) > 0:
+            idx_ng = np.where(is_narrow_gap)[0]
+            mid_step = np.minimum(0.45, 0.5 * t_center[idx_ng])
+            ng_sky_origins = centroids[idx_ng] + n_h[idx_ng] * mid_step[:, None]
+            ng_sky_dirs = np.tile(np.array([[0.0, 0.0, 1.0]]), (len(idx_ng), 1))
+            t_ng_roof = _raycast_arbitrary_rays_against_tris(
+                ng_sky_origins, ng_sky_dirs, roof_tris, min_dist=0.10, max_dist=reach
+            )
+            # Hanya celah terbuka ke langit (antar massa), bukan koridor beratap di dalam bangunan
+            is_narrow_gap[idx_ng[np.isfinite(t_ng_roof)]] = False
+        return is_outer, is_narrow_gap
 
     return is_outer
 
@@ -1151,6 +1179,7 @@ def resolve_group_outer_skin_faces(
     radial_dot = np.einsum("ij,ij->i", radial_xy, normals_v[:, :2])
     is_single_flat_wall_model = min(span_x, span_y) < 1.5
 
+    narrow_gap_arr = np.zeros(len(areas_v), dtype=bool)
     if ext_mode == "all":
         is_outer_arr = np.ones(len(areas_v), dtype=bool)
     elif ext_mode == "radial":
@@ -1170,8 +1199,8 @@ def resolve_group_outer_skin_faces(
             else:
                 is_outer_arr = np.ones(len(areas_v), dtype=bool)
         else:
-            is_outer_arr = detect_exterior_faces_raycast(
-                centroids_v, normals_v, all_shell_tris, roof_tris, max_span
+            is_outer_arr, narrow_gap_arr = detect_exterior_faces_raycast(
+                centroids_v, normals_v, all_shell_tris, roof_tris, max_span, return_narrow_gap=True
             )
             if float(np.mean(is_outer_arr)) < 0.08:
                 twin_origins = centroids_v - normals_v * 0.002
@@ -1181,17 +1210,21 @@ def resolve_group_outer_skin_faces(
                 has_front_twin = float(np.mean(t_twin <= 0.35))
                 if has_front_twin < 0.35:
                     flipped_normals = -normals_v
-                    flipped_outer = detect_exterior_faces_raycast(
-                        centroids_v, flipped_normals, all_shell_tris, roof_tris, max_span
+                    flipped_outer, flipped_ng = detect_exterior_faces_raycast(
+                        centroids_v, flipped_normals, all_shell_tris, roof_tris, max_span, return_narrow_gap=True
                     )
                     if float(np.mean(flipped_outer)) > float(np.mean(is_outer_arr)) + 0.15:
                         normals_v = flipped_normals
                         is_outer_arr = flipped_outer
+                        narrow_gap_arr = flipped_ng
 
     above_z_mask = (centroids_v[:, 2] >= (z_ground_cut - 0.05)) if z_ground_cut > 0.05 else np.ones(len(areas_v), dtype=bool)
     outer_above = is_outer_arr & above_z_mask
     outer_count = int(np.sum(outer_above))
     outer_area = float(np.sum(areas_v[outer_above])) if outer_count > 0 else 0.0
+    narrow_gap_above = narrow_gap_arr & above_z_mask
+    narrow_gap_count = int(np.sum(narrow_gap_above))
+    narrow_gap_area = float(np.sum(areas_v[narrow_gap_above])) if narrow_gap_count > 0 else 0.0
 
     return {
         "orig_idx_v": orig_idx_v,
@@ -1208,6 +1241,8 @@ def resolve_group_outer_skin_faces(
         "is_outer_arr": is_outer_arr,
         "outer_faces": outer_count,
         "outer_area_m2": outer_area,
+        "narrow_gap_faces": narrow_gap_count,
+        "narrow_gap_area_m2": narrow_gap_area,
         "filtered_entry": filtered_entry,
         "filtered_entries": filtered_entries,
     }
@@ -2136,6 +2171,7 @@ def analyze_building_ottv(
     panel_centroids_list: List[np.ndarray] = []
     panel_normals_list: List[np.ndarray] = []
     extra_face_shading_tris: List[np.ndarray] = []
+    narrow_gap_groups: List[Dict[str, Any]] = []
     basement_panels_excluded = 0
     skylight_area_m2 = 0.0
     skylight_u_weighted = 0.0
@@ -2187,6 +2223,15 @@ def analyze_building_ottv(
         tilt_arr = np.degrees(np.arccos(np.clip(normals_v[:, 2], -1.0, 1.0)))
 
         group_disabled = rg.group_name in params.disabled_groups
+        ng_area_grp = float(ext_res.get("narrow_gap_area_m2") or 0.0)
+        ng_faces_grp = int(ext_res.get("narrow_gap_faces") or 0)
+        if not group_disabled and ng_area_grp > 0.01 and ng_faces_grp > 0:
+            narrow_gap_groups.append({
+                "group": rg.group_name,
+                "category": eff_cat,
+                "face_count": ng_faces_grp,
+                "area_m2": round(ng_area_grp, 2),
+            })
         # STAGE 4: Resolve per-group material via single canonical resolve_material()
         from config_schema import resolve_material
         resolved_grp = resolve_material(rg, params, category=eff_cat)
@@ -3676,6 +3721,29 @@ def analyze_building_ottv(
                 + ". Biasanya akibat objek ter-copy-paste di posisi yang sama."
             ),
             "detail": dedupe_stats,
+        })
+    if narrow_gap_groups:
+        total_ng_area = sum(float(g["area_m2"]) for g in narrow_gap_groups)
+        total_ng_faces = sum(int(g["face_count"]) for g in narrow_gap_groups)
+        area_txt = f"{total_ng_area:.2f}".replace(".", ",")
+        grp_parts = []
+        for g in narrow_gap_groups:
+            g_area_txt = f"{g['area_m2']:.2f}".replace(".", ",")
+            grp_parts.append(f"{g['group']} ({g_area_txt} m²)")
+        grp_txt = ", ".join(grp_parts)
+        summary_warnings.append({
+            "code": "NARROW_GAP_FACES",
+            "message": (
+                f"{area_txt} m² ({total_ng_faces} bidang) fasad diabaikan sebagai sisi dalam karena "
+                f"berhadapan dengan massa lain berjarak < 1,5 m: {grp_txt}. "
+                "Bila celah tersebut adalah udara luar dan ingin dihitung, ubah mode deteksi sisi luar ke 'Semua bidang'."
+            ),
+            "detail": {
+                "threshold_m": NARROW_GAP_THRESHOLD_M,
+                "total_area_m2": round(total_ng_area, 2),
+                "total_face_count": int(total_ng_faces),
+                "groups": narrow_gap_groups,
+            },
         })
     if detached_shading_panels:
         summary_warnings.append({

@@ -786,3 +786,36 @@ def test_3dm_campuran_missing_mesh_sebut_objek_dan_sarankan_savesmall():
     msg = mm[0]["message"]
     assert "32 objek" in msg and "192 permukaan" in msg, f"Jumlah objek/permukaan tidak disebut: {msg}"
     assert "simpan ulang dari Rhino tanpa SaveSmall" in msg, f"Saran SaveSmall tidak ada: {msg}"
+
+
+# ----------------------------------------------------------------------------
+# A3-07: peringatan informatif celah sempit antar massa (< 1,5 m)
+# ----------------------------------------------------------------------------
+
+def _two_masses_parts(gap_m: float) -> List[ms.MeshPart]:
+    p1 = [(-10.0, -5.0), (10.0, -5.0), (10.0, 5.0), (-10.0, 5.0)]
+    p2 = [(-10.0, 5.0 + gap_m), (10.0, 5.0 + gap_m), (10.0, 15.0 + gap_m), (-10.0, 15.0 + gap_m)]
+    roofs = [
+        ms.make_horizontal_quad(p1, FLOORS * FH, up=True),
+        ms.make_horizontal_quad(p2, FLOORS * FH, up=True),
+    ]
+    return ms.build_ribbon_building_parts([p1, p2], roofs, floors=FLOORS, fh=FH)
+
+
+def test_celah_sempit_1m_munculkan_peringatan_narrow_gap_faces(tmp_path):
+    """A3-07: dua massa berjarak 1,0 m (< 1,5 m) memunculkan peringatan informatif NARROW_GAP_FACES."""
+    r = run(tmp_path, _two_masses_parts(1.0), "two_masses_gap_1m")
+    warns = [w for w in r["summary"]["warnings"] if w["code"] == "NARROW_GAP_FACES"]
+    assert len(warns) == 1, f"Seharusnya ada NARROW_GAP_FACES, warnings={r['summary']['warnings']}"
+    w = warns[0]
+    assert w["detail"]["total_area_m2"] > 100.0
+    assert len(w["detail"]["groups"]) >= 1
+    assert "1,5 m" in w["message"]
+    # Informatif: tidak mengubah status jadi provisional / mengubah angka OTTV
+    assert r["summary"]["is_provisional"] is False
+
+
+def test_celah_lebar_6m_tidak_munculkan_peringatan_narrow_gap_faces(tmp_path):
+    """A3-07: dua massa berjarak 6,0 m tidak memunculkan peringatan NARROW_GAP_FACES."""
+    r = run(tmp_path, _two_masses_parts(6.0), "two_masses_gap_6m")
+    assert "NARROW_GAP_FACES" not in _codes(r)
