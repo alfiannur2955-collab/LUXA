@@ -1203,6 +1203,26 @@ function applyPatchToConfigClone(baseCfg, patch) {
   }
   if (patch.group_material_map && typeof patch.group_material_map === 'object') {
     nextCfg.roles.group_material_map = { ...patch.group_material_map };
+  } else {
+    // Memilih "Kaca utama"/"Dinding utama" berarti untuk SEMUA grup peran itu: hapus override per grup peran
+    // tersebut (override grup selalu menang, sehingga pilihan utama dulu tampak tidak berpengaruh).
+    const roleCats = {
+      glazing_material_id: ['glazing', 'composite_cw'],
+      wall_material_id: ['wall', 'spandrel'],
+    };
+    const groups = getState().analysisData?.groups || [];
+    const gmap = { ...(nextCfg.roles.group_material_map || {}) };
+    let changed = false;
+    for (const [field, cats] of Object.entries(roleCats)) {
+      if (!patch[field]) continue;
+      for (const g of groups) {
+        if (cats.includes(g.category) && g.group_name in gmap) {
+          delete gmap[g.group_name];
+          changed = true;
+        }
+      }
+    }
+    if (changed) nextCfg.roles.group_material_map = gmap;
   }
   // A3-01: setiap pilihan material dari pengguna = konfirmasi (hasil tidak lagi berstatus sementara karena material)
   nextCfg.settings.materials_confirmed = patch.materials_confirmed === false ? false : true;

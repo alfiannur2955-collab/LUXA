@@ -459,14 +459,18 @@ def test_rematerial_memperbarui_status(tmp_path):
     from recommender import rematerial_analysis
     r = run(tmp_path, base_parts(wall="Dinding Bata", glz="Kaca Bening"), "mat_remat", confirmed=False)
     w = [x for x in r["summary"]["warnings"] if x["code"] == "MATERIAL_NOT_CONFIRMED"][0]
-    r2 = rematerial_analysis(r, group_material_map=w["detail"]["suggested_patch"]["group_material_map"], materials_confirmed=True)
+    patch = w["detail"]["suggested_patch"]
+    # Saran seragam per peran dipasang sebagai material UTAMA (bukan override grup), lihat _suggestion_patch
+    assert patch.get("glazing_material_id") == "glz_kaca_polos_8" and "group_material_map" not in patch
+    r2 = rematerial_analysis(r, **patch, materials_confirmed=True)
     assert r2["summary"]["is_provisional"] is False
     assert "MATERIAL_NOT_CONFIRMED" not in _codes(r2)
     full = run(tmp_path, base_parts(wall="Dinding Bata", glz="Kaca Bening"), "mat_full")
     path = str(tmp_path / "mat_full2.3dm")
     ms.write_3dm(path, base_parts(wall="Dinding Bata", glz="Kaca Bening"))
     prm = EnvelopeParameters(); prm.calculation_mode = "sni"; prm.materials_confirmed = True
-    prm.group_material_map = w["detail"]["suggested_patch"]["group_material_map"]
+    for k_, v_ in patch.items():
+        setattr(prm, k_, v_)
     r3 = analyze_building_ottv(path, "mat_full2.3dm", prm)
     assert abs(r3["ottv_total_wm2"] - r2["ottv_total_wm2"]) <= OTTV_TOL, "jalur cepat & hitung penuh harus sama"
     assert ("MEMENUHI" in r2["status_label"]) == (r2["ottv_total_wm2"] <= 35.0)
@@ -547,3 +551,21 @@ def test_pelat_lantai_interior_tidak_meneduhi(tmp_path, base):
     r = run(tmp_path, base_parts() + [_slab("Pelat Lantai", 0.0, 12.0)], "slab_int")
     assert_same(base, r, "pelat lantai di dalam bangunan")
     assert "GEOMETRY_SLAB_SHADING" not in _codes(r)
+
+
+
+def test_saran_berbeda_per_grup_jadi_override_grup(tmp_path):
+    """Dua grup kaca dengan saran berbeda (bening vs stopsol) -> override per grup, bukan material utama."""
+    parts = base_parts(wall="Dinding Bata", glz="Kaca Bening")
+    g = parts[1]
+    half = len(g.quads) // 2
+    parts = [parts[0], parts[2],
+             ms.MeshPart("Kaca Bening", "Kaca Bening", g.color_rgb, g.transparency, g.quads[:half]),
+             ms.MeshPart("Kaca Stopsol", "Kaca Stopsol", g.color_rgb, g.transparency, g.quads[half:])]
+    r = run(tmp_path, parts, "saran_campur", confirmed=False)
+    patch = [x for x in r["summary"]["warnings"] if x["code"] == "MATERIAL_NOT_CONFIRMED"][0]["detail"]["suggested_patch"]
+    assert "glazing_material_id" not in patch
+    gm = patch["group_material_map"]
+    assert gm["Kaca Bening :: Kaca Bening"] == "glz_kaca_polos_8"
+    assert gm["Kaca Stopsol :: Kaca Stopsol"] == "glz_kaca_reflektif_8"
+    assert patch.get("wall_material_id") == "wal_bata_merah_plester"

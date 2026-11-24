@@ -1804,6 +1804,26 @@ def resolve_result_status(ottv_total_wm2: float, warnings: List[Dict[str, Any]],
     return False, "MELEBIHI BATAS SNI 6389:2020 (> 35 W/m²)", False
 
 
+def _suggestion_patch(sugg: List[Dict[str, Any]], group_material_map: Dict[str, str], groups: List[Tuple[str, str, str, str]]) -> Dict[str, Any]:
+    """Patch konfigurasi untuk tombol "Pakai saran". Bila semua grup satu peran (kaca, atau dinding+spandrel)
+    disarankan material yang sama, saran dipasang sebagai material UTAMA peran itu, bukan override per grup,
+    supaya pilihan "Kaca utama"/"Dinding utama" berikutnya tetap berlaku (override grup selalu menang)."""
+    role_of = {"glazing": "glazing_material_id", "composite_cw": "glazing_material_id", "wall": "wall_material_id", "spandrel": "wall_material_id"}
+    patch: Dict[str, Any] = {}
+    gmap = dict(group_material_map or {})
+    for field in ("glazing_material_id", "wall_material_id"):
+        role_groups = [g[0] for g in groups if role_of.get(g[1]) == field and g[0] not in (group_material_map or {})]
+        role_sugg = [x for x in sugg if role_of.get(x["category"]) == field]
+        ids = {x["material_id"] for x in role_sugg}
+        if role_sugg and len(ids) == 1 and len(role_sugg) == len(role_groups):
+            patch[field] = next(iter(ids))
+        else:
+            gmap.update({x["group_name"]: x["material_id"] for x in role_sugg})
+    if gmap != dict(group_material_map or {}):
+        patch["group_material_map"] = gmap
+    return patch
+
+
 def build_material_warning(
     glazing_material_id: Optional[str],
     wall_material_id: Optional[str],
@@ -1836,7 +1856,7 @@ def build_material_warning(
             "glazing_material_id": glazing_material_id,
             "wall_material_id": wall_material_id,
             "suggestions": sugg,
-            "suggested_patch": {"group_material_map": {**(group_material_map or {}), **{x["group_name"]: x["material_id"] for x in sugg}}},
+            "suggested_patch": _suggestion_patch(sugg, group_material_map, groups),
         },
     }
 
