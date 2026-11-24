@@ -125,10 +125,14 @@ def test_facade_only_to_alfian_matches_glazing_bands():
 
 
 def test_ifc_duplex_uses_ifc_storeys():
-    matches = glob.glob(os.path.join(ROOT_DIR, "corpus", "**", "*Duplex*.ifc"), recursive=True)
-    if not matches:
-        pytest.skip("Duplex IFC corpus file not present")
-    rel_path = os.path.relpath(matches[0], ROOT_DIR)
+    fixture_rel = "fixtures/real/Duplex_A_20110907.ifc"
+    if os.path.isfile(os.path.join(ROOT_DIR, fixture_rel)):
+        rel_path = fixture_rel
+    else:
+        matches = glob.glob(os.path.join(ROOT_DIR, "corpus", "**", "*Duplex*.ifc"), recursive=True)
+        if not matches:
+            pytest.skip("Duplex IFC file not present")
+        rel_path = os.path.relpath(matches[0], ROOT_DIR)
     floors, method, _, audit = _detect_from_file(rel_path)
     assert len(audit.bim_storeys) >= 2
     assert method == "ifc_storey"
