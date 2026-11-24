@@ -23,7 +23,7 @@ Skrip probe tidak dimasukkan ke repo. Temuan yang diperbaiki wajib mendapat uji 
 | A3-02 | TINGGI | Peneduh | Peneduh berjarak dari fasad dihitung seolah menempel; ada "tebing" ke nol di 1 m — **diperbaiki** |
 | A3-03 | TINGGI | Klasifikasi | Nama yang salah dengan yakin: ACP/Metal Cladding → rangka, Hollow Core Wall → abaikan — **diperbaiki** |
 | A3-04 | TINGGI | Performa | Model 24 lantai: hasil 22 MB JSON, memori puncak 319 MB → aplikasi tersendat |
-| A3-05 | TINGGI | Baca file | 3DM berisi Brep/Extrusion tanpa render mesh → "tidak ada geometri" |
+| A3-05 | TINGGI | Baca file | 3DM berisi Brep/Extrusion tanpa render mesh → "tidak ada geometri" — **diperbaiki** |
 | A3-06 | SEDANG | Klasifikasi | Cek geometri (AUDIT-03) hanya saat hitung; inspeksi dan hasil tidak konsisten — **diperbaiki** |
 | A3-07 | SEDANG | Sisi luar | Dua massa dengan celah ≤ 1 m: fasad yang berhadapan dibuang tanpa peringatan |
 | A3-08 | SEDANG | Peneduh | Pelat balkon: dihitung atau tidak bergantung nama ("Slab" ya, "Pelat Lantai" tidak) — **diperbaiki** |
@@ -169,6 +169,8 @@ Targetnya di bawah 3 MB untuk model ini.
 **Usulan.** Tambahkan tesselasi cadangan untuk face planar (mayoritas geometri arsitektur): ambil loop tepi
 Brep/Extrusion dan triangulasi poligonnya. Bila tetap gagal, pesannya harus jujur: "file berisi N objek Brep
 tanpa render mesh; buka di Rhino, jalankan `RefreshShade`/simpan tanpa Save Small".
+
+**Perbaikan (Nov 2026, commit `1527235`).** Tesselasi cadangan `BrepFace` planar (ear clipping + dukungan loop dalam/lubang via jembatan Eberly) ditambahkan di jalur Python (`backend/loaders/rhino.py`, `backend/universal_pipeline.py`) dan jalur browser (`frontend/src/engine/rhinoExtract.js`), aktif otomatis saat file `.3dm` menghasilkan 0 render mesh (murni `SaveSmall` / Brep + Extrusion). Face non-planar tetap masuk `missing_mesh`; bila seluruh file non-planar, pesan error menyebut jumlah objek/permukaan dan menyarankan `RefreshShade` atau simpan ulang tanpa `SaveSmall`. Pada file campuran, peringatan `MISSING_MESH` menyebut jumlah objek yang dilewati dan menyarankan simpan ulang dari Rhino tanpa `SaveSmall`. Baseline 0 selisih; paritas browser lulus (≤ 0,01 W/m²).
 
 ## A3-06 · SEDANG · Inspeksi dan hasil tidak konsisten
 
