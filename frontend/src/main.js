@@ -1035,7 +1035,7 @@ async function handleReportPdf() {
     return;
   }
   if (reportBusy) return;
-  const { askReportOptions, printHtml } = await import('./ui/reportDialog.js');
+  const { askReportOptions } = await import('./ui/reportDialog.js');
   const opt = await askReportOptions(s0.theme);
   if (!opt) return;
   reportBusy = true;
@@ -1046,10 +1046,17 @@ async function handleReportPdf() {
     const { buildReportHtml } = await import('./report/assetsA3.js');
     const st = getState();
     const logo = new URL(opt.theme === 'dark' ? 'brand/luxa-logo-dark.svg' : 'brand/luxa-logo.svg', document.baseURI).href;
-    let html = await buildReportHtml(st, { theme: opt.theme, orient: opt.orient, logoUrl: logo, userName: loadUserName() || '' });
-    const fonts = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Newsreader:ital,wght@1,400;1,600&display=swap">';
-    html = html.replace('</head>', `${fonts}</head>`);
-    await printHtml(html);
+    const html = await buildReportHtml(st, { theme: opt.theme, orient: opt.orient, logoUrl: logo, userName: loadUserName() || '' });
+    // Berkas PDF A3 dibuat langsung di browser (tanpa dialog cetak): ukuran kertas pasti, tanpa tepi putih.
+    const { reportHtmlToPdf, downloadBlob } = await import('./report/pdfDirect.js');
+    const blob = await reportHtmlToPdf(html, {
+      port: opt.orient === 'port',
+      fontCssUrl: 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Newsreader:ital,wght@1,400;1,600&display=swap',
+    });
+    const { projectName } = await import('./present/content.js');
+    const nm = projectName(st.analysisData).replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'LUXA';
+    downloadBlob(blob, `Laporan OTTV ${nm}.pdf`);
+    showToast('Laporan PDF terunduh.', 'ok');
   } catch (err) {
     console.error('[LUXA laporan PDF]', err);
     showToast('Gagal menyiapkan laporan PDF.', 'fail');
