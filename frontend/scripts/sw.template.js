@@ -43,7 +43,12 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fresh
         .then((res) => {
-          if (res.ok) caches.open(SHELL_CACHE).then((c) => c.put(req, res.clone()));
+          if (res.ok) {
+            // Salin SEBELUM respons dikembalikan: setelah halaman membaca body, clone() gagal
+            // ("Response body is already used") dan file tidak pernah tersimpan ke cache.
+            const copy = res.clone();
+            caches.open(SHELL_CACHE).then((c) => c.put(req, copy));
+          }
           return res;
         })
         .catch(() => caches.match(req).then((hit) => hit || Response.error())),
