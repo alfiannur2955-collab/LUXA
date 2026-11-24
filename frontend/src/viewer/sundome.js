@@ -102,15 +102,22 @@ export class SunDomeController {
 
     this.onDragStateChange = null;
     this.onRadiusCommit = null;
+    this.onHourChange = null;
+    // Geser matahari langsung (sama dengan Mode Presentasi)
+    this.sunDragging = false;
+    this._sunSamples = [];
+    this.sunPosThree = null;
+    this._dragHour = null;
   }
 
   attachGroup(group) {
     this.group = group;
   }
 
-  setCallbacks({ onDragStateChange = null, onRadiusCommit = null } = {}) {
+  setCallbacks({ onDragStateChange = null, onRadiusCommit = null, onHourChange = null } = {}) {
     this.onDragStateChange = onDragStateChange;
     this.onRadiusCommit = onRadiusCommit;
+    this.onHourChange = onHourChange;
   }
 
   mountOverlay(overlayHost) {
@@ -143,7 +150,15 @@ export class SunDomeController {
       this._bindHandleEvents(btn);
       this.handleBtn = btn;
       this.handleLbl = lbl;
-      this.handleLayer.append(btn, lbl);
+      const sunBtn = document.createElement('button');
+      sunBtn.type = 'button';
+      sunBtn.className = 'd5-sun-handle';
+      sunBtn.setAttribute('aria-label', 'Geser matahari di sepanjang lintasannya untuk mengubah jam');
+      sunBtn.title = 'Geser matahari untuk mengubah jam';
+      sunBtn.style.display = 'none';
+      this._bindSunEvents(sunBtn);
+      this.sunBtn = sunBtn;
+      this.handleLayer.append(btn, lbl, sunBtn);
     }
     overlayHost.appendChild(this.handleLayer);
 
@@ -245,6 +260,76 @@ export class SunDomeController {
     window.addEventListener('blur', () => finishDrag(null));
   }
 
+  _hourAtClient(clientX, clientY) {
+    if (!this.lastCamera || !this.overlayHost || !this._sunSamples.length) return null;
+    const rect = this.overlayHost.getBoundingClientRect();
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+    let best = null;
+    let bestD = Infinity;
+    for (const smp of this._sunSamples) {
+      this._projVec.copy(smp.p).project(this.lastCamera);
+      const d = (((this._projVec.x + 1) / 2) * rect.width - px) ** 2 + (((1 - this._projVec.y) / 2) * rect.height - py) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = smp.h;
+      }
+    }
+    return best === null ? null : Math.max(6, Math.min(18, Math.round(best)));
+  }
+
+  _bindSunEvents(btn) {
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || !this.isVisible) return;
+      e.preventDefault();
+      e.stopPropagation();
+      this.sunDragging = true;
+      this._dragHour = null;
+      btn.classList.add('is-dragging');
+      document.body.classList.add('is-d5-rotating');
+      this.onDragStateChange?.(true);
+      try {
+        btn.setPointerCapture(e.pointerId);
+      } catch {
+        // Ignore
+      }
+    });
+    // gerakan didengarkan di jendela: pegangan diposisikan ulang tiap bingkai saat jam berubah, jadi jangan bergantung
+    // pada tangkapan pointer di tombolnya saja
+    const onMove = (e) => {
+      if (!this.sunDragging) return;
+      e.preventDefault();
+      const h = this._hourAtClient(e.clientX, e.clientY);
+      if (h !== null && h !== this._dragHour) {
+        this._dragHour = h;
+        this.onHourChange?.(h);
+      }
+      if (this.handleLbl && h !== null) {
+        this.handleLbl.textContent = `${String(h).padStart(2, '0')}.00`;
+        this.handleLbl.style.display = 'block';
+      }
+    };
+    window.addEventListener('pointermove', onMove, { passive: false });
+    const finish = (e) => {
+      if (!this.sunDragging) return;
+      e?.preventDefault?.();
+      this.sunDragging = false;
+      btn.classList.remove('is-dragging');
+      document.body.classList.remove('is-d5-rotating');
+      this.onDragStateChange?.(false);
+      if (this.handleLbl) this.handleLbl.style.display = 'none';
+      try {
+        if (e?.pointerId !== undefined && btn.hasPointerCapture?.(e.pointerId)) btn.releasePointerCapture(e.pointerId);
+      } catch {
+        // Ignore
+      }
+    };
+    btn.addEventListener('pointerup', finish);
+    btn.addEventListener('pointercancel', finish);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('blur', () => finish(null));
+  }
+
   _clear() {
     if (this.group) {
       while (this.group.children.length > 0) {
@@ -267,9 +352,12 @@ export class SunDomeController {
     if (this.handleBtn && !this.dragging) {
       this.handleBtn.style.display = 'none';
     }
-    if (this.handleLbl && !this.dragging) {
+    if (this.handleLbl && !this.dragging && !this.sunDragging) {
       this.handleLbl.style.display = 'none';
     }
+    if (this.sunBtn && !this.sunDragging) this.sunBtn.style.display = 'none';
+    this.sunPosThree = null;
+    this._sunSamples = [];
   }
 
   _addProjectedLabel(text, worldPos, className = 'sundome-lbl', isArcLabel = false) {
@@ -352,21 +440,30 @@ export class SunDomeController {
     const center = toThreeCoords(cx, cy, baseZ);
     this.centerThree.copy(center);
 
-    const colInk = new THREE.Color(tokens.ink);
-    const colSun = new THREE.Color(tokens.sun);
+    // Gaya kubah sama dengan Mode Presentasi: garis tebal (tabung tipis), warna jenuh, cahaya lembut.
+    const dark = state.theme === 'dark';
+    const colInk = new THREE.Color(dark ? '#C4C5CC' : '#6A6156');
+    const colSun = new THREE.Color(dark ? '#FFB62E' : '#F07F00');
+    const R = radius;
+    const tube = (pts, { color = colInk, opacity = 0.9, w = 0.0045, closed = false } = {}) => {
+      const curve = new THREE.CatmullRomCurve3(pts, closed, 'centripetal');
+      const g = new THREE.TubeGeometry(curve, Math.max(32, pts.length * 2), Math.max(0.025, R * w), 6, closed);
+      const m = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, toneMapped: false });
+      const mesh = new THREE.Mesh(g, m);
+      mesh.raycast = () => {};
+      mesh.renderOrder = 5;
+      this.group.add(mesh);
+      return mesh;
+    };
 
     // 1. Horizon compass ring
     const ringPts = [];
-    const segs = 72;
-    for (let i = 0; i <= segs; i += 1) {
+    const segs = 96;
+    for (let i = 0; i < segs; i += 1) {
       const a = (i / segs) * Math.PI * 2;
       ringPts.push(new THREE.Vector3(center.x + radius * Math.cos(a), center.y + 0.04, center.z + radius * Math.sin(a)));
     }
-    const ringGeo = new THREE.BufferGeometry().setFromPoints(ringPts);
-    const ringMat = new THREE.LineBasicMaterial({ color: colInk, transparent: true, opacity: 0.36 });
-    const ringLine = new THREE.Line(ringGeo, ringMat);
-    ringLine.raycast = () => {};
-    this.group.add(ringLine);
+    tube(ringPts, { opacity: 0.8, w: 0.0016, closed: true });
 
     // 2. 8 compass ticks + U/T/S/B cardinal labels rotated by north_angle_deg
     const tickCoords = [];
@@ -384,9 +481,17 @@ export class SunDomeController {
       const rad = ((c.az + northDeg) * Math.PI) / 180;
       const dx = Math.sin(rad);
       const dz = -Math.cos(rad);
-      const rIn = radius * (c.major ? 0.94 : 0.965);
-      const rOut = radius * (c.major ? 1.05 : 1.03);
-      tickCoords.push(
+      const rIn = radius * (c.major ? 0.92 : 0.96);
+      const rOut = radius * (c.major ? 1.07 : 1.03);
+      if (c.major) {
+        tube(
+          [
+            new THREE.Vector3(center.x + dx * rIn, center.y + 0.04, center.z + dz * rIn),
+            new THREE.Vector3(center.x + dx * rOut, center.y + 0.04, center.z + dz * rOut),
+          ],
+          { opacity: 0.85, w: 0.0018 },
+        );
+      } else tickCoords.push(
         center.x + dx * rIn,
         center.y + 0.04,
         center.z + dz * rIn,
@@ -404,7 +509,7 @@ export class SunDomeController {
     }
     const tickGeo = new THREE.BufferGeometry();
     tickGeo.setAttribute('position', new THREE.Float32BufferAttribute(tickCoords, 3));
-    const tickMat = new THREE.LineBasicMaterial({ color: colInk, transparent: true, opacity: 0.5 });
+    const tickMat = new THREE.LineBasicMaterial({ color: colInk, transparent: true, opacity: 0.65, depthWrite: false });
     const tickLines = new THREE.LineSegments(tickGeo, tickMat);
     tickLines.raycast = () => {};
     this.group.add(tickLines);
@@ -434,20 +539,23 @@ export class SunDomeController {
         }
       }
       if (pts.length < 2) continue;
+      if (arc.isActive) {
+        tube(pts, { color: colSun, opacity: 1, w: 0.0028 });
+      } else {
       const geo = new THREE.BufferGeometry().setFromPoints(pts);
-      const mat = arc.isActive
-        ? new THREE.LineBasicMaterial({ color: colSun, transparent: true, opacity: 0.92 })
-        : new THREE.LineDashedMaterial({
+      const mat = new THREE.LineDashedMaterial({
             color: colSun,
             dashSize: Math.max(0.4, radius * 0.03),
             gapSize: Math.max(0.3, radius * 0.025),
             transparent: true,
-            opacity: 0.42,
+            opacity: 0.55,
+            depthWrite: false,
           });
       const line = new THREE.Line(geo, mat);
-      if (!arc.isActive) line.computeLineDistances();
+      line.computeLineDistances();
       line.raycast = () => {};
       this.group.add(line);
+      }
 
       const labelHour = arc.id === 'jun' ? 9.0 : arc.id === 'dec' ? 14.8 : 15.4;
       const limbPos = computeSolarPosition(latDeg, arc.date, labelHour, northDeg);
@@ -455,6 +563,23 @@ export class SunDomeController {
         const labelWorld = center.clone().addScaledVector(limbPos.threeDir, radius * 1.12);
         this._addProjectedLabel(arc.label, labelWorld, `sundome-arc-lbl${arc.isActive ? ' is-active' : ''}`, true);
       }
+    }
+
+    // Titik jam genap di lintasan aktif, dan sampel jam untuk menggeser matahari.
+    for (let h = 5; h <= 19.001; h += 0.1) {
+      const p = computeSolarPosition(latDeg, dateStr, h, northDeg);
+      if (p.altitudeDeg > 0) this._sunSamples.push({ h, p: center.clone().addScaledVector(p.threeDir, radius) });
+    }
+    for (let h = 6; h <= 18; h += 2) {
+      const p = computeSolarPosition(latDeg, dateStr, h, northDeg);
+      if (p.altitudeDeg <= 0) continue;
+      const dot = new THREE.Mesh(
+        new THREE.SphereGeometry(Math.max(0.06, R * 0.0055), 12, 8),
+        new THREE.MeshBasicMaterial({ color: colSun, toneMapped: false }),
+      );
+      dot.position.copy(center.clone().addScaledVector(p.threeDir, radius));
+      dot.raycast = () => {};
+      this.group.add(dot);
     }
 
     // 4. Active sun orb + halo + dashed ray to center
@@ -466,21 +591,27 @@ export class SunDomeController {
         clampedDir.normalize();
       }
       const sunPos = center.clone().addScaledVector(clampedDir, radius);
-      const orbR = Math.max(0.45, Math.min(radius * 0.036, 4.5));
+      const orbR = Math.max(0.45, Math.min(radius * 0.035, 4.5));
+      this.sunPosThree = sunPos.clone();
 
-      const coreGeo = new THREE.SphereGeometry(orbR, 20, 16);
-      const coreMat = new THREE.MeshBasicMaterial({ color: colSun });
-      const coreMesh = new THREE.Mesh(coreGeo, coreMat);
+      const coreMesh = new THREE.Mesh(
+        new THREE.SphereGeometry(orbR, 24, 16),
+        new THREE.MeshBasicMaterial({ color: colSun, toneMapped: false }),
+      );
       coreMesh.position.copy(sunPos);
       coreMesh.raycast = () => {};
+      coreMesh.renderOrder = 6;
       this.group.add(coreMesh);
-
-      const haloGeo = new THREE.SphereGeometry(orbR * 1.85, 20, 16);
-      const haloMat = new THREE.MeshBasicMaterial({ color: colSun, transparent: true, opacity: 0.24 });
-      const haloMesh = new THREE.Mesh(haloGeo, haloMat);
-      haloMesh.position.copy(sunPos);
-      haloMesh.raycast = () => {};
-      this.group.add(haloMesh);
+      for (const [k, op] of [[7, 0.9], [10, dark ? 0.16 : 0.12]]) {
+        const sp = new THREE.Sprite(
+          new THREE.SpriteMaterial({ map: haloTexture(), color: colSun, transparent: true, opacity: op, depthWrite: false, toneMapped: false }),
+        );
+        sp.scale.setScalar(orbR * k);
+        sp.position.copy(sunPos);
+        sp.raycast = () => {};
+        sp.renderOrder = 6;
+        this.group.add(sp);
+      }
 
       const rayGeo = new THREE.BufferGeometry().setFromPoints([sunPos, center]);
       const rayMat = new THREE.LineDashedMaterial({
@@ -488,7 +619,8 @@ export class SunDomeController {
         dashSize: Math.max(0.35, radius * 0.025),
         gapSize: Math.max(0.35, radius * 0.025),
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.75,
+        depthWrite: false,
       });
       const rayLine = new THREE.Line(rayGeo, rayMat);
       rayLine.computeLineDistances();
@@ -576,6 +708,25 @@ export class SunDomeController {
       }
     }
 
+    if (this.sunBtn) {
+      let shown = false;
+      if (this.isVisible && this.sunPosThree) {
+        this._projVec.copy(this.sunPosThree).project(camera);
+        const { x, y, z } = this._projVec;
+        if (z >= -1 && z <= 1 && Math.abs(x) <= 0.98 && Math.abs(y) <= 0.98) {
+          const px = (x * 0.5 + 0.5) * width;
+          const py = (-y * 0.5 + 0.5) * height;
+          this.sunBtn.style.display = 'block';
+          this.sunBtn.style.transform = `translate3d(${px.toFixed(1)}px, ${py.toFixed(1)}px, 0) translate(-50%, -50%)`;
+          if (this.handleLbl && this.sunDragging) {
+            this.handleLbl.style.transform = `translate3d(${px.toFixed(1)}px, ${(py - 22).toFixed(1)}px, 0) translate(-50%, -100%)`;
+          }
+          shown = true;
+        }
+      }
+      if (!shown && !this.sunDragging) this.sunBtn.style.display = 'none';
+    }
+
     // S2: Project building bounding box to 2D screen rect to hide occluded/overlapping arc labels
     let bMinX = Infinity;
     let bMaxX = -Infinity;
@@ -625,4 +776,21 @@ export class SunDomeController {
       }
     }
   }
+}
+
+let _haloTex = null;
+function haloTexture() {
+  if (_haloTex) return _haloTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.25, 'rgba(255,255,255,0.55)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  _haloTex = new THREE.CanvasTexture(c);
+  _haloTex.colorSpace = THREE.SRGBColorSpace;
+  return _haloTex;
 }

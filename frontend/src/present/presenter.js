@@ -433,7 +433,7 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
   if (!capture) frame();
 
   /** Gambar satu slide (mode capture): JPEG data URL dengan awan dan burung pada waktu tetap. */
-  function shot(id, { time = 20000, quality = 0.92, zoom = 1, labels = false, heat = null, shiftLeft = 0, shiftRight = 0, shiftUp = 0, fit = null, pose = null, project = null, dome: domeOn = null, context = true, birdsInView = false } = {}) {
+  function shot(id, { time = 20000, quality = 0.92, zoom = 1, labels = false, heat = null, shiftLeft = 0, shiftRight = 0, shiftUp = 0, fit = null, pose = null, project = null, dome: domeOn = null, context = true, birdsInView = false, skyOn = true } = {}) {
     const i = slides.findIndex((x) => x.id === id);
     if (maket.site) maket.site.visible = context; // tampak: konteks di depan fasad disembunyikan
     if (i < 0) return null;
@@ -460,7 +460,8 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
     else if (heat !== null) maket.setHeat(heat ? (code) => heatColor(ottvByCode[code] ?? 0) : null); // paksa heatmap / warna material
     dome.setOpacity(domeK(time));
     stage.scene.background.lerpColors(bgBase, bgHeat, bgK(time));
-    if (sky) {
+    if (sky && capture) { birds.group.visible = Boolean(skyOn); clouds.group.visible = sky === true && Boolean(skyOn); }
+    if (sky && skyOn) {
       clouds.tick(stage.camera, time / 1000, cam.dist, false);
       let bt = time;
       if (birdsInView) {

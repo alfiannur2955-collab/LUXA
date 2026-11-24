@@ -171,21 +171,8 @@ ul.do b { color: var(--ink); font-weight: 600; }
 .pt .mat { grid-template-columns: 1fr; row-gap: 3mm; }
 .pt .keyimg { width: 54mm; }
 /* sampul: gambar melebur ke halaman di semua tepi, tirai diberi tekstur awan */
-.cover .veil { background: linear-gradient(90deg, var(--bg) 0%, var(--bg8) 30%, var(--bg0) 46%),
-  linear-gradient(0deg, var(--bg) 0%, var(--bg) 14%, var(--bg8) 24%, var(--bg0) 36%),
-  linear-gradient(270deg, var(--bg) 0%, var(--bg0) 14%), linear-gradient(180deg, var(--bg) 0%, var(--bg0) 16%); }
-.pt.cover .veil { background: linear-gradient(180deg, var(--bg) 0%, var(--bg8) 16%, var(--bg0) 30%),
-  linear-gradient(0deg, var(--bg) 0%, var(--bg) 36%, var(--bg8) 41%, var(--bg0) 50%),
-  linear-gradient(90deg, var(--bg) 0%, var(--bg0) 10%), linear-gradient(270deg, var(--bg) 0%, var(--bg0) 10%); }
-.cover .clouds { position: absolute; inset: 0; background-size: cover; background-position: center; pointer-events: none;
-  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 26%, transparent 50%), linear-gradient(0deg, #000 0%, #000 22%, transparent 42%),
-    linear-gradient(270deg, #000 0%, transparent 20%), linear-gradient(180deg, #000 0%, transparent 22%);
-  mask-image: linear-gradient(90deg, #000 0%, #000 26%, transparent 50%), linear-gradient(0deg, #000 0%, #000 22%, transparent 42%),
-    linear-gradient(270deg, #000 0%, transparent 20%), linear-gradient(180deg, #000 0%, transparent 22%); }
-.pt.cover .clouds { -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 18%, transparent 34%), linear-gradient(0deg, #000 0%, #000 40%, transparent 56%),
-    linear-gradient(90deg, #000 0%, transparent 16%), linear-gradient(270deg, #000 0%, transparent 16%);
-  mask-image: linear-gradient(180deg, #000 0%, #000 18%, transparent 34%), linear-gradient(0deg, #000 0%, #000 40%, transparent 56%),
-    linear-gradient(90deg, #000 0%, transparent 16%), linear-gradient(270deg, #000 0%, transparent 16%); }
+/* sampul: tirai, tepi lembut, dan awan tipis sudah dilebur ke gambarnya (lebih ringan saat dicetak) */
+.cover .veil { display: none; }
 .pt.p3 .txt { bottom: 128mm; }
 .pt .fig svg { max-height: 120mm; }
 .facwide { flex: 1; min-height: 30mm; display: flex; flex-direction: column; gap: 3mm; }
@@ -385,7 +372,7 @@ function finish(state, c) {
 
   // ---- 01 Sampul
   const p1 = `<section class="pg${dk} cover">
-    <div class="bg"><img src="${assets.cover || assets.iso?.img}" alt=""></div><div class="veil"></div>${assets.clouds ? `<div class="clouds" style="background-image:url(${assets.clouds})"></div>` : ''}
+    <div class="bg"><img src="${assets.cover || assets.iso?.img}" alt=""></div><div class="veil"></div>
     ${top('01 Sampul', 1)}
     <div class="txt">
       <div class="hd"><p class="cover-k">Laporan OTTV · SNI 6389:2020</p><h1>${esc(name)}</h1>

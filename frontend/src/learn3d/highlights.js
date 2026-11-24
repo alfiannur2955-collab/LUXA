@@ -42,9 +42,14 @@ export function createFacadeOverlay(stage) {
 export function createSunMarker(stage, { radius = 330, center = [0, 0, 0] } = {}) {
   const c = new THREE.Vector3(...center);
   const group = new THREE.Group();
-  const disc = new THREE.Mesh(new THREE.SphereGeometry(9, 24, 16), new THREE.MeshBasicMaterial({ color: stage.palette.heat }));
-  const halo = new THREE.Mesh(new THREE.SphereGeometry(16, 24, 16), new THREE.MeshBasicMaterial({ color: stage.palette.heat, transparent: true, opacity: 0.22, depthWrite: false }));
-  disc.add(halo);
+  const col = stage.palette.heat;
+  const disc = new THREE.Mesh(new THREE.SphereGeometry(9, 24, 16), new THREE.MeshBasicMaterial({ color: col, toneMapped: false }));
+  // cahaya lembut seperti kubah Simulasi dan Presentasi (ukuran bola tetap)
+  for (const [k, op] of [[7, 0.85], [10, 0.14]]) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture(), color: col, transparent: true, opacity: op, depthWrite: false, toneMapped: false }));
+    sp.scale.setScalar(9 * k);
+    disc.add(sp);
+  }
   group.add(disc);
 
   const today = new Date();
@@ -58,9 +63,19 @@ export function createSunMarker(stage, { radius = 330, center = [0, 0, 0] } = {}
     pts.push(p);
     samples.push({ h, p, s });
   }
-  const path = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: stage.palette.heat, dashSize: 8, gapSize: 6, transparent: true, opacity: 0.85 }));
-  path.computeLineDistances();
+  // lintasan tegas (tabung tipis; garis WebGL biasa selalu 1 piksel) + titik jam genap
+  const path = new THREE.Mesh(
+    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts, false, 'centripetal'), Math.max(64, pts.length), radius * 0.0028, 6, false),
+    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.95, depthWrite: false, toneMapped: false }),
+  );
   group.add(path);
+  for (let h = 6; h <= 18; h += 2) {
+    const s = at(h);
+    if (s.el <= 0) continue;
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(radius * 0.0055, 12, 8), new THREE.MeshBasicMaterial({ color: col, toneMapped: false }));
+    dot.position.copy(c).addScaledVector(dirFrom(s.az, s.el), radius);
+    group.add(dot);
+  }
   group.visible = false;
   stage.scene.add(group);
 
@@ -476,4 +491,21 @@ export function createFacadeBands(stage, { facadeX = -14, z0 = -13.6, z1 = 1.6, 
       for (const k of ['wall', 'glass']) meshes[k].material.opacity = k === kind ? pulse * amount : 0;
     },
   };
+}
+
+let _glowTex = null;
+function glowTexture() {
+  if (_glowTex) return _glowTex;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 128;
+  const g = cv.getContext('2d');
+  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.25, 'rgba(255,255,255,0.55)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 128, 128);
+  _glowTex = new THREE.CanvasTexture(cv);
+  _glowTex.colorSpace = THREE.SRGBColorSpace;
+  return _glowTex;
 }

@@ -2137,6 +2137,7 @@ async function bootstrap() {
   sunDomeCtrl.setCallbacks({
     onDragStateChange: (locked) => viewer.setInteractionLocked(locked),
     onRadiusCommit: (r) => handleChangeSunDomeRadius(r),
+    onHourChange: (h) => handleChangeSunHour(h),
   });
   viewer.attachSunDomeController(sunDomeCtrl);
 

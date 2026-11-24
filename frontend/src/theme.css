@@ -1284,6 +1284,32 @@ body.is-d5-rotating * {
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.34), 0 0 0 7px color-mix(in srgb, var(--sun) 38%, transparent);
 }
 
+.d5-sun-handle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  pointer-events: auto;
+  cursor: grab;
+  transition: box-shadow 0.15s ease;
+}
+
+.d5-sun-handle:hover,
+.d5-sun-handle:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--sun) 55%, transparent);
+  outline: none;
+}
+
+.d5-sun-handle.is-dragging {
+  cursor: grabbing;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--sun) 70%, transparent);
+}
+
 .d5-north-handle {
   cursor: grab;
   width: 28px;
