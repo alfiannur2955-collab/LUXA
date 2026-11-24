@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from loaders.sanity import dedupe_surface_groups, looks_like_frame
 from ladybug_geometry.geometry3d.pointvector import Vector3D
 
 from materials_and_epw import (
@@ -1723,8 +1724,21 @@ def analyze_building_ottv(
     unknown_groups: List[RawGroupMesh] = []
     group_summaries: List[Dict[str, Any]] = []
 
+    geo_reclassified: List[Dict[str, Any]] = []
     for rg in raw_groups:
         eff_cat = params.group_category_overrides.get(rg.group_name, rg.default_category)
+        # AUDIT-03: grup "kaca" yang secara geometri berupa batang/profil (mullion, transom) = rangka.
+        # Pilihan eksplisit pengguna (group_category_overrides) selalu dihormati.
+        if eff_cat == "glazing" and rg.group_name not in params.group_category_overrides:
+            is_frame_geo, lin_frac = looks_like_frame(rg)
+            if is_frame_geo:
+                eff_cat = "frame"
+                geo_reclassified.append({
+                    "group_name": rg.group_name,
+                    "from_category": "glazing",
+                    "to_category": "frame",
+                    "linear_area_fraction": round(lin_frac, 3),
+                })
         if eff_cat == "frame":
             frame_groups.append(rg)
         elif eff_cat in ("shading", "context_shading"):
@@ -1742,6 +1756,9 @@ def analyze_building_ottv(
             surface_groups.append((rg, eff_cat))
         else:
             unknown_groups.append(rg)
+
+    # AUDIT-02: face kembar (copy-paste / objek tertumpuk) dihitung sekali saja
+    surface_groups, dedupe_stats = dedupe_surface_groups(surface_groups)
 
     # M7: Do NOT silently coerce 'unknown' groups into 'wall' — user must confirm roles in Periksa Model
     if not surface_groups:
@@ -3304,7 +3321,42 @@ def analyze_building_ottv(
                 ),
                 "detail": {"detected_glazing_groups": 0, "effective_wwr": 0.0},
             })
+    if dedupe_stats.get("conflicts"):
+        # Kaca menimpa dinding dsb.: mana yang benar hanya diketahui perancang -> wajib dikonfirmasi
+        summary_warnings.append({
+            "code": "DUPLICATE_FACE_CONFLICT",
+            "message": (
+                "Ada bidang yang tertumpuk tepat di posisi sama tetapi berbeda peran: "
+                + "; ".join(
+                    f"{c['kept_group']} ({c['kept_category']}) menimpa {c['dropped_group']} ({c['dropped_category']}), {c['area_m2']} m²"
+                    for c in dedupe_stats["conflicts"]
+                )
+                + ". Yang dihitung adalah peran pertama. Periksa model dan hapus salah satunya."
+            ),
+            "detail": {"conflicts": dedupe_stats["conflicts"]},
+        })
     is_provisional = len(summary_warnings) > 0
+    if dedupe_stats.get("removed_faces"):
+        summary_warnings.append({
+            "code": "DUPLICATE_FACES_REMOVED",
+            "message": (
+                f"{dedupe_stats['removed_faces']} bidang kembar ({dedupe_stats['removed_area_m2']} m²) "
+                "dihitung sekali saja: "
+                + ", ".join(f"{g['group_name']} ({g['removed_faces']})" for g in dedupe_stats["groups"])
+                + ". Biasanya akibat objek ter-copy-paste di posisi yang sama."
+            ),
+            "detail": dedupe_stats,
+        })
+    if geo_reclassified:
+        summary_warnings.append({
+            "code": "GEOMETRY_RECLASSIFIED",
+            "message": (
+                "Grup berikut bernama kaca tetapi bentuknya batang/profil sehingga dihitung sebagai rangka: "
+                + ", ".join(f"{g['group_name']} ({g['linear_area_fraction']*100:.0f}% berbentuk batang)" for g in geo_reclassified)
+                + ". Bila keliru, ubah perannya di tahap Periksa Model."
+            ),
+            "detail": {"groups": geo_reclassified},
+        })
     if is_sni_mode and sf_source_info.get("warning"):
         summary_warnings.append({
             "code": "SF_CITY_FALLBACK",

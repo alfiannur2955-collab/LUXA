@@ -235,7 +235,6 @@ def test_mullion_bukan_kaca(tmp_path, base, name):
 # Kebiasaan modeling nyata ("model jahil")
 # ----------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="AUDIT-02: face kembar tidak dideduplikasi & tanpa peringatan")
 def test_geometri_dobel_tidak_dihitung_dua_kali(tmp_path, base):
     """Copy-paste tak sengaja (objek kembar di posisi sama) sangat umum di model mahasiswa."""
     parts = base_parts()
@@ -338,7 +337,6 @@ def test_menara_twisted_luas_panel(tmp_path):
     assert math.isclose(glz_area(r), expected, rel_tol=0.01), f"kaca {glz_area(r)} vs geometri {expected}"
 
 
-@pytest.mark.xfail(strict=True, reason="AUDIT-02: face kembar tidak dideduplikasi & tanpa peringatan")
 def test_dobel_sebagian_tidak_mengubah_ottv(tmp_path, base):
     p = base_parts()
     g = p[1]
@@ -347,9 +345,9 @@ def test_dobel_sebagian_tidak_mengubah_ottv(tmp_path, base):
 
 
 @pytest.mark.parametrize("name", [
-    pytest.param("CW_Vertical", marks=pytest.mark.xfail(strict=True, reason="AUDIT-03: kotak mullion bernama konteks CW dianggap kaca")),
-    pytest.param("Curtain Wall Grid", marks=pytest.mark.xfail(strict=True, reason="AUDIT-03: kotak mullion bernama konteks CW dianggap kaca")),
-    pytest.param("Kaca Rangka", marks=pytest.mark.xfail(strict=True, reason="AUDIT-03: token kaca mengalahkan token rangka")),
+    "CW_Vertical",
+    "Curtain Wall Grid",
+    "Kaca Rangka",
 ])
 def test_mullion_nama_ambigu_bukan_kaca(tmp_path, base, name):
     """Kotak tipis-dalam di depan kaca secara geometri adalah rangka, apa pun namanya."""
@@ -376,3 +374,62 @@ def test_paritas_format(tmp_path, fmt, case):
     r = analyze_building_ottv(path, os.path.basename(path), prm)
     assert abs(r["ottv_total_wm2"] - ref["ottv_total_wm2"]) <= OTTV_TOL
     assert math.isclose(glz_area(r), glz_area(ref), rel_tol=0.005)
+
+
+# ----------------------------------------------------------------------------
+# Pengaman perbaikan AUDIT-02 / AUDIT-03
+# ----------------------------------------------------------------------------
+
+def _codes(r: Dict) -> List[str]:
+    return [w.get("code") for w in (r["summary"].get("warnings") or [])]
+
+
+def test_dobel_memberi_peringatan(tmp_path):
+    p = base_parts()
+    r = run(tmp_path, p + [ms.MeshPart(p[1].name, p[1].material_name, p[1].color_rgb, p[1].transparency, list(p[1].quads))], "dobel_warn")
+    assert "DUPLICATE_FACES_REMOVED" in _codes(r)
+    assert r["summary"]["is_provisional"] is False, "dobel sekategori sudah beres otomatis, tidak perlu jadi hasil sementara"
+
+
+def test_dobel_lintas_kategori_wajib_konfirmasi(tmp_path):
+    """Kaca ditumpuk persis di atas dinding: mana yang benar hanya perancang yang tahu."""
+    p = base_parts()
+    wall = p[0]
+    fake_glz = ms.MeshPart("Kaca Tambahan", "Kaca Tambahan", (0.5, 0.7, 0.9), 0.7, quads=list(wall.quads[:4]))
+    r = run(tmp_path, p + [fake_glz], "dobel_konflik")
+    assert "DUPLICATE_FACE_CONFLICT" in _codes(r)
+    assert r["summary"]["is_provisional"] is True
+
+
+def test_mullion_ambigu_memberi_peringatan(tmp_path):
+    r = run(tmp_path, base_parts() + [mullion_part("CW_Vertical")], "mul_warn")
+    assert "GEOMETRY_RECLASSIFIED" in _codes(r)
+
+
+def test_pilihan_pengguna_mengalahkan_geometri(tmp_path):
+    path = str(tmp_path / "ovr.3dm")
+    ms.write_3dm(path, base_parts() + [mullion_part("CW_Vertical")])
+    prm = EnvelopeParameters(); prm.calculation_mode = "sni"
+    prm.group_category_overrides = {"CW_Vertical :: CW_Vertical": "glazing"}
+    r = analyze_building_ottv(path, "ovr.3dm", prm)
+    assert "GEOMETRY_RECLASSIFIED" not in _codes(r)
+
+
+def _glass_boxes(thick: float, width: float, height: float, name: str) -> ms.MeshPart:
+    """Panel kaca berbentuk kotak tebal di pita jendela sisi selatan (y = -10)."""
+    quads = []
+    for f in range(FLOORS):
+        z0 = f * FH + 1.2
+        x = -12.0
+        while x + width <= 12.0 + 1e-6:
+            quads += ms.make_box_quads(x, x + width, -10.0 - thick, -10.0, z0, z0 + height)
+            x += width
+    return ms.MeshPart(name, name, (0.5, 0.7, 0.9), 0.7, quads=quads)
+
+
+@pytest.mark.parametrize("thick,width,height", [(0.024, 1.5, 1.6), (0.032, 1.2, 1.6), (0.024, 0.25, 1.6), (0.01, 0.3, 1.6)])
+def test_kaca_asli_tidak_dianggap_rangka(tmp_path, thick, width, height):
+    walls = ms.MeshPart("Dinding", "Dinding", (0.7, 0.7, 0.7), 0.0, quads=[q for q in base_parts()[0].quads])
+    r = run(tmp_path, [walls, _glass_boxes(thick, width, height, "Kaca Panel")], f"glass_{thick}_{width}")
+    assert "GEOMETRY_RECLASSIFIED" not in _codes(r), f"kaca {thick*1000:.0f} mm x {width} m salah dianggap rangka"
+    assert glz_area(r) > 0
