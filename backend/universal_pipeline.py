@@ -53,6 +53,7 @@ from loaders.floors import (  # noqa: F401  (diekspor ulang)
 )
 from loaders.ifc import _parse_ifc_with_ifcopenshell, ifcopenshell  # noqa: F401
 from loaders.mesh import _parse_obj_with_materials
+from loaders.sanity import looks_like_frame
 from loaders.normalize import (  # noqa: F401
     _filter_thin_edge_slivers_on_group,
     _merge_coplanar_tris_to_quads,
@@ -810,6 +811,20 @@ def load_universal_model_stages_1_and_2(
             final_groups.extend(decomposed)
         else:
             final_groups.append(rg)
+
+    # A3-06/AUDIT-03: cek geometri di tahap klasifikasi supaya inspeksi dan hasil konsisten.
+    # Grup "kaca" yang sebagian besar berbentuk batang/profil (mullion, transom) = rangka.
+    for rg in final_groups:
+        if rg.default_category == "glazing" and not rg.is_auto_split_child:
+            is_frame_geo, lin_frac = looks_like_frame(rg)
+            if is_frame_geo:
+                rg.default_category = "frame"
+                rg.geometry_reclassified_from = "glazing"
+                rg.linear_area_fraction = round(float(lin_frac), 3)
+                audit.notes.append(
+                    f"Grup '{rg.group_name}' bernama kaca tetapi {lin_frac * 100:.0f}% luasnya berbentuk batang/profil, "
+                    "sehingga dianggap rangka. Ubah perannya bila keliru."
+                )
 
     for idx, rg in enumerate(final_groups):
         rg.group_id = f"R-{idx + 1}"

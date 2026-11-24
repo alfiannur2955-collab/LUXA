@@ -29,6 +29,9 @@ class RawGroupMesh:
     is_auto_split_child: bool = False
     is_external_bim: Optional[bool] = None
     thermal_u_bim: Optional[float] = None
+    # A3-06: diisi bila peran diubah oleh cek geometri di tahap klasifikasi (mis. "kaca" berbentuk batang -> rangka)
+    geometry_reclassified_from: Optional[str] = None
+    linear_area_fraction: Optional[float] = None
 
 
 @dataclass

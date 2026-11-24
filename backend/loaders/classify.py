@@ -10,11 +10,17 @@ from typing import List, Optional, Tuple
 # M7: TOKEN-BASED ENVELOPE ROLE CLASSIFIER (ID + EN DICTIONARIES + CONFIDENCE)
 # ============================================================================
 
-_SHADING_TOKENS_ID = frozenset({"peneduh", "sirip", "kanopi", "kisi"})
+_SHADING_TOKENS_ID = frozenset({"peneduh", "sirip", "kanopi", "kisi", "krepyak", "jalusi", "tirai", "perforasi", "pergola"})
 _SHADING_TOKENS_EN = frozenset({
     "shade", "shading", "louver", "louvre", "fin", "fins", "overhang",
     "brise", "soleil", "canopy", "sunscreen", "skygarden", "ifcshadingdevice",
+    "perforated", "jalousie", "mesh", "greenwall", "screen",
 })
+# Frasa dua kata yang berarti peneduh / kulit kedua (A3-03, A3-12)
+_SHADING_PHRASES = (
+    frozenset({"secondary", "skin"}), frozenset({"double", "skin"}), frozenset({"expanded", "metal"}),
+    frozenset({"vertical", "garden"}), frozenset({"green", "wall"}), frozenset({"green", "facade"}),
+)
 _SHADING_TOKENS = _SHADING_TOKENS_ID | _SHADING_TOKENS_EN
 
 _SPANDREL_TOKENS_ID = frozenset({"spandrel"})
@@ -28,6 +34,7 @@ _GLAZING_TOKENS_ID = frozenset({"kaca", "jendela", "bukaan"})
 _GLAZING_TOKENS_EN = frozenset({
     "glass", "glas", "glazing", "glaze", "window", "vision", "fenestration",
     "aperture", "skylight", "lowe", "stopsol", "sunergy", "ifcwindow",
+    "gls", "glazed", "polycarbonate", "polikarbonat", "vitrage",
 })
 _GLAZING_TOKENS = _GLAZING_TOKENS_ID | _GLAZING_TOKENS_EN
 _GLAZING_MAT_QUALIFIERS = frozenset({"clear", "tinted"})
@@ -36,10 +43,15 @@ _WALL_TOKENS_ID = frozenset({"dinding", "tembok", "bata", "beton", "plester", "h
 _WALL_TOKENS_EN = frozenset({
     "wall", "cladding", "acp", "alucobond", "precast", "concrete", "masonry",
     "brick", "aac", "plaster", "verputz", "facade", "ifcwall", "ifcwallstandardcase",
-    "grc", "parapet",
+    "grc", "parapet", "wpc", "sandwich", "stone", "batu",
 })
 _WALL_TOKENS = _WALL_TOKENS_ID | _WALL_TOKENS_EN
 _SOLID_MASONRY_TOKENS = frozenset({"bata", "brick", "masonry", "concrete", "beton", "precast", "hebel", "aac", "grc"})
+# Panel/cladding: token logam (aluminium, metal) di sini berarti dinding/cladding, bukan rangka (A3-03)
+_CLADDING_TOKENS = frozenset({"cladding", "acp", "alucobond", "sandwich", "composite"})
+_METAL_TOKENS = frozenset({"aluminium", "aluminum", "metal", "steel", "baja", "zinc", "seng"})
+# Kata "luar" membatalkan token abaikan seperti partisi (Dinding Partisi Luar)
+_EXTERIOR_QUALIFIER_TOKENS = frozenset({"luar", "exterior", "eksterior", "external", "outer", "outside"})
 
 _FRAME_TOKENS_ID = frozenset({"rangka", "kusen", "profil"})
 _FRAME_TOKENS_EN = frozenset({
@@ -47,21 +59,23 @@ _FRAME_TOKENS_EN = frozenset({
     "sash", "aluminium", "aluminum", "metal", "ifcmember",
 })
 _FRAME_TOKENS = _FRAME_TOKENS_ID | _FRAME_TOKENS_EN
+_STRONG_FRAME_TOKENS = frozenset({"rangka", "kusen", "profil", "mullion", "transom", "frame", "sash", "profile"})
 
-_ROOF_TOKENS_ID = frozenset({"atap", "dak", "plafon"})
+_ROOF_TOKENS_ID = frozenset({"atap", "dak", "plafon", "genteng", "spandek"})
 _ROOF_TOKENS_EN = frozenset({"roof", "slab", "ceiling", "ifcslab", "ifcroof"})
 _ROOF_TOKENS = _ROOF_TOKENS_ID | _ROOF_TOKENS_EN
 _FLOOR_ONLY_TOKENS = frozenset({"floor", "lantai"})
 
 _IGNORE_TOKENS_ID = frozenset({
     "interior", "partisi", "tapak", "tanah", "furnitur", "perabot",
-    "pagar", "kolom", "balok",
+    "pagar", "kolom", "balok", "tangga", "toilet", "parkir",
 })
 _IGNORE_TOKENS_EN = frozenset({
     "interior", "partition", "site", "terrain", "earthworks", "ground", "soil",
     "furniture", "furnishing", "virtual", "spatialzone", "core",
     "ifcsite", "ifcspace", "ifcfurnishingelement", "natur", "erde",
     "railing", "balustrade", "column", "beam", "ifccolumn", "ifcbeam",
+    "stair", "stairs", "parking",
 })
 _IGNORE_TOKENS = _IGNORE_TOKENS_ID | _IGNORE_TOKENS_EN
 # Konteks: lingkungan sekitar (jalan, blok kota, taman, pohon). Ditampilkan, tidak dihitung, tidak meneduhi.
@@ -70,6 +84,8 @@ _CONTEXT_TOKENS = frozenset({
     "neighbours", "tetangga", "road", "roads", "street", "jalan", "jalanan", "asphalt", "aspal", "sidewalk",
     "pavement", "trotoar", "parcel", "kavling", "park", "taman", "landscape", "lansekap", "lanskap",
     "tree", "trees", "pohon", "trunk",
+    "mobil", "car", "cars", "vehicle", "manusia", "orang", "people", "person", "human",
+    "kontur", "contour", "topography", "topografi",
 })
 _WALL_HEAD_TOKENS = frozenset({"dinding", "wall", "tembok", "ifcwall", "ifcwallstandardcase"})
 _ENVELOPE_INTERIOR_HEAD_TOKENS = _WALL_HEAD_TOKENS | frozenset({"kaca", "glass", "glazing", "jendela", "window"})
@@ -154,8 +170,13 @@ def classify_layer_or_material_with_confidence(
         return "context", 0.9, f"Token konteks sekitar: {', '.join(matched)}"
 
     # 1. Explicit Ignore (Interior, Site, Terrain, Partition, Core, Railing/Balustrade/Pagar, Kolom/Balok)
-    if all_tokens & _IGNORE_TOKENS:
-        matched = sorted(all_tokens & _IGNORE_TOKENS)
+    ignore_hits = set(all_tokens & _IGNORE_TOKENS)
+    if "hollow" in all_tokens:
+        ignore_hits.discard("core")  # "Hollow Core" = jenis panel/pelat, bukan inti bangunan
+    if (all_tokens & _EXTERIOR_QUALIFIER_TOKENS) and (all_tokens & (_WALL_TOKENS | _GLAZING_TOKENS)):
+        ignore_hits -= {"partisi", "partition"}  # "Dinding Partisi Luar" tetap selubung
+    if ignore_hits:
+        matched = sorted(ignore_hits)
         return "ignore", 0.92, f"Token non-selubung/abaikan: {', '.join(matched)}"
 
     # 1b. Ordered Indonesian/English interior wall/glazing pattern: 'dalam'/'interior' after dinding/wall/kaca/glass -> ignore
@@ -173,6 +194,9 @@ def classify_layer_or_material_with_confidence(
             return "ignore", 0.92, "Pelat lantai internal (bukan atap)"
 
     # 2. Explicit Shading devices ('fin'/'fins' as exact token, never inside 'finish')
+    for phrase in _SHADING_PHRASES:
+        if phrase <= all_tokens:
+            return "shading", 0.93, f"Frasa peneduh: {' '.join(sorted(phrase))}"
     if all_tokens & _SHADING_TOKENS:
         matched = sorted(all_tokens & _SHADING_TOKENS)
         return "shading", 0.95, f"Token peneduh: {', '.join(matched)}"
@@ -189,12 +213,22 @@ def classify_layer_or_material_with_confidence(
         matched = sorted(all_tokens & _INSULATION_TOKENS)
         return "spandrel", 0.90, f"Insulasi dalam konteks Curtain Wall: {', '.join(matched)}"
 
+    # 3b. Rangka jendela/kaca: kata rangka yang kuat + kata kaca = rangka (Window Frame, Rangka Kaca, Kusen Jendela)
+    strong_frame = all_tokens & _STRONG_FRAME_TOKENS
+    if strong_frame and (all_tokens & _GLAZING_TOKENS):
+        return "frame", 0.85, f"Rangka kaca/jendela: {', '.join(sorted(strong_frame))}"
+
     # 4. Glazing / Fenestration (check material tokens & overall tokens)
     if (all_tokens & _GLAZING_TOKENS) or (
         (mat_tokens & _GLAZING_MAT_QUALIFIERS) and (has_cw_ctx or bool(all_tokens & _GLAZING_TOKENS))
     ):
         matched = sorted((all_tokens & _GLAZING_TOKENS) | (mat_tokens & _GLAZING_MAT_QUALIFIERS))
         return "glazing", 0.95, f"Token kaca/bukaan: {', '.join(matched)}"
+
+    # 4b. Panel/cladding logam = dinding (Aluminium Composite Panel, Metal Cladding, Aluminium Panel)
+    if (all_tokens & _CLADDING_TOKENS) or ("panel" in all_tokens and all_tokens & _METAL_TOKENS):
+        matched = sorted((all_tokens & _CLADDING_TOKENS) | ({"panel"} & all_tokens))
+        return "wall", 0.90, f"Token panel/cladding: {', '.join(matched)}"
 
     # 5. Material-level Frame tokens take priority over generic layer name (e.g. 'A-WALL :: Metal - Aluminium')
     if mat_tokens & _FRAME_TOKENS:
@@ -228,8 +262,9 @@ def classify_layer_or_material_with_confidence(
         matched = sorted(all_tokens & _ROOF_TOKENS)
         return "roof", 0.92, f"Token atap/plat: {', '.join(matched)}"
     if all_tokens & _FLOOR_ONLY_TOKENS:
+        # A3-03: layer "Lantai"/"Floor" saja = pelat lantai, bukan atap (atap butuh token atap/roof/dak)
         matched = sorted(all_tokens & _FLOOR_ONLY_TOKENS)
-        return "roof", 0.78, f"Token lantai/plat datar: {', '.join(matched)}"
+        return "ignore", 0.80, f"Pelat lantai (bukan selubung/atap): {', '.join(matched)}"
 
     # 10. Generic Curtain Wall plate without specific glass/spandrel/frame material
     if has_cw_ctx:

@@ -508,3 +508,42 @@ def test_peneduh_lepas_tidak_lebih_baik_dari_menempel(tmp_path):
         assert det["ottv_total_wm2"] >= attached["ottv_total_wm2"] - 1e-6
         assert "SHADING_DETACHED_APPROX" in _codes(det)
     assert "SHADING_DETACHED_APPROX" not in _codes(attached)
+
+
+# ----------------------------------------------------------------------------
+# A3-06: cek geometri terlihat sejak tahap klasifikasi/inspeksi
+# A3-08: pelat menjorok di depan kaca = peneduh, apa pun namanya
+# ----------------------------------------------------------------------------
+
+def test_reklasifikasi_geometri_terlihat_di_tahap_inspeksi(tmp_path):
+    from universal_pipeline import load_universal_model_stages_1_and_2
+    path = str(tmp_path / "insp.3dm")
+    ms.write_3dm(path, base_parts() + [mullion_part("CW_Vertical")])
+    groups, audit = load_universal_model_stages_1_and_2(filepath=path)
+    g = [x for x in groups if x.group_name.startswith("CW_Vertical")][0]
+    assert g.default_category == "frame"
+    assert g.geometry_reclassified_from == "glazing"
+    assert any("CW_Vertical" in n for n in audit.notes)
+
+
+def _slab(name: str, depth: float, inner: float) -> ms.MeshPart:
+    """Pelat menerus per lantai di sisi y = -10 (selatan): `inner` m ke dalam, `depth` m menjorok keluar."""
+    qs = []
+    for f in range(FLOORS):
+        z = f * FH + 1.2 + 1.6
+        qs.append(((-12.0, -10.0 - depth, z), (12.0, -10.0 - depth, z), (12.0, -10.0 + inner, z), (-12.0, -10.0 + inner, z)))
+    return ms.MeshPart(name, name, (0.6, 0.6, 0.6), 0.0, quads=qs)
+
+
+@pytest.mark.parametrize("name", ["Plat Balkon", "Pelat Lantai", "Balkon", "Layer 07"])
+def test_pelat_balkon_meneduhi_apa_pun_namanya(tmp_path, name):
+    ref = run(tmp_path, base_parts() + [_slab("Kanopi", 1.5, 0.0)], "slab_ref")
+    r = run(tmp_path, base_parts() + [_slab(name, 1.5, 0.0)], f"slab_{name}")
+    assert abs(r["ottv_total_wm2"] - ref["ottv_total_wm2"]) <= OTTV_TOL
+    assert "GEOMETRY_SLAB_SHADING" in _codes(r)
+
+
+def test_pelat_lantai_interior_tidak_meneduhi(tmp_path, base):
+    r = run(tmp_path, base_parts() + [_slab("Pelat Lantai", 0.0, 12.0)], "slab_int")
+    assert_same(base, r, "pelat lantai di dalam bangunan")
+    assert "GEOMETRY_SLAB_SHADING" not in _codes(r)

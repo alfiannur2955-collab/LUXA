@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from loaders.sanity import dedupe_surface_groups, looks_like_frame
+from loaders.sanity import dedupe_surface_groups
 from material_hints import material_suggestions
 from ladybug_geometry.geometry3d.pointvector import Vector3D
 
@@ -1325,6 +1325,7 @@ def _measure_panel_sni_shading_ratios(
     louver_tilt_deg: float = 0.0,
     shading_aabb: Optional[Tuple[np.ndarray, np.ndarray]] = None,
     detail: Optional[Dict[str, Any]] = None,
+    shading_src: Optional[np.ndarray] = None,
 ) -> Tuple[float, float, float]:
     """
     Measures SNI 6389:2020 Lampiran A overhang ratio `R1 = P_h / H` (horizontal overhang),
@@ -1360,6 +1361,8 @@ def _measure_panel_sni_shading_ratios(
         if not np.any(near_mask):
             return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
         shading_tris = shading_tris[near_mask]
+        if shading_src is not None:
+            shading_src = shading_src[near_mask]
     n_raw = np.asarray(panel_normal, dtype=np.float64)
     n_h = np.array([n_raw[0], n_raw[1], 0.0], dtype=np.float64)
     nh_len = float(np.linalg.norm(n_h))
@@ -1457,6 +1460,7 @@ def _measure_panel_sni_shading_ratios(
                 r1_best = r1_meas
                 if detail is not None:
                     detail["ov"] = {
+                        "src": int(shading_src[ov_idx[k_best]]) if shading_src is not None else 0,
                         "gap": float(max(0.0, d_min[ov_idx[k_best]])),
                         "depth": float(own_d[k_best]),
                         "rise": float(rise[k_best]),
@@ -1854,20 +1858,18 @@ def analyze_building_ottv(
 
     geo_reclassified: List[Dict[str, Any]] = []
     detached_shading_panels = 0  # A3-02: panel yang SC-nya dihitung dengan pendekatan peneduh lepas
+    geo_slab_used: Dict[str, int] = {}  # A3-08: grup non-peneduh yang pelatnya meneduhi kaca -> jumlah panel
     for rg in raw_groups:
         eff_cat = params.group_category_overrides.get(rg.group_name, rg.default_category)
-        # AUDIT-03: grup "kaca" yang secara geometri berupa batang/profil (mullion, transom) = rangka.
-        # Pilihan eksplisit pengguna (group_category_overrides) selalu dihormati.
-        if eff_cat == "glazing" and rg.group_name not in params.group_category_overrides:
-            is_frame_geo, lin_frac = looks_like_frame(rg)
-            if is_frame_geo:
-                eff_cat = "frame"
-                geo_reclassified.append({
-                    "group_name": rg.group_name,
-                    "from_category": "glazing",
-                    "to_category": "frame",
-                    "linear_area_fraction": round(lin_frac, 3),
-                })
+        # AUDIT-03/A3-06: cek geometri dilakukan di tahap klasifikasi (universal_pipeline); di sini hanya dilaporkan.
+        # Pilihan eksplisit pengguna (group_category_overrides) selalu menang.
+        if rg.geometry_reclassified_from and rg.group_name not in params.group_category_overrides:
+            geo_reclassified.append({
+                "group_name": rg.group_name,
+                "from_category": rg.geometry_reclassified_from,
+                "to_category": "frame",
+                "linear_area_fraction": float(rg.linear_area_fraction or 0.0),
+            })
         if eff_cat == "frame":
             frame_groups.append(rg)
         elif eff_cat in ("shading", "context_shading"):
@@ -2490,7 +2492,26 @@ def analyze_building_ottv(
             sni_shade_chunks.append(sni_sh_tris_grp)
         if extra_face_shading_tris:
             sni_shade_chunks.append(np.array(extra_face_shading_tris, dtype=np.float64))
+        n_named_tris = int(sum(len(c) for c in sni_shade_chunks))
+        # A3-08: bidang HORIZONTAL dari grup yang namanya bukan peneduh (pelat lantai/balkon, grup tak dikenal)
+        # ikut diperiksa. Bagian di belakang fasad tidak pernah "di depan kaca", jadi yang terhitung hanya
+        # bagian yang menjorok keluar (balkon, pelat kantilever). Bidang dekat tanah diabaikan.
+        geo_slab_names: List[str] = []
+        geo_src_chunks: List[np.ndarray] = []
+        for rg_s in list(ignored_groups) + list(unknown_groups):
+            t_s = _groups_to_tris([rg_s])
+            if len(t_s) == 0:
+                continue
+            n_s = np.cross(t_s[:, 1] - t_s[:, 0], t_s[:, 2] - t_s[:, 0])
+            l_s = np.linalg.norm(n_s, axis=1)
+            zc = t_s[:, :, 2].mean(axis=1)
+            keep = (l_s > 1e-9) & (np.abs(n_s[:, 2]) >= 0.9 * np.maximum(l_s, 1e-12)) & (zc >= z_min_bldg + 1.0) & (zc <= z_max_bldg + 1.0)
+            if np.any(keep):
+                geo_slab_names.append(rg_s.group_name)
+                sni_shade_chunks.append(t_s[keep])
+                geo_src_chunks.append(np.full(int(keep.sum()), len(geo_slab_names), dtype=np.int64))
         sni_shading_tris = np.vstack(sni_shade_chunks) if sni_shade_chunks else np.empty((0, 3, 3), dtype=np.float64)
+        sni_shading_src = np.concatenate([np.zeros(n_named_tris, dtype=np.int64)] + geo_src_chunks) if len(sni_shading_tris) else None
         sni_shading_aabb = (
             (np.min(sni_shading_tris, axis=1), np.max(sni_shading_tris, axis=1))
             if len(sni_shading_tris) > 0
@@ -2504,6 +2525,7 @@ def analyze_building_ottv(
                 sh_det: Dict[str, Any] = {}
                 r1_v, r2_v, phi1_v = _measure_panel_sni_shading_ratios(
                     detail=sh_det,
+                    shading_src=sni_shading_src,
                     panel_verts=p_rec["vertices"],
                     panel_normal=p_rec["normal"],
                     shading_tris=sni_shading_tris,
@@ -2514,6 +2536,10 @@ def analyze_building_ottv(
                     shading_aabb=sni_shading_aabb,
                 )
                 panel_r1_arr[idx_p] = r1_v
+                src_ov = int((sh_det.get("ov") or {}).get("src", 0))
+                if src_ov > 0 and r1_v > 0 and p_rec.get("active"):
+                    nm_ov = geo_slab_names[src_ov - 1]
+                    geo_slab_used[nm_ov] = geo_slab_used.get(nm_ov, 0) + 1
                 panel_r2_arr[idx_p] = r2_v
                 panel_phi1_arr[idx_p] = phi1_v
                 if is_template_method and tpl_shading_reg is not None:
@@ -3501,6 +3527,17 @@ def analyze_building_ottv(
                 "(peneduh selebar celah+kedalaman dikurangi peneduh selebar celah)."
             ),
             "detail": {"panels": int(detached_shading_panels)},
+        })
+    if geo_slab_used:
+        summary_warnings.append({
+            "code": "GEOMETRY_SLAB_SHADING",
+            "message": (
+                "Pelat horizontal yang menjorok di depan kaca dihitung sebagai peneduh (overhang) walau grupnya "
+                "tidak bernama peneduh: "
+                + ", ".join(f"{k} ({v} panel)" for k, v in sorted(geo_slab_used.items(), key=lambda x: -x[1]))
+                + ". Bila bukan peneduh, nonaktifkan grup tersebut di Periksa Model."
+            ),
+            "detail": {"groups": geo_slab_used},
         })
     if geo_reclassified:
         summary_warnings.append({

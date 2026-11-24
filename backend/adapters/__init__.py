@@ -717,6 +717,12 @@ def _estimate_group_confidence(rg: RawGroupMesh) -> Tuple[str, str]:
         return "high", "Metadata BIM IsExternal=False (Interior -> ignore)"
     if rg.is_auto_split_child:
         return "high", "Hasil Auto-Split Geometri (Tier 2)"
+    if rg.geometry_reclassified_from:
+        frac = (rg.linear_area_fraction or 0.0) * 100
+        return "review", (
+            f"Nama menunjukkan {rg.geometry_reclassified_from}, tetapi {frac:.0f}% luasnya berbentuk batang/profil "
+            "sehingga dianggap rangka. Periksa dan ubah perannya bila keliru."
+        )
     _, score, reason = classify_layer_or_material_with_confidence(rg.group_name)
     if score >= 0.80:
         return "high", reason

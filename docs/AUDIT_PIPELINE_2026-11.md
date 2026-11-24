@@ -21,16 +21,16 @@ Skrip probe tidak dimasukkan ke repo. Temuan yang diperbaiki wajib mendapat uji 
 |---|---|---|---|
 | A3-01 | KRITIS | Material | Material default = kaca terbaik di katalog, tidak disimpulkan dari nama, tidak wajib dikonfirmasi — **diperbaiki** |
 | A3-02 | TINGGI | Peneduh | Peneduh berjarak dari fasad dihitung seolah menempel; ada "tebing" ke nol di 1 m — **diperbaiki** |
-| A3-03 | TINGGI | Klasifikasi | Nama yang salah dengan yakin: ACP/Metal Cladding → rangka, Hollow Core Wall → abaikan |
+| A3-03 | TINGGI | Klasifikasi | Nama yang salah dengan yakin: ACP/Metal Cladding → rangka, Hollow Core Wall → abaikan — **diperbaiki** |
 | A3-04 | TINGGI | Performa | Model 24 lantai: hasil 22 MB JSON, memori puncak 319 MB → aplikasi tersendat |
 | A3-05 | TINGGI | Baca file | 3DM berisi Brep/Extrusion tanpa render mesh → "tidak ada geometri" |
-| A3-06 | SEDANG | Klasifikasi | Cek geometri (AUDIT-03) hanya saat hitung; inspeksi dan hasil tidak konsisten |
+| A3-06 | SEDANG | Klasifikasi | Cek geometri (AUDIT-03) hanya saat hitung; inspeksi dan hasil tidak konsisten — **diperbaiki** |
 | A3-07 | SEDANG | Sisi luar | Dua massa dengan celah ≤ 1 m: fasad yang berhadapan dibuang tanpa peringatan |
-| A3-08 | SEDANG | Peneduh | Pelat balkon: dihitung atau tidak bergantung nama ("Slab" ya, "Pelat Lantai" tidak) |
+| A3-08 | SEDANG | Peneduh | Pelat balkon: dihitung atau tidak bergantung nama ("Slab" ya, "Pelat Lantai" tidak) — **diperbaiki** |
 | A3-09 | SEDANG | CI | Paritas engine browser, hitung ulang LibreOffice, dan tes berbasis corpus selalu dilewati di CI |
 | A3-10 | SEDANG | Distribusi | `frontend/dist` lokal bisa basi tanpa peringatan; Node.js tidak ada di laptop pengembang |
 | A3-11 | SEDANG | Hitung | Mode simulasi: konduksi rangka 8% hanya ditambahkan bila model punya grup rangka |
-| A3-12 | RENDAH | Klasifikasi | Token belum dikenal: GL-01, Polycarbonate, Secondary Skin, Perforated, Pergola, Krepyak, Jalusi, Roster, Spandek, dll. |
+| A3-12 | RENDAH | Klasifikasi | Token belum dikenal: GL-01, Polycarbonate, Secondary Skin, Perforated, Pergola, Krepyak, Jalusi, Roster, Spandek, dll. — **sebagian besar diperbaiki** |
 | A3-13 | RENDAH | Hitung | Mode SNI: muka depan mullion tidak masuk luas selubung A_o |
 | A3-14 | TINGGI | Tampilan | Daftar "Lihat catatan" di layar hasil menampilkan "[object Object]" — **diperbaiki** |
 | A3-15 | SEDANG | Hitung | Ganti material cepat (`rematerial`) tidak memperbarui status/peringatan — **diperbaiki** |
@@ -137,6 +137,13 @@ sementara). Yang berbahaya adalah nama yang **salah tapi yakin**:
 panel/cladding/composite. Kata `luar`/`exterior` membatalkan `partisi`/`core`. Tambahkan uji parametrik untuk
 setiap nama di atas. Jangka panjang: template layer LUXA opsional.
 
+**Perbaikan (Nov 2026).** Aturan baru di `loaders/classify.py`: panel/cladding logam = dinding; "hollow"
+membatalkan "core"; kata "luar/exterior" membatalkan "partisi"; frasa dua kata untuk peneduh (secondary skin,
+expanded metal, vertical garden); rangka kuat + kata kaca = rangka; "Lantai" saja = abaikan (bukan atap); token
+baru untuk kaca, dinding, peneduh, atap, dan konteks. Uji: `tests/test_classify_names.py`. Hasil 94 nama nyata:
+60 → 89 benar; sisanya `unknown` (aman). Dampak nyata: IFC Klassiqua 2026 berisi curtain wall bernama
+"AluminiumCladding_2026" yang dulu terbaca rangka; kini dinding, luas selubung +158 m², OTTV 9,59 → 9,09.
+
 ## A3-04 · TINGGI · Hasil terlalu berat untuk browser
 
 **Bukti.** Model twisted (24 lantai, 37 ribu face): 9,3 s di Python desktop, memori puncak 319 MB, hasil
@@ -169,6 +176,10 @@ Cek geometri AUDIT-03 berjalan di `analyze_building_ottv`, bukan di tahap 1–2.
 `CW_Vertical` masih tertulis "kaca", lalu menjadi "rangka" di hasil. **Usulan:** jalankan `looks_like_frame`
 pada tahap klasifikasi, dan tampilkan peringatannya di inspeksi agar pengguna memutuskan sebelum menghitung.
 
+**Perbaikan (Nov 2026).** `looks_like_frame` dijalankan di `universal_pipeline` (tahap 2). Grup yang
+direklasifikasi membawa `geometry_reclassified_from`, tampil di inspeksi dengan status "review" dan alasannya,
+dan engine hanya melaporkannya (`GEOMETRY_RECLASSIFIED`). Pilihan pengguna tetap menang.
+
 ## A3-07 · SEDANG · Celah sempit antar massa
 
 Dua massa 20×10 m berhadapan:
@@ -190,6 +201,12 @@ Pelat 1,5 m di atas tiap pita kaca: "Kanopi" dan "Overhang Beton" → 13,71, "Sl
 sedangkan "Plat Balkon" dan "Balkon" (unknown) serta "Pelat Lantai" (abaikan) → 19,37. Hasil untuk apartemen
 dengan balkon akan sangat bergantung pada penamaan. **Usulan:** pelat horizontal yang menjorok keluar dari
 garis fasad diperlakukan sebagai peneduh berdasarkan geometri, apa pun namanya, dengan peringatan.
+
+**Perbaikan (Nov 2026).** Bidang horizontal dari grup abaikan/tak dikenal ikut diperiksa sebagai peneduh SNI.
+Bagian di belakang fasad tidak pernah berada "di depan kaca", jadi yang terhitung hanya bagian yang menjorok
+(balkon, pelat kantilever). Peringatan `GEOMETRY_SLAB_SHADING` menyebut grup dan jumlah panelnya. Dampak nyata:
+fixture unitized berisi pelat "08_Structure_Slab_Core" yang menjorok hingga 3 m di luar kaca pada beberapa
+lantai; kini meneduhi, OTTV 26,79 → 25,03.
 
 ## A3-09 · SEDANG · Tes penting selalu dilewati di CI
 
