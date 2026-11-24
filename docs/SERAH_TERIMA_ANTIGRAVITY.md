@@ -6,12 +6,12 @@ Baca seluruhnya sebelum mengubah kode. Riwayat lengkap ada di `docs/LOG_PENGERJA
 
 ## 1. Status saat serah-terima
 
-- Branch `main`, commit terakhir kode `ffb6467`. Semua tes lulus (388 lulus, 1 dilewati), `tools/compare_baseline.py` 0 selisih.
+- Branch `main`, commit terakhir kode `e8d604f`. Semua tes lulus (393 lulus, 1 dilewati), `tools/compare_baseline.py` 0 selisih.
 - Model acuan `backend/samples/Fasad_Tower_Twisted.3dm` (milik pengguna): OTTV **34,18** (triple-silver, material
   dikonfirmasi). Opsi studi `corpus/_studi_peneduh/Fasad_Tower_Twisted_OpsiA_SiripTerakota.3dm`: **30,45**.
 - Selesai: AUDIT-01..03, A3-01, A3-02, A3-03, A3-04 Fase 0+1, A3-05, A3-06, A3-07, A3-08, A3-09, A3-10, A3-12 (sebagian), A3-14, A3-15, percepatan
-  engine (raycast, peneduh, rematerial, inspeksi), service worker.
-- Belum: A3-11, A3-13, A3-04 Fase 2–4 (lihat §6).
+  engine (raycast, peneduh, rematerial, inspeksi, T7: cache indeks-Z, vektorisasi round/serializer, SF/SC/material cache), service worker.
+- Belum: A3-11, A3-13 (T5, butuh keputusan), A3-04 Fase 2–4 (T6, opsional; lihat §6).
 
 ## 2. Aturan kerja (wajib)
 
