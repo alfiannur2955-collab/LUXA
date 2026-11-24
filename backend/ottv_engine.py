@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from loaders.sanity import dedupe_surface_groups, looks_like_frame
+from material_hints import material_suggestions
 from ladybug_geometry.geometry3d.pointvector import Vector3D
 
 from materials_and_epw import (
@@ -134,6 +135,8 @@ class EnvelopeParameters:
     disabled_groups: List[str] = field(default_factory=list)
     group_category_overrides: Dict[str, str] = field(default_factory=dict)
     group_material_map: Dict[str, str] = field(default_factory=dict)
+    # A3-01: False = pengguna belum memilih/mengonfirmasi material -> hasil berstatus sementara
+    materials_confirmed: bool = False
     glazing_material_id: Optional[str] = "glz_igu_triple_silver"
     wall_material_id: Optional[str] = "wal_spandrel_insulasi_50"
     frame_material_id: Optional[str] = "frm_aluminium_thermal_break"
@@ -1321,6 +1324,7 @@ def _measure_panel_sni_shading_ratios(
     louver_spacing_m: float = 1.1,
     louver_tilt_deg: float = 0.0,
     shading_aabb: Optional[Tuple[np.ndarray, np.ndarray]] = None,
+    detail: Optional[Dict[str, Any]] = None,
 ) -> Tuple[float, float, float]:
     """
     Measures SNI 6389:2020 Lampiran A overhang ratio `R1 = P_h / H` (horizontal overhang),
@@ -1347,7 +1351,7 @@ def _measure_panel_sni_shading_ratios(
         p_max = np.max(pv, axis=0)
         near_mask = (
             (sh_max[:, 2] >= p_min[2] - 0.5)
-            & (sh_min[:, 2] <= p_max[2] + 1.2)
+            & (sh_min[:, 2] <= p_max[2] + SHADE_MAX_RISE_M + 0.5)
             & (sh_max[:, 0] >= p_min[0] - 12.5)
             & (sh_min[:, 0] <= p_max[0] + 12.5)
             & (sh_max[:, 1] >= p_min[1] - 12.5)
@@ -1389,8 +1393,9 @@ def _measure_panel_sni_shading_ratios(
     u_min = np.min(tri_u, axis=1)
     u_max = np.max(tri_u, axis=1)
 
-    # Candidate triangles projecting in front of the window plane (within 1.0 m of facade plane)
-    in_front = (d_max > 0.04) & (d_min <= 1.0) & (d_max <= 12.0)
+    # Candidate triangles in front of the window plane. A3-02: peneduh lepas sampai SHADE_MAX_GAP_M
+    # dari fasad tetap dibaca; manfaatnya mengecil karena P efektif = kedalaman peneduh tanpa celah.
+    in_front = (d_max > 0.04) & (d_min <= SHADE_MAX_GAP_M) & (d_max <= 12.0)
     if not np.any(in_front):
         return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
 
@@ -1418,7 +1423,7 @@ def _measure_panel_sni_shading_ratios(
         & (t_max[idx_c] >= -half_w + 0.05)
         & (t_min[idx_c] <= half_w - 0.05)
         & (u_min[idx_c] >= half_h - 0.25)
-        & (u_min[idx_c] <= half_h + 0.80)
+        & (u_min[idx_c] <= half_h + SHADE_MAX_RISE_M)
     )
     if np.any(ov_mask):
         ov_idx = idx_c[ov_mask]
@@ -1439,12 +1444,26 @@ def _measure_panel_sni_shading_ratios(
                     cur_a, cur_b = ia, ib
             ov_cov_w += max(0.0, cur_b - cur_a)
         if ov_cov_w >= 0.35 * win_w:
-            proj_h = float(np.max(d_max[ov_idx]))
-            r1_meas = proj_h / win_h
+            # A3-02: SNI (Kunci 1, Gambar 5) mendefinisikan R1 = P/H untuk peneduh yang MENEMPEL di tepi atas
+            # jendela. Untuk peneduh lepas/lebih tinggi LUXA memakai pendekatan: P efektif = kedalaman peneduh
+            # tanpa celah dari fasad, H efektif = tinggi jendela + jarak tepi atas jendela ke peneduh.
+            # Peneduh menempel di tepi atas jendela -> identik dengan SNI.
+            own_d = d_max[ov_idx] - np.maximum(0.0, d_min[ov_idx])
+            rise = np.maximum(0.0, u_min[ov_idx] - half_h)
+            r1_cand = own_d / (win_h + rise)
+            k_best = int(np.argmax(r1_cand))
+            r1_meas = float(r1_cand[k_best])
             if r1_meas > r1_best:
                 r1_best = r1_meas
+                if detail is not None:
+                    detail["ov"] = {
+                        "gap": float(max(0.0, d_min[ov_idx[k_best]])),
+                        "depth": float(own_d[k_best]),
+                        "rise": float(rise[k_best]),
+                        "win_h": float(win_h),
+                    }
                 # Estimate downward tilt angle phi1 from overhang Z drop across depth
-                best_i = ov_idx[int(np.argmax(d_max[ov_idx]))]
+                best_i = ov_idx[k_best]
                 z_span_ov = float(u_max[best_i] - u_min[best_i])
                 d_span_ov = max(0.05, float(d_max[best_i] - max(0.0, d_min[best_i])))
                 phi1_best = max(0.0, min(50.0, math.degrees(math.atan2(z_span_ov, d_span_ov)))) if z_span_ov > 0.02 else 0.0
@@ -1466,7 +1485,8 @@ def _measure_panel_sni_shading_ratios(
         fin_local = np.where(fin_mask)[0]
         fin_idx = idx_c[fin_local]
         fin_ts = t_mid[fin_local]
-        fin_ds = d_max[fin_idx]
+        # A3-02: kedalaman sirip sendiri (celah sirip-kaca tidak ikut dihitung)
+        fin_ds = d_max[fin_idx] - np.maximum(0.0, d_min[fin_idx])
 
         # Cluster close fin faces (e.g. both sides of a 2 cm extruded solid fin) within 0.12 m
         order = np.argsort(fin_ts)
@@ -1486,6 +1506,7 @@ def _measure_panel_sni_shading_ratios(
         clusters.append((float(np.mean(cur_ts)), cur_d))
 
         proj_v = max(c[1] for c in clusters)
+        fin_gap = float(max(0.0, np.min(d_min[fin_idx])))
         if len(clusters) >= 3:
             spacings = [clusters[k + 1][0] - clusters[k][0] for k in range(len(clusters) - 1)]
             valid_sp = [s for s in spacings if s >= 0.15]
@@ -1500,8 +1521,50 @@ def _measure_panel_sni_shading_ratios(
             t0 = clusters[0][0]
             if abs(t0 + half_w) <= 0.45 or abs(t0 - half_w) <= 0.45:
                 r2_best = max(r2_best, proj_v / win_w)
+        if detail is not None and r2_best > 0 and proj_v > 0:
+            detail["fin"] = {"gap": fin_gap, "depth": float(proj_v), "w": float(proj_v / r2_best)}
 
     return round(r1_best, 4), round(r2_best, 4), round(phi1_best, 1)
+
+
+def _superposed_sceff(orient: str, det: Dict[str, Any], r1: float, r2: float, phi1: float, table_mode: str) -> Optional[float]:
+    """A3-02: SC efektif peneduh LEPAS dari fasad / LEBIH TINGGI dari jendela, diturunkan dari tabel SNI.
+
+    Luas bayangan di SNI (Gambar 5/6: As = P·(...)) linear terhadap P dan dipotong oleh tepi jendela,
+    sehingga bayangan peneduh selebar [celah, celah + kedalaman] = bayangan peneduh menempel selebar
+    (celah + kedalaman) dikurangi bayangan peneduh menempel selebar celah. Peneduh di atas jendela
+    setinggi `rise`: bayangan pada jendela = bayangan pada bidang setinggi (H + rise) dikurangi bayangan
+    pada pita setinggi `rise` di atas jendela. Peneduh menempel di tepi atas jendela -> None (pakai SNI
+    langsung). Kombinasi sirip + overhang (egg-crate, G3 = G1 x G2, tidak linear) -> None.
+    """
+    if not det or (r1 > 0 and r2 > 0):
+        return None
+
+    def m(a: float, b: float) -> float:
+        return float(lookup_sceff_detailed(orient, r1_horizontal=a, r2_vertical=b, tilt_deg=phi1, table_mode=table_mode)["sc_eff"])
+
+    if r1 > 0 and "ov" in det:
+        g, d, rise, H = det["ov"]["gap"], det["ov"]["depth"], det["ov"]["rise"], det["ov"]["win_h"]
+        if g < 0.02 and rise < 0.02:
+            return None
+
+        def shade_attached(P: float) -> float:  # fraksi jendela terbayangi peneduh menempel selebar P pada ketinggian rise
+            if P <= 0:
+                return 0.0
+            tall = H + rise
+            s_tall = tall * (1.0 - m(P / tall, 0.0))
+            s_band = rise * (1.0 - m(P / rise, 0.0)) if rise > 1e-3 else 0.0
+            return max(0.0, (s_tall - s_band) / H)
+
+        shade = max(0.0, shade_attached(g + d) - shade_attached(g))
+        return max(0.0, min(1.0, 1.0 - shade))
+    if r2 > 0 and "fin" in det:
+        g, d, W = det["fin"]["gap"], det["fin"]["depth"], det["fin"]["w"]
+        if g < 0.02:
+            return None
+        shade = max(0.0, (1.0 - m(0.0, (g + d) / W)) - (1.0 - m(0.0, g / W)))
+        return max(0.0, min(1.0, 1.0 - shade))
+    return None
 
 
 def _compute_sni_rttv(
@@ -1639,6 +1702,71 @@ def _compute_sni_rttv(
 # 6. MAIN OTTV ENGINE PIPELINE v2.0 (SNI 6389:2020)
 # ============================================================================
 
+# A3-02: jangkauan pembacaan peneduh lepas dari fasad / di atas jendela (meter)
+SHADE_MAX_GAP_M = 3.0
+SHADE_MAX_RISE_M = 3.0
+
+# Kode peringatan yang membuat hasil berstatus SEMENTARA (perlu tindakan pengguna).
+PROVISIONAL_WARNING_CODES = frozenset({
+    "UNKNOWN_GROUPS", "MISSING_MESH", "UNIT_NEEDS_CONFIRMATION", "ASSUMED_WWR", "NO_GLAZING",
+    "DUPLICATE_FACE_CONFLICT", "MATERIAL_NOT_CONFIRMED",
+})
+
+
+def resolve_result_status(ottv_total_wm2: float, warnings: List[Dict[str, Any]], is_sni_mode: bool) -> Tuple[bool, str, bool]:
+    """(is_provisional, status_label, compliant) - satu sumber untuk hitung penuh & ganti material cepat."""
+    is_provisional = any((w or {}).get("code") in PROVISIONAL_WARNING_CODES for w in (warnings or []))
+    compliant = ottv_total_wm2 <= SNI_6389_LIMIT_WM2
+    if is_provisional:
+        return True, "HASIL SEMENTARA — perlu konfirmasi", False
+    if not is_sni_mode:
+        return False, (
+            "SIMULASI EKSPLORASI — bukan untuk kepatuhan (<= 35 W/m²)"
+            if compliant
+            else "SIMULASI EKSPLORASI — bukan untuk kepatuhan (> 35 W/m²)"
+        ), False
+    if compliant:
+        return False, "MEMENUHI SNI 6389:2020 (<= 35 W/m²)", True
+    return False, "MELEBIHI BATAS SNI 6389:2020 (> 35 W/m²)", False
+
+
+def build_material_warning(
+    glazing_material_id: Optional[str],
+    wall_material_id: Optional[str],
+    group_material_map: Dict[str, str],
+    groups: List[Tuple[str, str, str, str]],
+    extra_materials: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Peringatan MATERIAL_NOT_CONFIRMED + saran material dari nama layer (tidak diterapkan otomatis)."""
+    glz = get_material_by_id(glazing_material_id, extra_materials=extra_materials) or {}
+    wal = get_material_by_id(wall_material_id, extra_materials=extra_materials) or {}
+    sugg = []
+    for s_ in material_suggestions([g for g in groups if g[0] not in (group_material_map or {})]):
+        cur = glz if s_["category"] in ("glazing", "composite_cw") else wal
+        if s_["material_id"] == cur.get("id"):
+            continue
+        m = get_material_by_id(s_["material_id"], extra_materials=extra_materials) or {}
+        sugg.append({**s_, "material_name": m.get("name", s_["material_id"]), "sc": m.get("sc"), "u_value": m.get("u_value")})
+    sc_txt = (", SC " + f"{float(glz['sc']):.2f}".replace(".", ",")) if glz.get("sc") is not None else ""
+    msg = (
+        f"Material belum dipilih. Sementara dipakai kaca \"{glz.get('name', glazing_material_id)}\"{sc_txt} "
+        f"dan dinding \"{wal.get('name', wall_material_id)}\". Pilih material yang sesuai rancangan, "
+        "atau konfirmasi bila sudah benar."
+    )
+    if sugg:
+        msg += " Saran dari nama layer: " + "; ".join(f"{x['group_name']} → {x['material_name']}" for x in sugg[:6]) + "."
+    return {
+        "code": "MATERIAL_NOT_CONFIRMED",
+        "message": msg,
+        "detail": {
+            "glazing_material_id": glazing_material_id,
+            "wall_material_id": wall_material_id,
+            "suggestions": sugg,
+            "suggested_patch": {"group_material_map": {**(group_material_map or {}), **{x["group_name"]: x["material_id"] for x in sugg}}},
+        },
+    }
+
+
 def analyze_building_ottv(
     filepath: str,
     filename: str,
@@ -1725,6 +1853,7 @@ def analyze_building_ottv(
     group_summaries: List[Dict[str, Any]] = []
 
     geo_reclassified: List[Dict[str, Any]] = []
+    detached_shading_panels = 0  # A3-02: panel yang SC-nya dihitung dengan pendekatan peneduh lepas
     for rg in raw_groups:
         eff_cat = params.group_category_overrides.get(rg.group_name, rg.default_category)
         # AUDIT-03: grup "kaca" yang secara geometri berupa batang/profil (mullion, transom) = rangka.
@@ -2369,9 +2498,12 @@ def analyze_building_ottv(
         )
 
         sc_Display_mult_arr = np.ones(num_panels, dtype=np.float64)
+        detached_shading_panels = 0
         for idx_p, p_rec in enumerate(panel_records):
             if p_rec["element_type"] in ("glazing", "composite_cw"):
+                sh_det: Dict[str, Any] = {}
                 r1_v, r2_v, phi1_v = _measure_panel_sni_shading_ratios(
+                    detail=sh_det,
                     panel_verts=p_rec["vertices"],
                     panel_normal=p_rec["normal"],
                     shading_tris=sni_shading_tris,
@@ -2407,6 +2539,11 @@ def analyze_building_ottv(
                         table_mode=sceff_table_mode,
                     )
                     sc_Display_mult_arr[idx_p] = float(sc_det["sc_eff"])
+                    sc_sup = _superposed_sceff(p_rec["orientation_code"], sh_det, r1_v, r2_v, phi1_v, sceff_table_mode)
+                    if sc_sup is not None:
+                        sc_Display_mult_arr[idx_p] = sc_sup
+                        if p_rec.get("active"):
+                            detached_shading_panels += 1
                     if sc_det.get("used_errata") and p_rec.get("active"):
                         for c_err in sc_det.get("corrections") or []:
                             ek = (c_err.get("table"), c_err.get("r1"), c_err.get("r2"), c_err.get("angle_deg"))
@@ -3321,6 +3458,14 @@ def analyze_building_ottv(
                 ),
                 "detail": {"detected_glazing_groups": 0, "effective_wwr": 0.0},
             })
+    if not params.materials_confirmed:
+        summary_warnings.append(build_material_warning(
+            params.glazing_material_id,
+            params.wall_material_id,
+            params.group_material_map,
+            [(rg.group_name, cat, rg.source_layer, rg.source_material) for rg, cat in surface_groups],
+            extra_materials=extra_mats,
+        ))
     if dedupe_stats.get("conflicts"):
         # Kaca menimpa dinding dsb.: mana yang benar hanya diketahui perancang -> wajib dikonfirmasi
         summary_warnings.append({
@@ -3335,7 +3480,6 @@ def analyze_building_ottv(
             ),
             "detail": {"conflicts": dedupe_stats["conflicts"]},
         })
-    is_provisional = len(summary_warnings) > 0
     if dedupe_stats.get("removed_faces"):
         summary_warnings.append({
             "code": "DUPLICATE_FACES_REMOVED",
@@ -3346,6 +3490,17 @@ def analyze_building_ottv(
                 + ". Biasanya akibat objek ter-copy-paste di posisi yang sama."
             ),
             "detail": dedupe_stats,
+        })
+    if detached_shading_panels:
+        summary_warnings.append({
+            "code": "SHADING_DETACHED_APPROX",
+            "message": (
+                f"{detached_shading_panels} panel kaca diteduhi peneduh yang tidak menempel di tepi atas jendela "
+                "(berjarak dari fasad atau dipasang lebih tinggi). SNI 6389:2020 Lampiran A hanya mendefinisikan "
+                "peneduh menempel; LUXA menurunkan SC efektifnya dari tabel SNI dengan selisih bayangan "
+                "(peneduh selebar celah+kedalaman dikurangi peneduh selebar celah)."
+            ),
+            "detail": {"panels": int(detached_shading_panels)},
         })
     if geo_reclassified:
         summary_warnings.append({
@@ -3367,22 +3522,7 @@ def analyze_building_ottv(
                 "sf_source": sf_source,
             },
         })
-    if is_provisional:
-        eff_status_label = "HASIL SEMENTARA — perlu konfirmasi"
-        eff_compliant = False
-    elif not is_sni_mode:
-        eff_status_label = (
-            "SIMULASI EKSPLORASI — bukan untuk kepatuhan (<= 35 W/m²)"
-            if compliant
-            else "SIMULASI EKSPLORASI — bukan untuk kepatuhan (> 35 W/m²)"
-        )
-        eff_compliant = False
-    elif compliant:
-        eff_status_label = "MEMENUHI SNI 6389:2020 (<= 35 W/m²)"
-        eff_compliant = True
-    else:
-        eff_status_label = "MELEBIHI BATAS SNI 6389:2020 (> 35 W/m²)"
-        eff_compliant = False
+    is_provisional, eff_status_label, eff_compliant = resolve_result_status(ottv_total_wm2, summary_warnings, is_sni_mode)
 
     if params.compute_rttv is False:
         rttv_result = {
@@ -3474,6 +3614,7 @@ def analyze_building_ottv(
         "dynamic_floor_presets": dynamic_floor_presets,
         "summary": {
             "is_provisional": is_provisional,
+            "materials_confirmed": bool(params.materials_confirmed),
             "warnings": summary_warnings,
             "total_detected_panels": len(panel_records),
             "outer_panel_count": total_outer_panels,

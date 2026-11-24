@@ -181,10 +181,10 @@
       "total_envelope_area_m2": 9369.0,
       "total_floors": 24,
       "wwr": 0.746,
-      "ottv_total_wm2": 26.65,
+      "ottv_total_wm2": 26.79,
       "ottv_by_orientation": {
         "U": {
-          "ottv_wm2": 25.39,
+          "ottv_wm2": 25.4,
           "area_m2": 2280.28
         },
         "TL": {
@@ -192,7 +192,7 @@
           "area_m2": 0.0
         },
         "T": {
-          "ottv_wm2": 28.62,
+          "ottv_wm2": 28.82,
           "area_m2": 2402.67
         },
         "TGR": {
@@ -200,7 +200,7 @@
           "area_m2": 0.0
         },
         "S": {
-          "ottv_wm2": 20.34,
+          "ottv_wm2": 20.38,
           "area_m2": 2280.28
         },
         "BD": {
@@ -208,7 +208,7 @@
           "area_m2": 0.0
         },
         "B": {
-          "ottv_wm2": 31.86,
+          "ottv_wm2": 32.15,
           "area_m2": 2405.76
         },
         "BL": {
@@ -302,10 +302,10 @@
       "total_envelope_area_m2": 9369.0,
       "total_floors": 24,
       "wwr": 0.746,
-      "ottv_total_wm2": 26.65,
+      "ottv_total_wm2": 26.79,
       "ottv_by_orientation": {
         "U": {
-          "ottv_wm2": 25.39,
+          "ottv_wm2": 25.4,
           "area_m2": 2280.29
         },
         "TL": {
@@ -313,7 +313,7 @@
           "area_m2": 0.0
         },
         "T": {
-          "ottv_wm2": 28.62,
+          "ottv_wm2": 28.82,
           "area_m2": 2402.67
         },
         "TGR": {
@@ -321,7 +321,7 @@
           "area_m2": 0.0
         },
         "S": {
-          "ottv_wm2": 20.34,
+          "ottv_wm2": 20.38,
           "area_m2": 2280.29
         },
         "BD": {
@@ -329,7 +329,7 @@
           "area_m2": 0.0
         },
         "B": {
-          "ottv_wm2": 31.86,
+          "ottv_wm2": 32.15,
           "area_m2": 2405.76
         },
         "BL": {

@@ -129,6 +129,7 @@ def rematerial_analysis(
     group_material_map: Optional[Dict[str, str]] = None,
     custom_materials: Optional[List[Dict[str, Any]]] = None,
     preserve_id: bool = False,
+    materials_confirmed: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
     Recomputes OTTV, per-panel heat gains, orientation breakdown, floor breakdown, and RTTV
@@ -478,6 +479,25 @@ def rematerial_analysis(
         out["summary"]["q_solar_radiation_wm2"] = q_solar_tot
         out["summary"]["total_heat_gain_kw"] = round(total_heat_w / 1000.0, 2)
         out["summary"]["compliant_sni"] = ottv_total_wm2 <= SNI_OTTV_LIMIT_WM2
+        # A3-01: status & peringatan ikut diperbarui (dulu tertinggal dari hasil hitung penuh)
+        from ottv_engine import build_material_warning, resolve_result_status
+        summ = out["summary"]
+        confirmed = bool(summ.get("materials_confirmed", False)) if materials_confirmed is None else bool(materials_confirmed)
+        warns = [w for w in (summ.get("warnings") or []) if (w or {}).get("code") != "MATERIAL_NOT_CONFIRMED"]
+        if not confirmed:
+            grp_info = [
+                (g.get("group_name"), g.get("category"), g.get("source_layer") or "", g.get("source_material") or "")
+                for g in (out.get("groups") or [])
+                if g.get("category") in ("glazing", "wall", "spandrel", "composite_cw")
+            ]
+            warns.insert(0, build_material_warning(eff_glz_id, eff_wal_id, grp_map, grp_info, extra_materials=extra_mats))
+        is_prov, label, comp = resolve_result_status(ottv_total_wm2, warns, is_sni_mode)
+        summ["warnings"] = warns
+        summ["is_provisional"] = is_prov
+        summ["materials_confirmed"] = confirmed
+        out["warnings"] = warns
+        out["status_label"] = label
+        out["compliant"] = comp
 
     if isinstance(out.get("parameters_used"), dict):
         out["parameters_used"]["glazing_material_id"] = eff_glz_id

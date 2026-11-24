@@ -1182,6 +1182,7 @@ function buildRematerialPayloadFromConfig(cfg) {
     orientation_material_overrides: cfg.settings.orientation_material_overrides || {},
     group_material_map: cfg.roles?.group_material_map || {},
     custom_materials: cfg.settings.custom_materials || [],
+    materials_confirmed: Boolean(cfg.settings.materials_confirmed),
   };
 }
 
@@ -1203,6 +1204,8 @@ function applyPatchToConfigClone(baseCfg, patch) {
   if (patch.group_material_map && typeof patch.group_material_map === 'object') {
     nextCfg.roles.group_material_map = { ...patch.group_material_map };
   }
+  // A3-01: setiap pilihan material dari pengguna = konfirmasi (hasil tidak lagi berstatus sementara karena material)
+  nextCfg.settings.materials_confirmed = patch.materials_confirmed === false ? false : true;
   return nextCfg;
 }
 
@@ -1429,6 +1432,9 @@ const panelBuilders = createRailPanelBuilders({
   },
   onOpenMaterialCatalog: (mode = 'browse', tab = 'catalog') => handleOpenMaterialCatalog(mode, tab),
   onOpenMaterialPickMode: (pickOpts) => handleOpenMaterialCatalog('pick', 'catalog', pickOpts),
+  onConfirmMaterials: (patch = {}, label = 'Material dikonfirmasi.') => {
+    applyMaterialPatchFast({ ...patch, materials_confirmed: true }, label);
+  },
   onChangeRoleMaterial: (fieldKey, materialId) => {
     const prevId = getState().config?.settings?.[fieldKey];
     if (prevId === materialId) return;
@@ -1852,6 +1858,8 @@ function renderApp(state) {
           }
         },
         onOpenMaterialPickMode: (pickOpts) => handleOpenMaterialCatalog('pick', 'catalog', pickOpts),
+        onConfirmMaterials: (patch = {}, label = 'Material dikonfirmasi.') =>
+          applyMaterialPatchFast({ ...patch, materials_confirmed: true }, label),
         onOpenMaterialRecommend: () => handleOpenMaterialCatalog('browse', 'recommend'),
         onRecompute: () => handleCalculateOttv(),
         onDownloadExcel: () => handleExportFormat('xlsx'),

@@ -540,6 +540,7 @@ def _sheet_summary(ws, analysis: Dict[str, Any], refs: Dict[str, Dict[str, str]]
     notes: List[str] = []
     notes.append(f"Tabel SF: {analysis.get('sf_source_label') or '-'}.")
     notes.append("SC kaca = SHGC / 0,87. SC efektif memasukkan peneduh luar yang dihitung dari geometri 3D (sirip, overhang, bangunan sendiri).")
+    notes.append("Peneduh yang tidak menempel di tepi atas jendela (berjarak dari fasad atau lebih tinggi) dihitung dengan selisih bayangan dari tabel SNI Lampiran A; SNI sendiri hanya mendefinisikan peneduh menempel.")
     notes.append("Luas diambil dari bidang 3D sisi luar yang aktif; bidang di bawah muka tanah dan sisi dalam tidak dihitung.")
     for w in (summ.get("warnings") or analysis.get("warnings") or []):
         if isinstance(w, dict):

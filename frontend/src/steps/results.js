@@ -541,21 +541,62 @@ export function renderResultsScreen(state, handlers) {
   matQuickRow.append(pickGlzBtn, recBtn);
   heroCard.appendChild(matQuickRow);
 
-  if (warnings.length > 0) {
+  const matWarn = warnings.find((w) => w && w.code === 'MATERIAL_NOT_CONFIRMED');
+  if (matWarn) {
+    // A3-01: material belum dipilih -> hasil sementara. Tawarkan saran dari nama layer atau konfirmasi.
+    const box = document.createElement('div');
+    box.className = 'material-confirm-card';
+    box.setAttribute('role', 'alert');
+    box.style.cssText = 'margin-top:10px;padding:10px 12px;border-radius:12px;border:1px solid var(--warn, #d97706);background:color-mix(in srgb, var(--warn, #d97706) 10%, transparent);font-size:12px;line-height:17px;';
+    const ttl = document.createElement('div');
+    ttl.style.fontWeight = '600';
+    ttl.style.marginBottom = '4px';
+    ttl.textContent = 'Material belum dipilih — hasil masih sementara';
+    const msg = document.createElement('div');
+    msg.className = 'muted';
+    msg.textContent = matWarn.message || '';
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;';
+    const sugg = matWarn.detail?.suggestions || [];
+    if (sugg.length) {
+      const useBtn = document.createElement('button');
+      useBtn.type = 'button';
+      useBtn.className = 'cta';
+      useBtn.style.height = '30px';
+      useBtn.textContent = 'Pakai saran dari nama layer';
+      useBtn.addEventListener('click', () =>
+        handlers.onConfirmMaterials?.(matWarn.detail?.suggested_patch || {}, 'Saran material diterapkan.'),
+      );
+      row.appendChild(useBtn);
+    }
+    const okBtn = document.createElement('button');
+    okBtn.type = 'button';
+    okBtn.className = 'ghost ghost-sm';
+    okBtn.style.height = '30px';
+    okBtn.textContent = 'Material sudah benar';
+    okBtn.addEventListener('click', () => handlers.onConfirmMaterials?.({}, 'Material dikonfirmasi.'));
+    row.appendChild(okBtn);
+    box.append(ttl, msg, row);
+    heroCard.appendChild(box);
+  }
+
+  if (warnings.filter((w) => w?.code !== 'MATERIAL_NOT_CONFIRMED').length > 0) {
     const details = document.createElement('details');
     details.style.marginTop = '10px';
     const sumEl = document.createElement('summary');
     sumEl.className = 'lbl st-warn';
-    sumEl.textContent = `Lihat catatan (${warnings.length})`;
+    sumEl.textContent = `Lihat catatan (${warnings.filter((w) => w?.code !== 'MATERIAL_NOT_CONFIRMED').length})`;
     const warnUl = document.createElement('ul');
     warnUl.style.margin = '6px 0 0';
     warnUl.style.paddingLeft = '16px';
     warnUl.style.fontSize = '12px';
     warnUl.style.lineHeight = '17px';
     for (const w of warnings) {
+      if (w && w.code === 'MATERIAL_NOT_CONFIRMED') continue; // tampil sebagai kartu sendiri di atas
       const li = document.createElement('li');
       li.className = 'muted';
-      li.textContent = String(w);
+      // Peringatan engine berupa objek {code, message, detail}; dulu tampil sebagai "[object Object]"
+      li.textContent = typeof w === 'string' ? w : w?.message || w?.code || '';
       warnUl.appendChild(li);
     }
     details.append(sumEl, warnUl);

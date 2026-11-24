@@ -820,6 +820,7 @@ class RematerialRequest(BaseModel):
     orientation_material_overrides: Optional[Dict[str, str]] = None
     group_material_map: Optional[Dict[str, str]] = None
     custom_materials: List[Dict[str, Any]] = Field(default_factory=list)
+    materials_confirmed: Optional[bool] = None
 
 
 class RecommendRequest(BaseModel):
@@ -859,6 +860,7 @@ def rematerial_analysis_endpoint(
         orientation_material_overrides=req.orientation_material_overrides,
         group_material_map=req.group_material_map,
         custom_materials=req.custom_materials,
+        materials_confirmed=req.materials_confirmed,
     )
     # Keep stored config in sync for exports & follow-up calls
     if isinstance(updated.get("config"), dict):

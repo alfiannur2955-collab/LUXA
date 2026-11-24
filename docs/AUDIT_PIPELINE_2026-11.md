@@ -19,8 +19,8 @@ Skrip probe tidak dimasukkan ke repo. Temuan yang diperbaiki wajib mendapat uji 
 
 | ID | Tingkat | Tahap | Temuan |
 |---|---|---|---|
-| A3-01 | KRITIS | Material | Material default = kaca terbaik di katalog, tidak disimpulkan dari nama, tidak wajib dikonfirmasi |
-| A3-02 | TINGGI | Peneduh | Peneduh berjarak dari fasad dihitung seolah menempel; ada "tebing" ke nol di 1 m |
+| A3-01 | KRITIS | Material | Material default = kaca terbaik di katalog, tidak disimpulkan dari nama, tidak wajib dikonfirmasi — **diperbaiki** |
+| A3-02 | TINGGI | Peneduh | Peneduh berjarak dari fasad dihitung seolah menempel; ada "tebing" ke nol di 1 m — **diperbaiki** |
 | A3-03 | TINGGI | Klasifikasi | Nama yang salah dengan yakin: ACP/Metal Cladding → rangka, Hollow Core Wall → abaikan |
 | A3-04 | TINGGI | Performa | Model 24 lantai: hasil 22 MB JSON, memori puncak 319 MB → aplikasi tersendat |
 | A3-05 | TINGGI | Baca file | 3DM berisi Brep/Extrusion tanpa render mesh → "tidak ada geometri" |
@@ -32,6 +32,8 @@ Skrip probe tidak dimasukkan ke repo. Temuan yang diperbaiki wajib mendapat uji 
 | A3-11 | SEDANG | Hitung | Mode simulasi: konduksi rangka 8% hanya ditambahkan bila model punya grup rangka |
 | A3-12 | RENDAH | Klasifikasi | Token belum dikenal: GL-01, Polycarbonate, Secondary Skin, Perforated, Pergola, Krepyak, Jalusi, Roster, Spandek, dll. |
 | A3-13 | RENDAH | Hitung | Mode SNI: muka depan mullion tidak masuk luas selubung A_o |
+| A3-14 | TINGGI | Tampilan | Daftar "Lihat catatan" di layar hasil menampilkan "[object Object]" — **diperbaiki** |
+| A3-15 | SEDANG | Hitung | Ganti material cepat (`rematerial`) tidak memperbarui status/peringatan — **diperbaiki** |
 
 Sudah diperbaiki selama audit (commit `d9238f1`, `71516e7`): nama jamak mullion/transom (AUDIT-01), `crown`
 sebagai token kaca, nama elemen IFC tidak dibaca (WWR 0%), penjarangan mesh peneduh merusak tampilan, baseline
@@ -66,6 +68,12 @@ desain yang sebenarnya jauh melampaui batas. Ini mengalahkan tujuan aplikasi.
    Hebel/AAC, Beton, ACP, Spandrel), tampilkan sebagai saran yang perlu dikonfirmasi.
 3. Pertimbangkan default yang netral, misalnya kaca polos dan bata, agar kesalahan cenderung konservatif, bukan optimis.
 
+**Perbaikan (Nov 2026).** `settings.materials_confirmed` (default `false`). Selama belum dikonfirmasi, hasil
+berstatus sementara dengan peringatan `MATERIAL_NOT_CONFIRMED` yang memuat saran material dari nama layer
+(`backend/material_hints.py`, misalnya "Kaca Bening" → kaca polos 8 mm, "Hebel" → bata ringan AAC). Layar hasil
+menampilkan kartu dengan tombol "Pakai saran dari nama layer" dan "Material sudah benar". Setiap pemilihan
+material oleh pengguna dihitung sebagai konfirmasi. Saran tidak pernah diterapkan otomatis.
+
 ## A3-02 · TINGGI · Peneduh berjarak dihitung seolah menempel
 
 **Bukti.** Kotak dasar 19,37. Kanopi menerus di atas tiap pita kaca:
@@ -90,6 +98,26 @@ lepas 3 cm) mendapat manfaat berlebih. Desain yang sedikit berubah bisa "jatuh t
 menempel, gunakan proyeksi efektif `P − celah`, atau faktor proyeksi `P/(H + G)` untuk jarak vertikal.
 Peralihannya harus halus (tanpa tebing), dan pengguna diberi peringatan bila ada peneduh lepas yang
 diperlakukan dengan pendekatan.
+
+**Definisi SNI (Lampiran A Kunci 1–3, Gambar 5–7).** R1 = P/H dan R2 = P/W dengan P panjang peneduh yang
+**menempel tepat di tepi jendela**. SNI tidak mendefinisikan peneduh lepas atau lebih tinggi dari jendela.
+
+**Perbaikan (Nov 2026).** Luas bayangan SNI (As = P·(cos Φ tan θ + sin Φ)) linear terhadap P dan dipotong tepi
+jendela, sehingga peneduh selebar [celah, celah + kedalaman] = peneduh menempel selebar (celah + kedalaman)
+dikurangi peneduh menempel selebar celah. Peneduh setinggi `rise` di atas jendela = bayangan pada bidang setinggi
+(H + rise) dikurangi bayangan pada pita `rise`. Semuanya memakai tabel SC SNI yang sama (`_superposed_sceff`).
+Peneduh menempel di tepi jendela tetap identik dengan SNI. Kombinasi sirip + overhang (G3 = G1 × G2, tidak linear)
+memakai kedalaman efektif tanpa celah. Jangkauan dinaikkan ke 3 m. Peringatan informatif `SHADING_DETACHED_APPROX`.
+
+| Kanopi 1,0 m | celah 0 | 0,2 | 0,6 | 1,0 | 1,5 | 2,5 m |
+|---|---|---|---|---|---|---|
+| OTTV sesudah | 14,72 | 15,41 | 16,88 | 17,78 | 18,39 | 18,99 |
+
+| Kanopi 1,0 m | naik 0 | 0,3 | 0,5 | 1,0 | 2,0 m |
+|---|---|---|---|---|---|
+| OTTV sesudah | 14,72 | 15,72 | 16,31 | 17,51 | 18,92 |
+
+Sisa: lompatan kecil (≈ 0,2–0,4 W/m²) saat peneduh melewati batas 3 m.
 
 ## A3-03 · TINGGI · Nama yang salah dengan yakin
 

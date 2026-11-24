@@ -132,6 +132,7 @@ def _manual_sni_config(
 ) -> ProjectConfig:
     return ProjectConfig(
         settings=SettingsConfig(
+            materials_confirmed=True,
             city_preset=city,
             mode=mode,
             sf_source=sf_source,

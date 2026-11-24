@@ -88,13 +88,14 @@ def fins_part(name: str = "Peneduh Sirip", depth: float = 0.8) -> ms.MeshPart:
     return p
 
 
-def run(tmp_path, parts: List[ms.MeshPart], name: str, unit=None, north: float = 0.0) -> Dict:
+def run(tmp_path, parts: List[ms.MeshPart], name: str, unit=None, north: float = 0.0, confirmed: bool = True) -> Dict:
     path = str(tmp_path / f"{name}.3dm")
     ms.write_3dm(path, parts, unit_system=unit or rhino3dm.UnitSystem.Meters)
     prm = EnvelopeParameters()
     prm.calculation_mode = "sni"
     prm.city_preset = "jakarta"
     prm.north_angle_deg = north
+    prm.materials_confirmed = confirmed
     r = analyze_building_ottv(path, os.path.basename(path), prm)
     assert r.get("ottv_total_wm2") is not None, r.get("ottv_error") or r.get("warnings")
     return r
@@ -409,7 +410,7 @@ def test_mullion_ambigu_memberi_peringatan(tmp_path):
 def test_pilihan_pengguna_mengalahkan_geometri(tmp_path):
     path = str(tmp_path / "ovr.3dm")
     ms.write_3dm(path, base_parts() + [mullion_part("CW_Vertical")])
-    prm = EnvelopeParameters(); prm.calculation_mode = "sni"
+    prm = EnvelopeParameters(); prm.calculation_mode = "sni"; prm.materials_confirmed = True
     prm.group_category_overrides = {"CW_Vertical :: CW_Vertical": "glazing"}
     r = analyze_building_ottv(path, "ovr.3dm", prm)
     assert "GEOMETRY_RECLASSIFIED" not in _codes(r)
@@ -433,3 +434,77 @@ def test_kaca_asli_tidak_dianggap_rangka(tmp_path, thick, width, height):
     r = run(tmp_path, [walls, _glass_boxes(thick, width, height, "Kaca Panel")], f"glass_{thick}_{width}")
     assert "GEOMETRY_RECLASSIFIED" not in _codes(r), f"kaca {thick*1000:.0f} mm x {width} m salah dianggap rangka"
     assert glz_area(r) > 0
+
+
+# ----------------------------------------------------------------------------
+# A3-01: material default tidak boleh menghasilkan "memenuhi SNI" diam-diam
+# ----------------------------------------------------------------------------
+
+def test_material_belum_dikonfirmasi_hasil_sementara(tmp_path):
+    r = run(tmp_path, base_parts(), "mat_belum", confirmed=False)
+    assert r["summary"]["is_provisional"] is True
+    assert "MATERIAL_NOT_CONFIRMED" in _codes(r)
+    assert r["compliant"] is False and "SEMENTARA" in r["status_label"]
+
+
+def test_saran_material_dari_nama_layer(tmp_path):
+    r = run(tmp_path, base_parts(wall="Dinding Bata", glz="Kaca Bening"), "mat_saran", confirmed=False)
+    w = [x for x in r["summary"]["warnings"] if x["code"] == "MATERIAL_NOT_CONFIRMED"][0]
+    sug = {s["category"]: s["material_id"] for s in w["detail"]["suggestions"]}
+    assert sug.get("glazing") == "glz_kaca_polos_8"
+    assert sug.get("wall") == "wal_bata_merah_plester"
+
+
+def test_rematerial_memperbarui_status(tmp_path):
+    from recommender import rematerial_analysis
+    r = run(tmp_path, base_parts(wall="Dinding Bata", glz="Kaca Bening"), "mat_remat", confirmed=False)
+    w = [x for x in r["summary"]["warnings"] if x["code"] == "MATERIAL_NOT_CONFIRMED"][0]
+    r2 = rematerial_analysis(r, group_material_map=w["detail"]["suggested_patch"]["group_material_map"], materials_confirmed=True)
+    assert r2["summary"]["is_provisional"] is False
+    assert "MATERIAL_NOT_CONFIRMED" not in _codes(r2)
+    full = run(tmp_path, base_parts(wall="Dinding Bata", glz="Kaca Bening"), "mat_full")
+    path = str(tmp_path / "mat_full2.3dm")
+    ms.write_3dm(path, base_parts(wall="Dinding Bata", glz="Kaca Bening"))
+    prm = EnvelopeParameters(); prm.calculation_mode = "sni"; prm.materials_confirmed = True
+    prm.group_material_map = w["detail"]["suggested_patch"]["group_material_map"]
+    r3 = analyze_building_ottv(path, "mat_full2.3dm", prm)
+    assert abs(r3["ottv_total_wm2"] - r2["ottv_total_wm2"]) <= OTTV_TOL, "jalur cepat & hitung penuh harus sama"
+    assert ("MEMENUHI" in r2["status_label"]) == (r2["ottv_total_wm2"] <= 35.0)
+    assert full["ottv_total_wm2"] < r2["ottv_total_wm2"], "kaca polos harus lebih panas daripada default"
+
+
+# ----------------------------------------------------------------------------
+# A3-02: peneduh lepas / lebih tinggi dari jendela -> mulus, monoton, setara SNI bila menempel
+# ----------------------------------------------------------------------------
+
+def _canopy(depth: float, gap: float = 0.0, rise: float = 0.0) -> ms.MeshPart:
+    qs = []
+    n = len(L_POLY)
+    for f in range(FLOORS):
+        z = f * FH + 1.2 + 1.6 + rise
+        for i in range(n):
+            a, b = L_POLY[i], L_POLY[(i + 1) % n]
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            ln = math.hypot(dx, dy)
+            nx, ny = dy / ln, -dx / ln
+            p = lambda q, s: (q[0] + nx * s, q[1] + ny * s)
+            qs.append(((*p(a, gap), z), (*p(b, gap), z), (*p(b, gap + depth), z), (*p(a, gap + depth), z)))
+    return ms.MeshPart("Kanopi", "Kanopi", (0.6, 0.6, 0.6), 0.0, quads=qs)
+
+
+@pytest.mark.parametrize("kind", ["gap", "rise"])
+def test_peneduh_lepas_mulus_dan_monoton(tmp_path, base, kind):
+    vals = [0.0, 0.1, 0.3, 0.6, 1.0, 1.5, 2.0, 2.8]
+    ottv = [run(tmp_path, base_parts() + [_canopy(1.0, **{kind: v})], f"can_{kind}_{v}")["ottv_total_wm2"] for v in vals]
+    assert all(b >= a - 1e-6 for a, b in zip(ottv, ottv[1:])), f"makin jauh tidak boleh makin teduh: {ottv}"
+    assert all(b - a <= 1.5 for a, b in zip(ottv, ottv[1:])), f"tidak boleh ada lompatan besar: {ottv}"
+    assert ottv[-1] <= base["ottv_total_wm2"] + 1e-6
+
+
+def test_peneduh_lepas_tidak_lebih_baik_dari_menempel(tmp_path):
+    attached = run(tmp_path, base_parts() + [_canopy(1.0)], "can_att")
+    for g in (0.2, 1.0):
+        det = run(tmp_path, base_parts() + [_canopy(1.0, gap=g)], f"can_det{g}")
+        assert det["ottv_total_wm2"] >= attached["ottv_total_wm2"] - 1e-6
+        assert "SHADING_DETACHED_APPROX" in _codes(det)
+    assert "SHADING_DETACHED_APPROX" not in _codes(attached)

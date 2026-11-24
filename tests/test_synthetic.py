@@ -61,6 +61,7 @@ def _run_case_format(case_data: Dict[str, Any], fmt: str, extra_settings: Dict[s
         for k, v in extra_settings.items():
             setattr(cfg.settings, k, v)
     params = cfg.to_envelope_parameters()
+    params.materials_confirmed = True  # uji geometri/hitung, bukan uji konfirmasi material
     model_path = os.path.join(case_data["_dir"], f"model.{fmt}")
     assert os.path.isfile(model_path), f"File model tidak ditemukan: {model_path}"
     return analyze_building_ottv(model_path, f"{case_data['case']}.{fmt}", params)

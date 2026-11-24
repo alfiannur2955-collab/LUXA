@@ -306,6 +306,7 @@ def rematerial(analysis_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
             "orientation_material_overrides", "group_material_map")
     kwargs = {k: req.get(k) for k in keys}
     kwargs["custom_materials"] = list(req.get("custom_materials") or [])
+    kwargs["materials_confirmed"] = req.get("materials_confirmed")
     updated = rematerial_analysis(base, **kwargs)
     if isinstance(updated.get("config"), dict):
         cfg_s = updated["config"].setdefault("settings", {})
@@ -316,6 +317,8 @@ def rematerial(analysis_id: str, req: Dict[str, Any]) -> Dict[str, Any]:
             cfg_s["orientation_material_overrides"] = dict(req["orientation_material_overrides"])
         if req.get("custom_materials"):
             cfg_s["custom_materials"] = list(req["custom_materials"])
+        if req.get("materials_confirmed") is not None:
+            cfg_s["materials_confirmed"] = bool(req["materials_confirmed"])
     _store_analysis(str(updated["analysis_id"]), updated)
     return strip_panel_geometry(updated)
 

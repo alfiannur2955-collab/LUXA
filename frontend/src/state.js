@@ -36,6 +36,8 @@ export function createDefaultConfig() {
       sceff_table_mode: 'terkoreksi',
       design_month: 9,
       north_angle_deg: 0.0,
+      // A3-01: false sampai pengguna memilih/mengonfirmasi material; hasil berstatus sementara
+      materials_confirmed: false,
       glazing_material_id: 'glz_igu_triple_silver',
       wall_material_id: 'wal_spandrel_insulasi_50',
       frame_material_id: 'frm_aluminium_thermal_break',

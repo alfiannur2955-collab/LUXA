@@ -13,7 +13,7 @@ from ottv_engine import EnvelopeParameters, analyze_building_ottv
 
 def test_clean_honeybee_model_is_not_provisional():
     path = os.path.join(FIXTURES_DIR, "Honeybee_MultiZone_Office_3F.hbjson")
-    res = analyze_building_ottv(path, "Honeybee_MultiZone_Office_3F.hbjson", EnvelopeParameters())
+    res = analyze_building_ottv(path, "Honeybee_MultiZone_Office_3F.hbjson", EnvelopeParameters(materials_confirmed=True))
     summary = res["summary"]
     assert summary["is_provisional"] is False
     assert summary["warnings"] == []

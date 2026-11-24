@@ -158,6 +158,8 @@ class SettingsConfig(BaseModel):
     roof_material_id: Optional[str] = DEFAULT_ROOF_MAT_ID
     custom_materials: List[CustomMaterialSpec] = Field(default_factory=list)
     orientation_material_overrides: Dict[str, str] = Field(default_factory=dict)
+    # A3-01: True setelah pengguna memilih atau mengonfirmasi material (False = hasil sementara)
+    materials_confirmed: bool = False
 
     # Envelope thermal options (delta_t is always 5 K in SNI mode; TD_ek always derived from massa_kg_m2)
     include_frame_conduction: bool = True
@@ -240,6 +242,7 @@ class ProjectConfig(BaseModel):
             roof_material_id=migrate_material_id(self.settings.roof_material_id),
             custom_materials=self.custom_material_dicts(),
             orientation_material_overrides=dict(self.settings.orientation_material_overrides),
+            materials_confirmed=bool(self.settings.materials_confirmed),
             include_frame_conduction=self.settings.include_frame_conduction,
             frame_area_ratio=self.settings.frame_area_ratio,
             wwr_override=self.settings.wwr_override,

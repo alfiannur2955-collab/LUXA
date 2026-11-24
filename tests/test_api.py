@@ -260,6 +260,7 @@ def test_analyze_twice_same_config_produces_identical_ottv(isolated_client):
             city_preset="jakarta",
             north_angle_deg=15.0,
             glazing_material_id="glz_asahimas_stopsol_supersilver_8",
+            materials_confirmed=True,
         )
     )
     body = cfg.model_dump(mode="json")
