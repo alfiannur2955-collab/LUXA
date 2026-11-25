@@ -170,3 +170,24 @@ export function sideVerdict(sideOttv, limit, buildingVerdict) {
     ? { tone: 'ok', pillClass: 'ok', statusClass: 'is-ok', textClass: 'st-ok', text: 'Memenuhi', isOver: false }
     : { tone: 'fail', pillClass: 'fail', statusClass: 'is-fail', textClass: 'st-fail', text: 'Melebihi', isOver: true };
 }
+
+/** Info lencana mode (A3-17): "Mode SNI" atau "Mode Simulasi" + apakah tombol "Kembali ke mode SNI" ditampilkan. */
+export function modeBadgeInfo(analysis, configMode = null) {
+  const raw = String(analysis?.calculation_mode || configMode || 'sni').trim().toLowerCase();
+  const isSni = raw === 'sni';
+  return {
+    mode: isSni ? 'sni' : 'simulasi',
+    isSni,
+    label: isSni ? 'Mode SNI' : 'Mode Simulasi',
+    showReturnToSni: !isSni,
+    returnLabel: 'Kembali ke mode SNI',
+  };
+}
+
+/** Saat file model baru diunggah, mode perhitungan selalu kembali ke SNI (A3-17). */
+export function resetConfigModeToSni(cfg) {
+  if (!cfg || typeof cfg !== 'object') return cfg;
+  if (!cfg.settings || typeof cfg.settings !== 'object') cfg.settings = {};
+  cfg.settings.mode = 'sni';
+  return cfg;
+}

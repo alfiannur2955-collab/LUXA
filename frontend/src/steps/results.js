@@ -8,7 +8,7 @@
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
 import { makeTermTip } from '../ui/tooltips.js';
-import { verdictInfo } from '../ui/verdict.js';
+import { modeBadgeInfo, verdictInfo } from '../ui/verdict.js';
 import { renderInteractiveCompass } from '../viewer/compass.js';
 import { renderFormulaSheet } from '../viewer/formulaPill.js';
 import { luxSvg } from '../ui/mascot.js';
@@ -503,7 +503,30 @@ export function renderResultsScreen(state, handlers) {
     chipRow.appendChild(statusChip);
   }
 
-  heroCard.append(heroHead, heroVal, chipRow);
+  // A3-17: Lencana mode terlihat ("Mode SNI" / "Mode Simulasi") + tombol "Kembali ke mode SNI"
+  const mInfo = modeBadgeInfo(analysis, state.config?.settings?.mode);
+  const modeRow = document.createElement('div');
+  modeRow.className = 'mode-badge-row';
+  modeRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:6px;flex-wrap:wrap;margin-top:8px;';
+
+  const modeBadge = document.createElement('span');
+  modeBadge.className = `chip chip-xs ${mInfo.isSni ? 'st-ok' : 'st-neutral'}`;
+  modeBadge.dataset.modeBadge = mInfo.mode;
+  modeBadge.textContent = mInfo.label;
+  modeRow.appendChild(modeBadge);
+
+  if (mInfo.showReturnToSni) {
+    const backSniBtn = document.createElement('button');
+    backSniBtn.type = 'button';
+    backSniBtn.className = 'ghost ghost-sm';
+    backSniBtn.dataset.action = 'return-to-sni';
+    backSniBtn.style.cssText = 'height:26px;padding:0 10px;font-size:11.5px;';
+    backSniBtn.textContent = mInfo.returnLabel;
+    backSniBtn.addEventListener('click', () => handlers.onSwitchToSniMode?.());
+    modeRow.appendChild(backSniBtn);
+  }
+
+  heroCard.append(heroHead, heroVal, chipRow, modeRow);
 
 
   // Fase 4e: Fast material pick & recommender shortcut right from Results hero card

@@ -56,6 +56,7 @@ import { renderErrorScreen, renderLoadingScreen } from './steps/status.js';
 import { renderUploadScreen } from './steps/upload.js';
 import { renderCommandPalette } from './ui/commandPalette.js';
 import { fmtFileSize, fmtId } from './ui/escapeHtml.js';
+import { resetConfigModeToSni } from './ui/verdict.js';
 import { installShortcuts } from './ui/shortcuts.js';
 import { renderShortcutsModal } from './ui/shortcutsModal.js';
 import { showConfirmDeleteProjectDialog, showReplaceMaterialDialog } from './ui/dialogs.js';
@@ -667,7 +668,7 @@ const vbarHandlers = {
 async function runInspectAndOpenConfirm(
   modelId,
   filename,
-  { fileSizeBytes = null, config = null, confirm = null, targetStep = 'confirm' } = {},
+  { fileSizeBytes = null, config = null, confirm = null, targetStep = 'confirm', resetModeToSni = false } = {},
 ) {
   const prevStep = getState().step === 'loading' ? 'upload' : getState().step;
   const ctrl = new AbortController();
@@ -702,6 +703,9 @@ async function runInspectAndOpenConfirm(
       }
     }
     effConfig.model.file = filename;
+    if (resetModeToSni) {
+      resetConfigModeToSni(effConfig);
+    }
 
     const inspectData = await engine.inspect(modelId, effConfig, {
       userAnswers: buildUserAnswers({ ...getState(), config: effConfig, confirm: confirm || createInitialConfirm() }),
@@ -857,6 +861,7 @@ async function handleUploadFile(file) {
       fileSizeBytes: file.size,
       config: uploaded.config,
       targetStep: 'confirm',
+      resetModeToSni: true,
     });
   } catch (err) {
     if (err.name === 'AbortError') return;
@@ -890,6 +895,7 @@ async function handleUploadFile(file) {
 async function handleLoadExample(modelId, label) {
   await runInspectAndOpenConfirm(modelId, label, {
     targetStep: 'confirm',
+    resetModeToSni: true,
   });
 }
 
@@ -1108,6 +1114,15 @@ function applyWorkspaceChange(nextWs) {
 // Viewer dijeda selama presentasi dan tidak diubah, jadi setelah keluar kamera dan tampilannya tetap seperti semula.
 let presenter = null;
 let presenterOpening = false;
+async function handleSwitchToSniMode() {
+  updateConfig((cfg) => {
+    resetConfigModeToSni(cfg);
+  });
+  saveProjectAutosave(getState());
+  if (getState().presentation) handleExitPresentation();
+  await handleCalculateOttv();
+}
+
 async function handleOpenPresentation() {
   const s = getState();
   if (!s.analysisData) {
@@ -1128,6 +1143,7 @@ async function handleOpenPresentation() {
       appTheme: st.theme,
       userName: loadUserName() || '',
       onExit: handleExitPresentation,
+      onSwitchToSni: handleSwitchToSniMode,
     });
   } catch (err) {
     console.error(err);
@@ -1892,6 +1908,7 @@ function renderApp(state) {
         onConfirmMaterials: (patch = {}, label = 'Material dikonfirmasi.') =>
           applyMaterialPatchFast({ ...patch, materials_confirmed: true }, label),
         onOpenMaterialRecommend: () => handleOpenMaterialCatalog('browse', 'recommend'),
+        onSwitchToSniMode: handleSwitchToSniMode,
         onRecompute: () => handleCalculateOttv(),
         onDownloadExcel: () => handleExportFormat('xlsx'),
         onDownloadProject: () => {

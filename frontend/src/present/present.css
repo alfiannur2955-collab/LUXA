@@ -88,8 +88,17 @@
 .lxp-sidelabel i { width: 10px; height: 10px; border-radius: 3px; }
 .lxp-sidelabel b { font-variant-numeric: tabular-nums; }
 
-/* Alat kanan atas: dua tombol sama lebar, sejajar satu baris. */
-.lxp-tools { position: absolute; top: 24px; right: 24px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+/* Alat kanan atas: lencana mode + tombol aksi sejajar satu baris. */
+.lxp-tools { position: absolute; top: 24px; right: 24px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.lxp-mode-badge {
+  height: 40px; padding: 0 14px; border-radius: 12px; display: inline-flex; align-items: center;
+  font-size: 12.5px; font-weight: 700; white-space: nowrap;
+  background: var(--glass); border: 1px solid var(--glass-line);
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+}
+.lxp-mode-badge.is-sni { color: var(--ok); }
+.lxp-mode-badge.is-sim { color: var(--muted); }
+.lxp-btn-sni { border-color: var(--accent); color: var(--accent); }
 .lxp-btn {
   height: 40px; padding: 0 16px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;

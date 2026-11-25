@@ -264,3 +264,48 @@ console.log('ALL_VERDICT_JS_CHECKS_OK');
     )
     assert proc.returncode == 0, f"Node test gagal:\nSTDOUT: {proc.stdout}\nSTDERR: {proc.stderr}"
     assert "ALL_VERDICT_JS_CHECKS_OK" in proc.stdout
+
+
+def test_mode_terlihat_lencana_tombol_dan_reset_unggah():
+    """A3-17: lencana Mode SNI/Mode Simulasi, tombol 'Kembali ke mode SNI', dan reset mode ke SNI saat unggah model baru."""
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("Node.js tidak tersedia")
+
+    script = r"""
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { modeBadgeInfo, resetConfigModeToSni } from './frontend/src/ui/verdict.js';
+
+const sniInfo = modeBadgeInfo({ calculation_mode: 'sni' });
+assert.equal(sniInfo.label, 'Mode SNI');
+assert.equal(sniInfo.showReturnToSni, false);
+
+const simInfo = modeBadgeInfo({ calculation_mode: 'simulasi' });
+assert.equal(simInfo.label, 'Mode Simulasi');
+assert.equal(simInfo.showReturnToSni, true);
+assert.equal(simInfo.returnLabel, 'Kembali ke mode SNI');
+
+const cfg = { settings: { mode: 'simulasi', city_preset: 'jakarta' } };
+resetConfigModeToSni(cfg);
+assert.equal(cfg.settings.mode, 'sni');
+
+// Verifikasi wiring di Results, Presenter, dan main.js
+const resJs = fs.readFileSync('./frontend/src/steps/results.js', 'utf8');
+assert.ok(resJs.includes('modeBadgeInfo') && resJs.includes('onSwitchToSniMode'));
+const presJs = fs.readFileSync('./frontend/src/present/presenter.js', 'utf8');
+assert.ok(presJs.includes('modeBadgeInfo') && presJs.includes('onSwitchToSni'));
+const mainJs = fs.readFileSync('./frontend/src/main.js', 'utf8');
+assert.ok(mainJs.includes('resetModeToSni: true') && mainJs.includes('handleSwitchToSniMode'));
+console.log('MODE_BADGE_CHECKS_OK');
+"""
+    proc = subprocess.run(
+        [node, "--input-type=module", "-e", script],
+        cwd=ROOT_DIR,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+    )
+    assert proc.returncode == 0, f"Node test gagal:\nSTDOUT: {proc.stdout}\nSTDERR: {proc.stderr}"
+    assert "MODE_BADGE_CHECKS_OK" in proc.stdout

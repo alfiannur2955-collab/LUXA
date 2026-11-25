@@ -10,6 +10,7 @@ import { colorResolver, pickStageTheme } from './colors.js';
 import { createDome, domeRadius } from './sundome.js';
 import { slidesFor, posesFor } from './slides.js';
 import { renderCard as defaultCard, sidesOf, sideName, f1 } from './content.js';
+import { modeBadgeInfo } from '../ui/verdict.js';
 import { contrast } from './colors.js';
 import { heatColor } from './heat.js';
 import './present.css';
@@ -30,11 +31,12 @@ const ICON = {
  * renderCard(slide, ctx) -> HTML isi kartu (diisi di P3).
  */
 // capture: true = tanpa antarmuka dan tanpa navigasi, hanya untuk mengambil gambar slide (laporan).
-export function createPresenter({ host, state, appTheme = 'light', userName = '', onExit = () => {}, renderCard = defaultCard, startAt = 0, capture = false, pixelRatio = null, background = null, fov = 14, sky = true, shadow = 1 }) {
+export function createPresenter({ host, state, appTheme = 'light', userName = '', onExit = () => {}, onSwitchToSni = null, renderCard = defaultCard, startAt = 0, capture = false, pixelRatio = null, background = null, fov = 14, sky = true, shadow = 1 }) {
   const analysis = state.analysisData;
   const roles = state.config?.roles;
   const settings = state.config?.settings || {};
   const north = Number(settings.north_angle_deg || 0);
+  const mInfo = modeBadgeInfo(analysis, settings.mode);
   const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // Warna material -> tema panggung (ikut aplikasi, pindah bila kontras kurang).
@@ -54,6 +56,8 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
     <div class="lxp-marks" aria-hidden="true"><span class="lxp-sunmark"><i></i><b></b></span></div>
     <article class="lxp-card" aria-live="polite"></article>
     <div class="lxp-tools">
+      <span class="lxp-mode-badge ${mInfo.isSni ? 'is-sni' : 'is-sim'}" data-mode-badge="${mInfo.mode}">${mInfo.label}</span>
+      ${mInfo.showReturnToSni ? `<button type="button" class="lxp-btn lxp-btn-sni" data-act="to-sni">${mInfo.returnLabel}</button>` : ''}
       <button type="button" class="lxp-btn" data-act="full" aria-label="Layar penuh (F)">${ICON.full}<span>Layar penuh</span></button>
       <button type="button" class="lxp-btn" data-act="exit" aria-label="Keluar presentasi (Esc)">${ICON.close}<span>Keluar</span></button>
     </div>
@@ -280,6 +284,7 @@ export function createPresenter({ host, state, appTheme = 'light', userName = ''
     else if (t.dataset.act === 'full') toggleFull();
     else if (t.dataset.act === 'exit') exit();
     else if (t.dataset.act === 'first') go(0);
+    else if (t.dataset.act === 'to-sni') onSwitchToSni?.();
   });
 
   function toggleFull() {
