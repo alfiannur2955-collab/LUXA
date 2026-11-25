@@ -361,7 +361,7 @@ export function createStory({ host, theme = 'light', embedded = false, handlers 
     const w = facade('B'), wall = wallById(sim.wall), g = glassById(sim.glass);
     return {
       w,
-      v: { one: fmt(1 - effWwr('B'), 2), a: fmt(sim.alpha ?? wall.alpha, 2), uw: fmt(wall.u_value, 2), wwr: fmt(effWwr('B'), 2), td: fmt(w.tdek), uf: fmt(g.u_value, 2), dt: fmt(SNI.deltaT), sc: fmt(w.scEff, 2), sf: fmt(sf().B) },
+      v: { one: fmt(1 - effWwr('B'), 2), a: fmt(sim.alpha ?? wall.alpha, 2), uw: fmt(wall.u_value, 2), wwr: fmt(effWwr('B'), 2), td: fmt(w.tdek), uf: fmt(w.uf, 2), dt: fmt(SNI.deltaT), sc: fmt(w.scEff, 2), sf: fmt(sf().B) },
     };
   }
   function renderSym() {

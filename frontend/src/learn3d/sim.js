@@ -1,7 +1,11 @@
 // Keadaan simulasi bersama semua bab + hitungan OTTV (memakai rumus dan tabel yang sama dengan engine).
 import { SNI } from '../learn/sniData.js';
-import { cityById, facadeOttv, totalOttv } from '../learn/ottvCalc.js';
+import { cityById, facadeOttv, totalOttv, threeZoneUf, U_FRAME_ALUMINIUM, FRAME_WIDTH_M } from '../learn/ottvCalc.js';
 import { facadeAreas, glassHForWwr } from './tower.js';
+
+// Panel contoh: satu jendela di antara dua mullion tower (jarak mullion ±1,5 m), setinggi pita kaca.
+export const PANEL_W = 1.5;
+export const FRAME = { uFrame: U_FRAME_ALUMINIUM, width: FRAME_WIDTH_M, label: 'Kusen aluminium 50 mm' };
 
 export const glassById = (id) => SNI.glass.find((g) => g.id === id) || SNI.glass[0];
 export const wallById = (id) => SNI.wall.find((w) => w.id === id) || SNI.wall[0];
@@ -24,12 +28,19 @@ export const sf = () => cityById(sim.city).sf;
 export const glassH = (dir) => glassHForWwr(sim.wwr[dir]);
 export const effWwr = (dir) => glassH(dir) / 4; // WWR yang benar-benar tergambar di model
 
+/** U_f tiga zona panel contoh sisi `dir` (kaca terpilih + kusen aluminium 8,0 lebar 50 mm). */
+export const windowUf = (dir) => threeZoneUf({ width: PANEL_W, height: glassH(dir), uCog: glassById(sim.glass).u_value, uFrame: FRAME.uFrame, frameWidth: FRAME.width });
+
 export function facade(dir) {
   const w = wallById(sim.wall), g = glassById(sim.glass);
   const R = dir === 'B' ? sim.depth / glassH('B') : 0;
+  const tz = windowUf(dir);
   return {
-    ...facadeOttv({ alpha: sim.alpha ?? w.alpha, uw: w.u_value, massa: w.massa_kg_m2, wwr: effWwr(dir), uf: g.u_value, sc: g.sc, sf: sf()[dir], overhangR: R, code: dir }),
+    ...facadeOttv({ alpha: sim.alpha ?? w.alpha, uw: w.u_value, massa: w.massa_kg_m2, wwr: effWwr(dir), uf: tz.uf, sc: g.sc, sf: sf()[dir], overhangR: R, code: dir }),
     R,
+    uf: tz.uf,
+    uCog: g.u_value,
+    tz,
   };
 }
 

@@ -18,6 +18,8 @@ export const PATH_NAMES = { wall: 'Merambat lewat dinding', glass: 'Merambat lew
 
 // ---------- Simbol rumus ----------
 const K = 'K (kelvin). Beda 1 K sama dengan beda 1 °C';
+export const THERMAL_BRIDGE_TEXT = 'Kusen aluminium adalah jembatan termal: logam menghantarkan panas jauh lebih cepat daripada kaca, jadi jendela (kaca bersama kusennya) meloloskan panas lebih banyak daripada kacanya saja (SNI 6389:2020 butir 3.8 dan 4.3.2.2).';
+
 export const SYMS = {
   a: { sym: 'α', name: 'Penyerapan sinar (absorptansi)', unit: 'angka 0 sampai 1', target: 'wall', goto: 'bab-6',
     text: 'Seberapa banyak sinar matahari diserap permukaan luar dinding. Warna terang menyerap lebih sedikit, jadi α-nya lebih kecil.',
@@ -35,8 +37,8 @@ export const SYMS = {
     text: 'Selisih suhu antara dinding luar yang sudah dipanasi matahari dan ruangan di dalam. SNI menyederhanakannya dari berat dinding: makin berat, makin kecil.',
     from: 'Tabel 7 SNI (berat dinding)' },
   uf: { sym: 'Uf', name: 'Nilai U jendela', unit: 'W/m²K', target: 'glass', goto: 'bab-5',
-    text: 'Seberapa mudah panas menembus jendela, yaitu kaca bersama kusennya. Makin kecil, makin sedikit panas yang lolos.',
-    from: 'Katalog kaca' },
+    text: `Seberapa mudah panas menembus jendela, yaitu kaca bersama kusennya. Makin kecil, makin sedikit panas yang lolos. ${THERMAL_BRIDGE_TEXT} Di sini dihitung dengan kusen aluminium (U 8,0) selebar 50 mm.`,
+    from: 'Katalog kaca + kusen (Tabel 3 dan Lampiran C SNI)' },
   dt: { sym: 'ΔT', name: 'Beda suhu luar dan dalam', unit: K, target: 'glass', goto: 'bab-2',
     text: 'Selisih suhu udara luar dan ruangan. SNI sudah menetapkannya 5 K, jadi tinggal dipakai.',
     from: 'Ketetapan SNI (5 K)' },
@@ -110,6 +112,7 @@ export function chapters({ gl }) {
       <h2>Makin banyak kaca, makin panas</h2>
       <p>WWR adalah porsi kaca di satu sisi bangunan, termasuk kusennya. WWR 40% artinya 40% sisi itu kaca dan 60% dinding.</p>
       <p>Kaca meloloskan panas jauh lebih banyak daripada dinding, terutama lewat sinar matahari. Jadi makin besar WWR, makin besar OTTV.</p>
+      <p class="l3d-note">${THERMAL_BRIDGE_TEXT}</p>
       <label class="l3d-ctl">Porsi kaca sisi Barat (WWR) <input data-id="wwr" type="range" min="0.1" max="0.85" step="0.05" value="0.4"><output data-id="wwr-out">40%</output></label>
       <div class="l3d-stack" aria-hidden="true"><i data-id="s-wall" style="background:${HEAT_COLORS.wall}"></i><i data-id="s-glass" style="background:${HEAT_COLORS.glass}"></i><i data-id="s-solar" style="background:${HEAT_COLORS.solar}"></i></div>
       <dl class="l3d-stats"><div><dt>Lewat dinding</dt><dd data-id="w-wall">–</dd></div><div><dt>Lewat kaca</dt><dd data-id="w-glass">–</dd></div><div><dt>Sinar lewat kaca</dt><dd data-id="w-solar">–</dd></div></dl>
