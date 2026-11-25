@@ -250,7 +250,7 @@ def rematerial_analysis(
         orient_acc[code] = {
             "code": code,
             "name_id": prev_r.get("name_id", code),
-            "azimuth_deg": prev_r.get("azimuth_deg", 0),
+            "azimuth_deg": prev_r.get("azimuth_center_deg", prev_r.get("azimuth_deg", 0)),
             "sni_sf_wm2": prev_r.get("sni_sf_wm2", 0.0),
             "panel_count": 0,
             "total_area_m2": 0.0,
@@ -512,10 +512,12 @@ def rematerial_analysis(
             "q_solar_wm2": round(qsol, 4),
             "ottv_wm2": round(ottv_o, 4),
         }
+        sh_ratio = round(b["_sum_shaded_area"] / a_tot, 3) if a_tot > 1e-4 else 0.0
         new_orient_list.append({
             "code": code,
             "name_id": b["name_id"],
             "azimuth_deg": b["azimuth_deg"],
+            "azimuth_center_deg": b["azimuth_deg"],
             "sni_sf_wm2": b["sni_sf_wm2"],
             "panel_count": b["panel_count"],
             "total_area_m2": round(a_tot, 2),
@@ -523,13 +525,19 @@ def rematerial_analysis(
             "glazing_area_m2": round(a_glz, 2),
             "wwr": round(wwr_o, 4),
             "effective_sf_wm2": round(avg_sf, 1),
-            "avg_sc_effective": round(avg_sc, 3),
-            "shaded_fraction": round(b["_sum_shaded_area"] / a_tot, 3) if a_tot > 1e-4 else 0.0,
+            "avg_sf_interpolated_wm2": round(avg_sf, 2),
+            "avg_sc_effective": round(avg_sc, 4),
+            "shaded_fraction": sh_ratio,
+            "avg_shaded_ratio": sh_ratio,
             "q_wall_wm2": round(qw, 2),
             "q_glass_cond_wm2": round(qgc, 2),
             "q_solar_wm2": round(qsol, 2),
+            "q_wall_conduction_wm2": round(qw, 2),
+            "q_glass_conduction_wm2": round(qgc, 2),
+            "q_solar_radiation_wm2": round(qsol, 2),
             "ottv_orientation_wm2": round(ottv_o, 2),
             "heat_gain_w": round(hw, 1),
+            "heat_gain_watts": round(hw, 1),
             "compliant_sni": ottv_o <= SNI_OTTV_LIMIT_WM2,
             "manual_calc": manual_calc,
         })
