@@ -1256,6 +1256,7 @@ class LuxaViewer {
     const panelGridCoords = [];
     const excludedLineCoords = [];
 
+    const panelInset = (analysis.frame_elements || []).some((el) => el?.faces?.length) ? 0.15 : 0;
     for (const p of panels) {
       if (!Array.isArray(p.vertices) || p.vertices.length < 3) continue;
 
@@ -1326,7 +1327,13 @@ class LuxaViewer {
       }
       if (xray) isDimmed = true;
 
-      const vs = p.vertices;
+      // Panel digeser sedikit ke dalam (tampilan saja) bila model punya rangka: di fasad twisted mullion
+      // lurus sebagian berada di belakang bidang kaca/spandrel (hingga ~9 cm) sehingga tertutup panel buram.
+      // Di Inspeksi tidak terjadi karena kaca di sana tembus. Data hitung tidak tersentuh.
+      const vsRaw = p.vertices;
+      const vs = panelInset > 0 && fn
+        ? vsRaw.map((v) => [v[0] - fn[0] * panelInset, v[1] - fn[1] * panelInset, v[2] - fn[2] * panelInset])
+        : vsRaw;
       const p0 = _coordsArr(vs[0][0], vs[0][1], vs[0][2]);
       const p1 = _coordsArr(vs[1][0], vs[1][1], vs[1][2]);
       const p2 = _coordsArr(vs[2][0], vs[2][1], vs[2][2]);
@@ -1346,12 +1353,12 @@ class LuxaViewer {
         return color;
       };
 
-      const n0 = nForVert(vs[0]);
-      const n1 = nForVert(vs[1]);
-      const n2 = nForVert(vs[2]);
-      const c0 = cForVert(vs[0], n0);
-      const c1 = cForVert(vs[1], n1);
-      const c2 = cForVert(vs[2], n2);
+      const n0 = nForVert(vsRaw[0]);
+      const n1 = nForVert(vsRaw[1]);
+      const n2 = nForVert(vsRaw[2]);
+      const c0 = cForVert(vsRaw[0], n0);
+      const c1 = cForVert(vsRaw[1], n1);
+      const c2 = cForVert(vsRaw[2], n2);
 
       const dstCoords = isDimmed ? dimCoords : mainCoords;
       const dstNormals = isDimmed ? dimNormals : mainNormals;
@@ -1365,8 +1372,8 @@ class LuxaViewer {
 
       if (vs.length >= 4) {
         const p3 = _coordsArr(vs[3][0], vs[3][1], vs[3][2]);
-        const n3 = nForVert(vs[3]);
-        const c3 = cForVert(vs[3], n3);
+        const n3 = nForVert(vsRaw[3]);
+        const c3 = cForVert(vsRaw[3], n3);
         dstCoords.push(...p0, ...p2, ...p3);
         dstNormals.push(..._normalToThreeArr(n0), ..._normalToThreeArr(n2), ..._normalToThreeArr(n3));
         dstColors.push(c0.r, c0.g, c0.b, c2.r, c2.g, c2.b, c3.r, c3.g, c3.b);
