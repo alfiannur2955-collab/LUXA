@@ -113,7 +113,7 @@ def build_dashboard(wb, analysis: Dict[str, Any]) -> None:
     _status_fonts(ws, "B6:D7", "$B$6", 24)
     _tile(ws, 5, 5, 3, "Batas SNI 6389:2020", "=OTTV_LIMIT", "0", "W/m²")
     _tile(ws, 5, 8, 3, "Sisa ke batas", f"=OTTV_LIMIT-{OT}", "+#,##0.00;-#,##0.00;0.00", "W/m² · negatif berarti melewati batas")
-    _tile(ws, 5, 11, 3, "Porsi kaca (WWR)", f"=Ringkasan!D{tr}", "0.0%", "luas kaca ÷ luas selubung")
+    _tile(ws, 5, 11, 3, "Porsi fenestrasi (kaca + kusen)", f"=Ringkasan!D{tr}", "0.0%", "luas fenestrasi ÷ luas selubung")
     for r, h in ((5, 22), (6, 21), (7, 21), (8, 18), (9, 12)):
         ws.row_dimensions[r].height = h
 

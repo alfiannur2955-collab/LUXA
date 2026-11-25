@@ -255,7 +255,7 @@ def _sheet_orientation(wb: Workbook, analysis: Dict[str, Any], code: str, name: 
         ("B4", "Luas dinding (m²)", "C4", f"=SUM({rng('F')})", NUM2),
         ("B5", "Luas kaca (m²)", "C5", f"=SUM({rng('G')})", NUM2),
         ("B6", "Luas selubung A_o (m²)", "C6", "=C4+C5", NUM2),
-        ("B7", "WWR", "C7", "=IF(C6=0,0,C5/C6)", "0.0%"),
+        ("B7", "Porsi fenestrasi (kaca + kusen)", "C7", "=IF(C6=0,0,C5/C6)", "0.0%"),
         ("E4", "Konduksi dinding (W/m²)", "G4", f"=IF($C$6=0,0,SUM({rng('P')})/$C$6)", NUM2),
         ("E5", "Konduksi kaca (W/m²)", "G5", f"=IF($C$6=0,0,SUM({rng('Q')})/$C$6)", NUM2),
         ("E6", "Radiasi kaca (W/m²)", "G6", f"=IF($C$6=0,0,SUM({rng('R')})/$C$6)", NUM2),
@@ -501,7 +501,7 @@ def _sheet_summary(ws, analysis: Dict[str, Any], refs: Dict[str, Dict[str, str]]
         ws.merge_cells(f"B{4 + i}:E{4 + i}")
 
     r0 = 15  # baris info 4..13 (maks. 10 baris)
-    _header(ws, r0, ["Arah", "Luas selubung (m²)", "Luas kaca (m²)", "WWR", "OTTV arah (W/m²)", "Total panas (W)", "OTTV di aplikasi", "Selisih"], height=32)
+    _header(ws, r0, ["Arah", "Luas selubung (m²)", "Luas fenestrasi (m²)", "Porsi fenestrasi (kaca + kusen)", "OTTV arah (W/m²)", "Total panas (W)", "OTTV di aplikasi", "Selisih"], height=32)
     app_ori = {o.get("code"): o for o in analysis.get("orientation_breakdown") or []}
     for i, (code, name, title) in enumerate(ORIENTATIONS):
         n = r0 + 1 + i

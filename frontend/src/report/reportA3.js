@@ -83,7 +83,7 @@ export function buildReportA3(state, { theme = 'dark', orient = 'landscape', use
           ${limitRuler(a.ottv_total_wm2, limit, T, { verdict: vi.verdict })}
         </div>
         <div class="panel kpi"><p class="kick">Sisi terpanas</p><div class="mid">${esc(sideName(hot?.code))}</div><p class="note">${f1(hot?.ottv_orientation_wm2)} W/m² · ${esc(hotSv.text.toLowerCase())}</p></div>
-        <div class="panel kpi"><p class="kick">Porsi kaca (WWR)</p><div class="mid">${pct(s.effective_wwr)}</div><p class="note">${f0(s.total_glazing_area_m2)} dari ${f0(s.total_envelope_area_m2)} m²</p></div>
+        <div class="panel kpi"><p class="kick">Porsi fenestrasi (kaca + kusen)</p><div class="mid">${pct(s.effective_wwr)}</div><p class="note">${f0(s.total_glazing_area_m2)} dari ${f0(s.total_envelope_area_m2)} m²</p></div>
         <div class="panel kpi"><p class="kick">Sinar lewat kaca</p><div class="mid">${f0(solarShare * 100)}%</div><p class="note">bagian terbesar dari OTTV</p></div>
         <div class="panel paths"><p class="kick">Asal panas · tiga jalur rumus SNI</p>
           <div class="ringwrap">${ringChart(s, a.ottv_total_wm2, T, { size: 200 })}<div class="legend">${legend}</div></div></div>

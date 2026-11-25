@@ -405,7 +405,7 @@ function finish(state, c) {
       <div class="col"><div class="k">Faktor matahari</div><div class="v" style="font-size:14pt">${esc((a.sf_source_label || 'Tabel 8 SNI').split(' (')[0])}</div></div>
       ${port ? '</div><div class="cols" style="--n:3;margin-top:6mm">' : ''}
       <div class="col"><div class="k">Luas selubung</div><div class="v">${f0(area)}<small>m²</small></div></div>
-      <div class="col"><div class="k">Porsi kaca (WWR)</div><div class="v">${pc(s.effective_wwr)}</div></div>
+      <div class="col"><div class="k">Porsi fenestrasi (kaca + kusen)</div><div class="v">${pc(s.effective_wwr)}</div></div>
       <div class="col"><div class="k">Lantai · sisi</div><div class="v">${f0(s.total_floors || floors.length)}<small>lantai</small> ${sides.length}<small>sisi</small></div></div>
     </div></div>
     ${foot('Angka dari hasil hitung LUXA')}

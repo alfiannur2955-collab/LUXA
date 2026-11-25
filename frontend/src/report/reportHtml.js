@@ -68,7 +68,7 @@ export function buildReportHtml(state, { userName = '', images = {}, logoUrl = '
     <h2>${esc(vi.headline)}</h2>
     <p class="lead">Nilai OTTV ${f2(a.ottv_total_wm2)} W/m². ${esc(vi.delta.sentence)}
       OTTV adalah rata-rata panas yang masuk lewat dinding luar dan kaca, per meter persegi selubung.</p>
-    <div class="section">${stats([['OTTV total', `${f2(a.ottv_total_wm2)}<small>W/m²</small>`], ['Sisi terpanas', hot ? `${esc(sideName(hot.code))}<small>${f1(hot.ottv_orientation_wm2)} W/m²</small>` : '-'], ['Porsi kaca (WWR)', pct(s.effective_wwr)]], 'lg')}</div>
+    <div class="section">${stats([['OTTV total', `${f2(a.ottv_total_wm2)}<small>W/m²</small>`], ['Sisi terpanas', hot ? `${esc(sideName(hot.code))}<small>${f1(hot.ottv_orientation_wm2)} W/m²</small>` : '-'], ['Porsi fenestrasi (kaca + kusen)', pct(s.effective_wwr)]], 'lg')}</div>
     <div class="card section"><h3>Asal panas</h3>${parts(Number(s.q_wall_conduction_wm2 || 0), Number(s.q_glass_conduction_wm2 || 0), Number(s.q_solar_radiation_wm2 || 0))}
       <p class="muted" style="margin:3mm 0 0;font-size:8pt">Jumlah ketiga jalur = ${f2(tot)} W/m², sama dengan OTTV total.</p></div>
     <div class="cols">

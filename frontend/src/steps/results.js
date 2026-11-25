@@ -457,7 +457,7 @@ export function renderResultsScreen(state, handlers) {
   heroMeta.className = 'lbl num';
   heroMeta.style.fontWeight = '500';
   heroMeta.append(
-    makeTermTip('WWR', 'WWR', tooltipsOn),
+    makeTermTip('WWR', 'Porsi fenestrasi (kaca + kusen)', tooltipsOn),
     document.createTextNode(` ${fmtId(wwrPct, 1)}% · `),
     makeTermTip('SC', 'SC', tooltipsOn),
     document.createTextNode(` ${fmtId(avgSc, 3)}`),

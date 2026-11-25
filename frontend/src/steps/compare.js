@@ -358,7 +358,7 @@ export function renderCompareScreen(state, handlers) {
       diffRows.push(['Model', activeAlt.filename || activeAlt.name, true]);
       diffRows.push(['Luas selubung', `${fmtId(envelopeArea(b), 0)} → ${fmtId(envelopeArea(a), 0)} m²`, false]);
       diffRows.push([
-        'WWR',
+        'Porsi fenestrasi (kaca + kusen)',
         `${fmtId((b?.summary?.effective_wwr ?? 0) * 100, 1)} → ${fmtId((a?.summary?.effective_wwr ?? 0) * 100, 1)}%`,
         false,
       ]);

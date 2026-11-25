@@ -89,7 +89,7 @@ export function renderCard(slide, ctx) {
       return `${kicker}
         <h2 class="lxp-title">Sisi ${esc(sideName(hot.code))} menerima panas terbanyak</h2>
         <div class="lxp-big"><strong>${f1(hot.ottv_orientation_wm2)}</strong>${W}${statusBadge(sv.statusClass, sv.text)}</div>
-        ${stats([['Luas', `${f0(hot.total_area_m2)} m²`], ['Porsi kaca', pct(hot.wwr)], ['Faktor matahari', `${f0(hot.sni_sf_wm2)}`]])}
+        ${stats([['Luas', `${f0(hot.total_area_m2)} m²`], ['Porsi fenestrasi (kaca + kusen)', pct(hot.wwr)], ['Faktor matahari', `${f0(hot.sni_sf_wm2)}`]])}
         ${parts(Number(hot.q_wall_conduction_wm2 || 0), Number(hot.q_glass_conduction_wm2 || 0), Number(hot.q_solar_radiation_wm2 || 0))}
         <p class="lxp-note">Faktor matahari (SF, W/m²) dari Tabel 8 SNI: makin besar, makin kuat sinar yang diterima sisi ini.</p>`;
     }
@@ -100,7 +100,7 @@ export function renderCard(slide, ctx) {
       return `${kicker}
         <h2 class="lxp-title">${share >= 0.5 ? 'Sebagian besar panas masuk lewat sinar di kaca' : 'Kaca bukan jalur panas terbesar'}</h2>
         <div class="lxp-big"><strong>${f0(share * 100)}%</strong><span class="lxp-unit">OTTV berasal dari sinar lewat kaca</span></div>
-        ${stats([['Porsi kaca', pct(s.effective_wwr)], ['SC efektif', f2(s.avg_sc_effective)], ['Terteduhi', pct(s.avg_shaded_fraction)]])}
+        ${stats([['Porsi fenestrasi (kaca + kusen)', pct(s.effective_wwr)], ['SC efektif', f2(s.avg_sc_effective)], ['Terteduhi', pct(s.avg_shaded_fraction)]])}
         <p class="lxp-mat"><span>Kaca</span>${esc(mat.glazing_name || '-')}</p>
         <p class="lxp-note">SC efektif = berapa bagian sinar yang lolos lewat kaca setelah dihitung peneduhnya. Makin kecil, makin sejuk.</p>`;
     }

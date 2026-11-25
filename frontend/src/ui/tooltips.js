@@ -14,9 +14,9 @@ export const SNI_GLOSSARY = {
   },
   WWR: {
     term: 'WWR',
-    full: 'Window-to-Wall Ratio',
-    summary: 'Perbandingan luas bidang kaca terhadap luas total selubung fasad luar pada suatu arah atau seluruh bangunan.',
-    ref: 'SNI 6389:2020 Pasal 3.12 & 5.1',
+    full: 'Porsi fenestrasi (kaca + kusen)',
+    summary: 'Perbandingan luas bukaan fenestrasi (kaca beserta kusennya) terhadap luas total selubung fasad luar pada suatu arah atau seluruh bangunan.',
+    ref: 'SNI 6389:2020 Pasal 3.15, 3.17 & 4.2',
   },
   SC: {
     term: 'SC',

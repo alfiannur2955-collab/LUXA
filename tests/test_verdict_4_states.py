@@ -309,3 +309,41 @@ console.log('MODE_BADGE_CHECKS_OK');
     )
     assert proc.returncode == 0, f"Node test gagal:\nSTDOUT: {proc.stdout}\nSTDERR: {proc.stderr}"
     assert "MODE_BADGE_CHECKS_OK" in proc.stdout
+
+
+def test_c8_label_wwr_porsi_fenestrasi_di_layar_dan_ekspor():
+    """C8: label WWR menggunakan 'Porsi fenestrasi (kaca + kusen)' di layar dan semua ekspor."""
+    from luxa_report import generate_luxa_report
+    from report_exporter import generate_csv_report
+
+    path = os.path.join(ROOT_DIR, "fixtures", "Honeybee_MultiZone_Office_3F.hbjson")
+    cfg = ProjectConfig(settings=SettingsConfig(materials_confirmed=True, mode="sni"))
+    res = analyze_building_ottv(path, "Honeybee_MultiZone_Office_3F.hbjson", cfg.to_envelope_parameters())
+
+    # 1. Excel (Dasbor & Ringkasan)
+    wb = openpyxl.load_workbook(io.BytesIO(generate_luxa_report(res)))
+    dash_txt = " ".join(str(c.value) for row in wb["Dasbor"].iter_rows() for c in row if c.value)
+    ring_txt = " ".join(str(c.value) for row in wb["Ringkasan"].iter_rows() for c in row if c.value)
+    assert "Porsi fenestrasi (kaca + kusen)" in dash_txt
+    assert "Porsi fenestrasi (kaca + kusen)" in ring_txt
+
+    # 2. CSV & PDF exporter
+    csv_raw = generate_csv_report(res)
+    csv_txt = csv_raw.decode("utf-8-sig") if isinstance(csv_raw, (bytes, bytearray)) else str(csv_raw)
+    assert "Porsi fenestrasi (kaca + kusen)" in csv_txt
+    exp_src = open(os.path.join(ROOT_DIR, "backend", "report_exporter.py"), encoding="utf-8").read()
+    assert "Porsi fenestrasi (kaca + kusen)" in exp_src
+
+    # 3. Layar (results, compare, tooltips, present) dan ekspor HTML/A3/mockup
+    for rel in (
+        "frontend/src/steps/results.js",
+        "frontend/src/steps/compare.js",
+        "frontend/src/ui/tooltips.js",
+        "frontend/src/present/content.js",
+        "frontend/src/report/reportHtml.js",
+        "frontend/src/report/reportA3.js",
+        "frontend/src/report/mockupA3.js",
+    ):
+        txt = open(os.path.join(ROOT_DIR, rel), encoding="utf-8").read()
+        assert "Porsi fenestrasi (kaca + kusen)" in txt, f"{rel} belum memuat 'Porsi fenestrasi (kaca + kusen)'"
+

@@ -55,7 +55,7 @@ def generate_csv_report(analysis: Dict[str, Any]) -> bytes:
     writer.writerow(["Luas Selubung Aktif (m2)", s.get("total_envelope_area_m2", 0)])
     writer.writerow(["Luas Kaca Bukaan (m2)", s.get("total_glazing_area_m2", 0)])
     writer.writerow(["Luas Dinding Masif/Spandrel (m2)", s.get("total_opaque_area_m2", 0)])
-    writer.writerow(["WWR Efektif (%)", round(float(s.get("effective_wwr", 0)) * 100.0, 2)])
+    writer.writerow(["Porsi fenestrasi (kaca + kusen) (%)", round(float(s.get("effective_wwr", 0)) * 100.0, 2)])
     writer.writerow(["Konduksi Dinding (W/m2)", s.get("q_wall_conduction_wm2", 0)])
     writer.writerow(["Konduksi Kaca & Rangka (W/m2)", s.get("q_glass_conduction_wm2", 0)])
     writer.writerow(["Radiasi Surya Bukaan (W/m2)", s.get("q_solar_radiation_wm2", 0)])
@@ -270,7 +270,7 @@ def generate_pdf_report(analysis: Dict[str, Any]) -> bytes:
     # 1. Summary Table
     elements.append(Paragraph("1. Ringkasan Eksekutif & Komponen Perpindahan Panas", sec_style))
     sum_data = [
-        ["Bidang Terdeteksi", "Bidang Luar Aktif", "Luas Selubung (m²)", "Luas Kaca (m²)", "WWR Efektif", "Konduksi Dinding", "Konduksi Kaca", "Radiasi Surya", "OTTV Total"],
+        ["Bidang Terdeteksi", "Bidang Luar Aktif", "Luas Selubung (m²)", "Luas Fenestrasi (m²)", "Porsi fenestrasi (kaca + kusen)", "Konduksi Dinding", "Konduksi Kaca", "Radiasi Surya", "OTTV Total"],
         [
             str(s.get("total_detected_panels", s.get("panel_count", 0))),
             str(s.get("active_panel_count", s.get("panel_count", 0))),
