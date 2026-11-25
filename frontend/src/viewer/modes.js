@@ -416,7 +416,9 @@ export function makeClassificationMaterial(category, tokens, { highlighted = fal
   if (category === 'glazing' || category === 'composite_cw') {
     color = tokens.glazing;
     transparent = true;
-    opacity = dimmed ? 0.14 : 0.82;
+    // 0,82 nyaris buram: rangka yang sebagian berada di belakang bidang kaca (fasad twisted, ~24% muka
+    // mullion) tampak terpotong-potong. Kaca dibuat lebih tembus agar rangka di belakangnya tetap terbaca.
+    opacity = dimmed ? 0.14 : 0.45;
   } else if (category === 'shading') {
     color = tokens.shading;
   } else if (category === 'frame') {
@@ -440,6 +442,8 @@ export function makeClassificationMaterial(category, tokens, { highlighted = fal
     side: THREE.DoubleSide,
     transparent,
     opacity,
+    // Kaca tidak menulis depth supaya rangka/peneduh di belakangnya tidak ikut terhapus.
+    depthWrite: !(category === 'glazing' || category === 'composite_cw'),
     emissive: highlighted ? new THREE.Color(tokens.sun) : new THREE.Color(0x000000),
     emissiveIntensity: highlighted ? 0.32 : 0.0,
   });

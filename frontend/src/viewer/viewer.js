@@ -1444,7 +1444,7 @@ class LuxaViewer {
 
     const ctxDim = xray || (check && checkFlagged) || Boolean(selOrient) || facadeFilter === 'sunlit_now';
     this._renderContextElements(analysis.shading_elements, 'shading', tokens, ctxDim, xray);
-    this._renderContextElements(analysis.frame_elements, 'frame', tokens, ctxDim || mode === 'heatmap' || mode === 'exposure', xray);
+    this._renderContextElements(analysis.frame_elements, 'frame', tokens, ctxDim, xray);
     this._renderContextElements(
       analysis.roof_elements,
       'roof',
