@@ -6,10 +6,10 @@ Baca seluruhnya sebelum mengubah kode. Riwayat lengkap ada di `docs/LOG_PENGERJA
 
 ## 1. Status saat serah-terima
 
-- Branch `main`. Semua tes lulus (401 lulus, 1 dilewati), `tools/compare_baseline.py` 0 selisih terhadap baseline pasca-T5.
-- Model acuan `backend/samples/Fasad_Tower_Twisted.3dm` (milik pengguna): OTTV **41,82** (triple-silver, material
-  dikonfirmasi, dengan `U_f` tiga zona 2,97 W/m²K dan kusen terukur 87,6 mm; dulu 34,18 sebelum T5). Opsi studi
-  `corpus/_studi_peneduh/Fasad_Tower_Twisted_OpsiA_SiripTerakota.3dm`: **38,09** (dulu 30,45).
+- Branch `main`. Semua tes lulus (406 lulus, 1 dilewati), `tools/compare_baseline.py` 0 selisih terhadap baseline pasca-T5.
+- Model acuan `backend/samples/Fasad_Tower_Twisted.3dm` (milik pengguna): OTTV **41,25** (triple-silver, material
+  dikonfirmasi, dengan `U_f` tiga zona 2,85 W/m²K, fraksi rangka `r = 13,5%`, dan kusen terukur 87,6 mm; dulu 34,18 sebelum T5). Opsi studi
+  `corpus/_studi_peneduh/Fasad_Tower_Twisted_OpsiA_SiripTerakota.3dm`: **37,52** (dulu 30,45).
 - Selesai: AUDIT-01..03, A3-01, A3-02, A3-03, A3-04 Fase 0+1, A3-05, A3-06, A3-07, A3-08, A3-09, A3-10, A3-11, A3-12 (sebagian), A3-13, A3-14, A3-15, percepatan
   engine (raycast, peneduh, rematerial, inspeksi, T7: cache indeks-Z, vektorisasi round/serializer, SF/SC/material cache), service worker.
 - Belum: A3-04 Fase 2–4 (T6, opsional; lihat §6).

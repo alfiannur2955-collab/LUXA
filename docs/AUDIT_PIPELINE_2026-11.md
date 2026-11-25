@@ -257,12 +257,15 @@ Grup rangka tidak menyumbang luas selubung. Muka depan profil (biasanya 3–5% l
 semestinya termasuk fenestrasi. Dampaknya kecil, tetapi perlu diputuskan dan didokumentasikan.
 
 **Perbaikan (Nov 2026, T5).** Fenestrasi kini dihitung sebagai kaca + kusen (`_measure_frame_groups_for_panels` +
-`compute_three_zone_uf`). Bila grup rangka ada, muka luar rangka terukur (tidak menimpa kaca menerus) masuk ke `A_f`
-dan `A_o` memakai SC kaca dan peneduh pada orientasi terkait, dengan lebar kusen dari median lebar profil terukur. Bila
-tidak ada grup rangka, kusen dihitung di dalam bukaan panel memakai isian baru `settings.frame_width_mm` (bawaan 50 mm,
-ikut `materials_confirmed`, dan menampilkan catatan "Lebar kusen asumsi"). Nilai `U_f`, `A_frame`, `A_edge`, lebar kusen,
-dan sumbernya (`terukur`/`asumsi pengguna`) tampil di UI Hasil serta laporan Excel dan PDF. Teruji di
-`tests/test_three_zone_uf.py` dan paritas browser `tests/test_browser_engine_parity.py`.
+`compute_three_zone_uf`). Hanya muka depan rangka yang sejajar fasad (`|cos| ≥ 0,90`) yang dihitung (sisi samping &
+kedalaman dibuang); muka kusen menggantikan luas di belakangnya tanpa menambah `A_o` (selisih `A_o` dengan vs tanpa
+rangka 0,0% ≤ 3% di semua model), dan muka kusen yang berbatasan dengan spandrel/dinding masuk ke dinding, bukan
+fenestrasi. `U_f` dihitung per lembar kaca utuh (komponen tersambung), disertai peringatan review (`FRAME_REVIEW_NEEDED`)
+bila `r < 5%`, `r > 30%`, atau lebar kusen `> 200 mm`. Bila tidak ada grup rangka, kusen dihitung di dalam bukaan panel
+memakai isian baru `settings.frame_width_mm` (bawaan 50 mm, ikut `materials_confirmed`, dan menampilkan catatan "Lebar
+kusen asumsi"). Nilai `U kaca → U_f`, `A_frame`, `A_edge`, fraksi `r`, lebar kusen, dan sumbernya (`terukur`/`asumsi
+pengguna`) beserta rujukan SNI 6389:2020 butir 4.3.2.2 dan Tabel 3 tampil di UI Hasil serta laporan Excel dan PDF.
+Teruji di `tests/test_three_zone_uf.py` dan paritas browser `tests/test_browser_engine_parity.py`.
 
 ---
 

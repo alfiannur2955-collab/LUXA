@@ -1037,10 +1037,18 @@ export function renderResultsScreen(state, handlers) {
     fenGrid.style.marginTop = '6px';
     fenGrid.style.fontSize = '12px';
 
+    const uCogDisp = summary.avg_u_cog_wm2k ?? summary.active_materials?.u_cog ?? 0;
+    const uFenDisp = summary.avg_u_fen_wm2k ?? summary.active_materials?.u_fenestration ?? 0;
+    const rPctDisp =
+      summary.frame_ratio_pct ??
+      (Number(summary.total_glazing_area_m2 || 0) > 0.01
+        ? (100 * Number(summary.total_a_frame_m2 || 0)) / Number(summary.total_glazing_area_m2)
+        : 0);
+
     for (const [lbl, val] of [
-      ['U_f rata-rata', `${fmtId(summary.avg_u_fen_wm2k ?? summary.active_materials?.u_fenestration ?? 0, 2)} W/m²K`],
+      ['U kaca → U_f', `${fmtId(uCogDisp, 2)} → ${fmtId(uFenDisp, 2)} W/m²K`],
       ['Lebar kusen', `${fmtId(summary.frame_width_mm ?? 50, 1)} mm`],
-      ['A_frame', `${fmtId(summary.total_a_frame_m2 ?? 0, 2)} m²`],
+      ['A_frame (r)', `${fmtId(summary.total_a_frame_m2 ?? 0, 2)} m² (${fmtId(rPctDisp, 1)}%)`],
       ['A_edge', `${fmtId(summary.total_a_edge_m2 ?? 0, 2)} m²`],
     ]) {
       const cell = document.createElement('div');
@@ -1063,8 +1071,8 @@ export function renderResultsScreen(state, handlers) {
     fenNote.style.lineHeight = '16px';
     fenNote.textContent =
       fSrc === 'terukur'
-        ? `Sumber: terukur dari grup rangka model (U_frame ${fmtId(summary.u_frame_eff_wm2k ?? 8, 1)} W/m²K).`
-        : `Sumber: asumsi pengguna — Lebar kusen asumsi ${fmtId(summary.frame_width_mm ?? 50, 1)} mm (U_frame ${fmtId(summary.u_frame_eff_wm2k ?? 8, 1)} W/m²K).`;
+        ? `SNI 4.3.2.2 & Tabel 3 · Sumber: terukur dari grup rangka model (U_frame ${fmtId(summary.u_frame_eff_wm2k ?? 8, 1)} W/m²K).`
+        : `SNI 4.3.2.2 & Tabel 3 · Sumber: asumsi pengguna — Lebar kusen asumsi ${fmtId(summary.frame_width_mm ?? 50, 1)} mm (U_frame ${fmtId(summary.u_frame_eff_wm2k ?? 8, 1)} W/m²K).`;
 
     fenWrap.append(fenHead, fenGrid, fenNote);
     rttvCard.appendChild(fenWrap);

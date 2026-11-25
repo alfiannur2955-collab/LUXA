@@ -59,7 +59,16 @@ def _add_box(mesh: rhino3dm.Mesh, x0: float, y0: float, z0: float, x1: float, y1
     _add_quad(mesh, [(x0, y1, z0), (x1, y1, z0), (x1, y0, z0), (x0, y0, z0)])
 
 
-def _write_box_3dm(path: str, *, with_mullions: bool, frame_w: float = 0.05, window_size: Tuple[float, float] = (8.0, 2.0)) -> str:
+def _write_box_3dm(
+    path: str,
+    *,
+    with_mullions: bool,
+    frame_w: float = 0.05,
+    window_size: Tuple[float, float] = (8.0, 2.0),
+    continuous_glass: bool = True,
+    glz_subdiv: Tuple[int, int] = (1, 1),
+    add_wall_trim: bool = False,
+) -> str:
     """Membuat kotak 10x10x4 m dengan bukaan `window_size` di keempat sisi (U, T, S, B).
     - with_mullions=False: bukaan penuh sebagai 1 panel kaca (tidak ada grup rangka).
     - with_mullions=True: bukaan yang sama dibagi menjadi rangka kusen keliling + 1 mullion tengah
@@ -143,8 +152,20 @@ def _write_box_3dm(path: str, *, with_mullions: bool, frame_w: float = 0.05, win
         _side_quad(m_wall, ox, oy, tx, ty, nx, ny, 0.0, u0, z0, z1)
         _side_quad(m_wall, ox, oy, tx, ty, nx, ny, u1, W, z0, z1)
 
+        def _add_glz_grid(ua, ub, za, zb):
+            nu, nz = glz_subdiv
+            du = (ub - ua) / nu
+            dz = (zb - za) / nz
+            for iu in range(nu):
+                for iz in range(nz):
+                    _side_quad(
+                        m_glz, ox, oy, tx, ty, nx, ny,
+                        ua + iu * du, ua + (iu + 1) * du,
+                        za + iz * dz, za + (iz + 1) * dz,
+                    )
+
         if not with_mullions:
-            _side_quad(m_glz, ox, oy, tx, ty, nx, ny, u0, u1, z0, z1)
+            _add_glz_grid(u0, u1, z0, z1)
         else:
             # Kusen keliling lebar frame_w (tanpa tumpang tindih sudut) + 1 mullion vertikal tengah
             fw = frame_w
@@ -155,9 +176,16 @@ def _write_box_3dm(path: str, *, with_mullions: bool, frame_w: float = 0.05, win
             _side_box(m_frm, ox, oy, tx, ty, nx, ny, u0, u0 + fw, z0 + fw, z1 - fw, d_in=depth * 0.5, d_out=depth * 0.5)
             _side_box(m_frm, ox, oy, tx, ty, nx, ny, u1 - fw, u1, z0 + fw, z1 - fw, d_in=depth * 0.5, d_out=depth * 0.5)
             _side_box(m_frm, ox, oy, tx, ty, nx, ny, um0, um1, z0 + fw, z1 - fw, d_in=depth * 0.5, d_out=depth * 0.5)
-            # 2 panel kaca bersih di antara kusen & mullion
-            _side_quad(m_glz, ox, oy, tx, ty, nx, ny, u0 + fw, um0, z0 + fw, z1 - fw)
-            _side_quad(m_glz, ox, oy, tx, ty, nx, ny, um1, u1 - fw, z0 + fw, z1 - fw)
+            if add_wall_trim:
+                # Batang profil aluminium di depan dinding/spandrel bawah (Z = 0,20..0,40 m) -> masuk dinding, bukan fenestrasi
+                _side_box(m_frm, ox, oy, tx, ty, nx, ny, 0.5, W - 0.5, 0.20, 0.30, d_in=0.0, d_out=0.06)
+            if continuous_glass:
+                # Panel kaca menerus di belakang mullion (muka rangka menggantikan luas kaca di belakangnya)
+                _add_glz_grid(u0, u1, z0, z1)
+            else:
+                # 2 panel kaca bersih di antara kusen & mullion
+                _side_quad(m_glz, ox, oy, tx, ty, nx, ny, u0 + fw, um0, z0 + fw, z1 - fw)
+                _side_quad(m_glz, ox, oy, tx, ty, nx, ny, um1, u1 - fw, z0 + fw, z1 - fw)
 
     # Atap
     _add_quad(m_roof, [(0.0, 0.0, H), (W, 0.0, H), (W, W, H), (0.0, W, H)])
@@ -354,6 +382,9 @@ def test_laporan_excel_dan_pdf_memuat_fenestrasi_3zona(tmp_path):
     xlsx = generate_excel_report(res)
     wb = openpyxl.load_workbook(io.BytesIO(xlsx))
     ring_text = " ".join(str(c.value) for row in wb["Ringkasan"].iter_rows() for c in row if c.value is not None)
+    assert "U kaca → U_f" in ring_text
+    assert "4.3.2.2" in ring_text
+    assert "Tabel 3" in ring_text
     assert "U_f rata-rata tiga zona" in ring_text
     assert "Luas rangka A_frame" in ring_text
     assert "Luas tepi kaca A_edge" in ring_text
@@ -379,3 +410,170 @@ def test_laporan_excel_dan_pdf_memuat_fenestrasi_3zona(tmp_path):
     pdf_bytes = generate_pdf_report(res)
     assert pdf_bytes.startswith(b"%PDF")
     assert len(pdf_bytes) > 1500
+
+
+def test_kaca_menerus_di_belakang_mullion_ao_sama_dan_r_tepat(tmp_path):
+    """Panel kaca menerus penuh di belakang mullion 3D (dengan sisi samping & kedalaman dalam):
+    A_o harus sama persis dengan tanpa mullion, sisi samping dibuang, dan r = luas muka depan mullion / luas fasad."""
+    W, H = 10.0, 4.0
+    mull_w = 0.10
+    mull_d = 0.18  # kedalaman besar supaya jelas sisi sampingnya dibuang
+
+    def _build_full_glz_box(path: str, with_mull: bool) -> str:
+        model = rhino3dm.File3dm()
+        model.Settings.ModelUnitSystem = rhino3dm.UnitSystem.Meters
+
+        def _add_layer(m_obj, name: str) -> int:
+            lyr = rhino3dm.Layer()
+            lyr.Name = name
+            return m_obj.Layers.Add(lyr)
+
+        l_glz = _add_layer(model, "01_Vision_Glass")
+        l_rf = _add_layer(model, "02_Roof")
+        m_glz, m_rf = rhino3dm.Mesh(), rhino3dm.Mesh()
+        ag, ar = rhino3dm.ObjectAttributes(), rhino3dm.ObjectAttributes()
+        ag.LayerIndex, ar.LayerIndex = l_glz, l_rf
+        m_frm, af = (rhino3dm.Mesh(), rhino3dm.ObjectAttributes()) if with_mull else (None, None)
+        if with_mull:
+            af.LayerIndex = _add_layer(model, "03_Frame_Mullion")
+
+        sides = [
+            (0.0, 0.0, 1.0, 0.0, 0.0, -1.0),
+            (W, 0.0, 0.0, 1.0, 1.0, 0.0),
+            (W, W, -1.0, 0.0, 0.0, 1.0),
+            (0.0, W, 0.0, -1.0, -1.0, 0.0),
+        ]
+
+        def _pt(ox, oy, tx, ty, nx, ny, u, z, off=0.0):
+            return (ox + tx * u + nx * off, oy + ty * u + ny * off, z)
+
+        for ox, oy, tx, ty, nx, ny in sides:
+            # 1 lembar kaca penuh 10 x 4 m per sisi (total A_o = 160 m2)
+            _add_quad(m_glz, [
+                _pt(ox, oy, tx, ty, nx, ny, 0.0, 0.0),
+                _pt(ox, oy, tx, ty, nx, ny, W, 0.0),
+                _pt(ox, oy, tx, ty, nx, ny, W, H),
+                _pt(ox, oy, tx, ty, nx, ny, 0.0, H),
+            ])
+            if with_mull:
+                # 4 mullion vertikal 0,10 x 4,0 m per sisi (muka depan = 1,6 m2/sisi, 6,4 m2 total;
+                # sisi samping/kedalaman = 4 * 2 * 0,18 * 4,0 = 5,76 m2/sisi yang HARUS dibuang!)
+                for u_mid in (1.5, 4.0, 6.0, 8.5):
+                    ua, ub = u_mid - 0.5 * mull_w, u_mid + 0.5 * mull_w
+                    p00 = _pt(ox, oy, tx, ty, nx, ny, ua, 0.0, mull_d)
+                    p10 = _pt(ox, oy, tx, ty, nx, ny, ub, 0.0, mull_d)
+                    p11 = _pt(ox, oy, tx, ty, nx, ny, ub, H, mull_d)
+                    p01 = _pt(ox, oy, tx, ty, nx, ny, ua, H, mull_d)
+                    q00 = _pt(ox, oy, tx, ty, nx, ny, ua, 0.0, 0.01)
+                    q10 = _pt(ox, oy, tx, ty, nx, ny, ub, 0.0, 0.01)
+                    q11 = _pt(ox, oy, tx, ty, nx, ny, ub, H, 0.01)
+                    q01 = _pt(ox, oy, tx, ty, nx, ny, ua, H, 0.01)
+                    _add_quad(m_frm, [p00, p10, p11, p01])
+                    _add_quad(m_frm, [q10, q00, q01, q11])
+                    _add_quad(m_frm, [q00, p00, p01, q01])
+                    _add_quad(m_frm, [p10, q10, q11, p11])
+                    _add_quad(m_frm, [p01, p11, q11, q01])
+                    _add_quad(m_frm, [q00, q10, p10, p00])
+
+        _add_quad(m_rf, [(0.0, 0.0, H), (W, 0.0, H), (W, W, H), (0.0, W, H)])
+        for m, attr in ((m_glz, ag), (m_rf, ar)):
+            m.Normals.ComputeNormals()
+            model.Objects.AddMesh(m, attr)
+        if with_mull and m_frm is not None and af is not None:
+            m_frm.Normals.ComputeNormals()
+            model.Objects.AddMesh(m_frm, af)
+        model.Write(path, 7)
+        return path
+
+    p_no = _build_full_glz_box(str(tmp_path / "cw_no_mull.3dm"), with_mull=False)
+    p_yes = _build_full_glz_box(str(tmp_path / "cw_with_mull.3dm"), with_mull=True)
+    cfg = ProjectConfig(settings=SettingsConfig(materials_confirmed=True, mode="sni", frame_material_id="frm_aluminium_standar"))
+    r_no = analyze_building_ottv(p_no, "cw_no_mull.3dm", cfg.to_envelope_parameters())
+    r_yes = analyze_building_ottv(p_yes, "cw_with_mull.3dm", cfg.to_envelope_parameters())
+
+    # A_o harus identik 160,00 m2 (mullion menggantikan kaca di belakang, bukan menambah)
+    assert abs(r_yes["summary"]["total_envelope_area_m2"] - r_no["summary"]["total_envelope_area_m2"]) <= 0.05
+    assert abs(r_yes["summary"]["total_envelope_area_m2"] - 160.0) <= 0.05
+
+    # Hanya muka depan mullion (4 sisi * 4 batang * 0,10 * 4,0 = 6,40 m2) yang dihitung
+    expected_front = 4 * 4 * mull_w * H
+    assert abs(r_yes["summary"]["total_a_frame_m2"] - expected_front) <= 0.05
+    expected_r = expected_front / 160.0  # 0,04 (4,0%)
+    assert abs(r_yes["summary"]["frame_ratio"] - expected_r) <= 0.002
+    assert abs(r_yes["summary"]["frame_width_mm"] - 100.0) <= 2.0
+    # Karena r = 4,0% < 5%, peringatan review harus muncul
+    assert "FRAME_REVIEW_NEEDED" in {w["code"] for w in r_yes["summary"]["warnings"]}
+
+
+def test_uf_per_lembar_kaca_utuh_vs_dipotong_10_sama(tmp_path):
+    """U_f dihitung per lembar kaca utuh (komponen tersambung): kaca 1 face vs dipotong 10 face -> U_f sama."""
+    p_utuh = _write_box_3dm(str(tmp_path / "kaca_utuh.3dm"), with_mullions=False, glz_subdiv=(1, 1))
+    p_10 = _write_box_3dm(str(tmp_path / "kaca_potong10.3dm"), with_mullions=False, glz_subdiv=(5, 2))
+    cfg = ProjectConfig(settings=SettingsConfig(materials_confirmed=True, mode="sni", frame_width_mm=50.0))
+
+    r_utuh = analyze_building_ottv(p_utuh, "kaca_utuh.3dm", cfg.to_envelope_parameters())
+    r_10 = analyze_building_ottv(p_10, "kaca_potong10.3dm", cfg.to_envelope_parameters())
+
+    glz_10 = [p for p in r_10["panels"] if p["active"] and p["element_type"] == "glazing"]
+    assert len(glz_10) == 40  # 4 sisi x 10 potongan
+    assert abs(r_utuh["summary"]["avg_u_fen_wm2k"] - r_10["summary"]["avg_u_fen_wm2k"]) <= 1e-4
+    assert abs(r_utuh["summary"]["total_a_frame_m2"] - r_10["summary"]["total_a_frame_m2"]) <= 0.01
+    assert abs(r_utuh["summary"]["total_a_edge_m2"] - r_10["summary"]["total_a_edge_m2"]) <= 0.01
+    assert abs(r_utuh["ottv_total_wm2"] - r_10["ottv_total_wm2"]) <= 0.01
+
+
+def test_kusen_berbatasan_spandrel_dinding_masuk_dinding_bukan_fenestrasi(tmp_path):
+    """Muka kusen di depan/berbatasan dinding atau spandrel masuk dinding, tidak menambah A_frame fenestrasi."""
+    p_base = _write_box_3dm(str(tmp_path / "box_mull_only.3dm"), with_mullions=True, continuous_glass=True, add_wall_trim=False)
+    p_trim = _write_box_3dm(str(tmp_path / "box_mull_and_walltrim.3dm"), with_mullions=True, continuous_glass=True, add_wall_trim=True)
+    cfg = ProjectConfig(settings=SettingsConfig(materials_confirmed=True, mode="sni"))
+
+    r_base = analyze_building_ottv(p_base, "box_mull_only.3dm", cfg.to_envelope_parameters())
+    r_trim = analyze_building_ottv(p_trim, "box_mull_and_walltrim.3dm", cfg.to_envelope_parameters())
+
+    assert abs(r_trim["summary"]["total_envelope_area_m2"] - r_base["summary"]["total_envelope_area_m2"]) <= 0.05
+    assert abs(r_trim["summary"]["total_a_frame_m2"] - r_base["summary"]["total_a_frame_m2"]) <= 0.05
+    assert r_trim["summary"]["total_opaque_frame_area_m2"] >= 3.0  # 4 sisi * 9 m * 0,10 m = 3,6 m2 masuk dinding
+    assert abs(r_trim["summary"]["avg_u_fen_wm2k"] - r_base["summary"]["avg_u_fen_wm2k"]) <= 0.01
+
+
+def test_peringatan_review_fraksi_rangka_dan_lebar_kusen(tmp_path):
+    """Peringatan review FRAME_REVIEW_NEEDED muncul bila r < 5%, r > 30%, atau lebar kusen > 200 mm."""
+    p_box = _write_box_3dm(str(tmp_path / "box_rev.3dm"), with_mullions=False, window_size=(8.0, 2.0))
+    # 1. r < 5% (lebar 10 mm di jendela 8x2 m -> r ~ 1,2%)
+    r_low = analyze_building_ottv(p_box, "box_rev.3dm", ProjectConfig(settings=SettingsConfig(materials_confirmed=True, mode="sni", frame_width_mm=10.0)).to_envelope_parameters())
+    w_low = {w["code"]: w for w in r_low["summary"]["warnings"]}
+    assert "FRAME_REVIEW_NEEDED" in w_low
+    assert "ratio_low" in w_low["FRAME_REVIEW_NEEDED"]["detail"]["reasons"]
+
+    # 2. Normal (50 mm di jendela 8x2 m -> r ~ 6,2%, lebar 50 mm) -> TIDAK ada FRAME_REVIEW_NEEDED
+    r_ok = analyze_building_ottv(p_box, "box_rev.3dm", ProjectConfig(settings=SettingsConfig(materials_confirmed=True, mode="sni", frame_width_mm=50.0)).to_envelope_parameters())
+    assert "FRAME_REVIEW_NEEDED" not in {w["code"] for w in r_ok["summary"]["warnings"]}
+
+    # 3. lebar kusen > 200 mm + r > 30% (220 mm di jendela 8x2 m)
+    r_hi = analyze_building_ottv(p_box, "box_rev.3dm", ProjectConfig(settings=SettingsConfig(materials_confirmed=True, mode="sni", frame_width_mm=220.0)).to_envelope_parameters())
+    w_hi = {w["code"]: w for w in r_hi["summary"]["warnings"]}
+    assert "FRAME_REVIEW_NEEDED" in w_hi
+    assert "width_high" in w_hi["FRAME_REVIEW_NEEDED"]["detail"]["reasons"]
+
+    # 4. r > 30% dengan lebar <= 200 mm (180 mm di jendela 1x1 m -> r ~ 59%)
+    p_small = _write_box_3dm(str(tmp_path / "box_small.3dm"), with_mullions=False, window_size=(1.0, 1.0))
+    r_rhi = analyze_building_ottv(p_small, "box_small.3dm", ProjectConfig(settings=SettingsConfig(materials_confirmed=True, mode="sni", frame_width_mm=180.0)).to_envelope_parameters())
+    w_rhi = {w["code"]: w for w in r_rhi["summary"]["warnings"]}
+    assert "FRAME_REVIEW_NEEDED" in w_rhi
+    assert "ratio_high" in w_rhi["FRAME_REVIEW_NEEDED"]["detail"]["reasons"]
+    assert "width_high" not in w_rhi["FRAME_REVIEW_NEEDED"]["detail"]["reasons"]
+
+
+def test_ao_dengan_dan_tanpa_rangka_beda_maks_3_persen_archicad_ifc():
+    """Syarat lulus: A_o dengan rangka hanya boleh berbeda <= 3% dari A_o tanpa rangka."""
+    ifc_path = os.path.join(ROOT_DIR, "fixtures", "archicad_bim_curtainwall.ifc")
+    p_with = ProjectConfig(settings=SettingsConfig(materials_confirmed=True, mode="sni")).to_envelope_parameters()
+    p_no = ProjectConfig(settings=SettingsConfig(materials_confirmed=True, mode="sni")).to_envelope_parameters()
+    p_no.disabled_groups = ["IFC_Member :: IfcMember"]
+    r_w = analyze_building_ottv(ifc_path, "archicad_bim_curtainwall.ifc", p_with)
+    r_no = analyze_building_ottv(ifc_path, "archicad_bim_curtainwall.ifc", p_no)
+    ao_w = r_w["summary"]["total_envelope_area_m2"]
+    ao_no = r_no["summary"]["total_envelope_area_m2"]
+    assert abs(ao_w - ao_no) / max(1e-6, ao_no) <= 0.03
+    assert "FRAME_REVIEW_NEEDED" in {w["code"] for w in r_w["summary"]["warnings"]}

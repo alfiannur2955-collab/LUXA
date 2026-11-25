@@ -258,6 +258,7 @@ def rematerial_analysis(
     total_a_edge_m2 = 0.0
     total_a_cog_m2 = 0.0
     sum_uf_fen_area = 0.0
+    sum_ucog_fen_area = 0.0
     total_wall_cond_w = 0.0
     total_glass_cond_w = 0.0
     total_solar_rad_w = 0.0
@@ -400,6 +401,7 @@ def rematerial_analysis(
             total_a_edge_m2 += a_edge_k
             total_a_cog_m2 += a_cog_k
             sum_uf_fen_area += u_f_k * glz_a
+            sum_ucog_fen_area += u_cog_k * glz_a
             total_wall_cond_w += qw_w
             total_glass_cond_w += qgc_w
             total_solar_rad_w += qsol_w
@@ -559,10 +561,13 @@ def rematerial_analysis(
     out["total_heat_gain_kw"] = round(total_heat_w / 1000.0, 2)
 
     avg_u_fen_bldg = round(sum_uf_fen_area / total_glazing_area, 3) if total_glazing_area > 1e-4 else round(fallback_u_f, 3)
+    avg_u_cog_bldg = round(sum_ucog_fen_area / total_glazing_area, 3) if total_glazing_area > 1e-4 else round(fallback_u_f, 3)
+    frame_ratio_bldg = (total_a_frame_m2 / total_glazing_area) if total_glazing_area > 1e-4 else 0.0
 
     if isinstance(out.get("summary"), dict):
         out["summary"]["ottv_total_wm2"] = ottv_total_wm2
         out["summary"]["avg_sc_effective"] = avg_sc_eff
+        out["summary"]["avg_u_cog_wm2k"] = avg_u_cog_bldg
         out["summary"]["avg_u_fen_wm2k"] = avg_u_fen_bldg
         out["summary"]["u_frame_eff_wm2k"] = round(u_frame_eff, 3)
         out["summary"]["total_a_frame_m2"] = round(total_a_frame_m2, 2)
@@ -570,6 +575,8 @@ def rematerial_analysis(
         out["summary"]["total_a_cog_m2"] = round(total_a_cog_m2, 2)
         out["summary"]["frame_width_mm"] = eff_frame_width_mm
         out["summary"]["frame_source"] = frame_source
+        out["summary"]["frame_ratio"] = round(frame_ratio_bldg, 4)
+        out["summary"]["frame_ratio_pct"] = round(frame_ratio_bldg * 100.0, 1)
         out["summary"]["q_wall_conduction_wm2"] = q_wall_tot
         out["summary"]["q_glass_conduction_wm2"] = q_glass_tot
         out["summary"]["q_solar_radiation_wm2"] = q_solar_tot
@@ -581,7 +588,6 @@ def rematerial_analysis(
                 am["glazing_id"] = glz_mat["id"]
                 am["glazing_name"] = glz_mat["name"]
                 am["glazing_brand"] = glz_mat.get("brand") or ""
-                am["u_cog"] = round(float(glz_mat["u_value"]), 3)
                 shgc_g, sc_g = _glazing_sc_and_shgc(glz_mat, fallback_sc, is_template_method)
                 am["sc_glass"] = round(sc_g, 3)
                 am["shgc_glass"] = round(shgc_g, 4)
@@ -595,20 +601,23 @@ def rematerial_analysis(
             if frm_mat:
                 am["frame_id"] = frm_mat["id"]
                 am["frame_name"] = frm_mat["name"]
+            am["u_cog"] = avg_u_cog_bldg
             am["u_fenestration"] = avg_u_fen_bldg
             am["u_frame"] = round(u_frame_eff, 3)
             am["frame_width_mm"] = eff_frame_width_mm
             am["frame_source"] = frame_source
+            am["frame_ratio"] = round(frame_ratio_bldg, 4)
+            am["frame_ratio_pct"] = round(frame_ratio_bldg * 100.0, 1)
             am["a_frame_m2"] = round(total_a_frame_m2, 2)
             am["a_edge_m2"] = round(total_a_edge_m2, 2)
             am["a_cog_m2"] = round(total_a_cog_m2, 2)
         # A3-01: status & peringatan ikut diperbarui (dulu tertinggal dari hasil hitung penuh)
-        from ottv_engine import build_material_warning, resolve_result_status
+        from ottv_engine import build_frame_review_warning, build_material_warning, resolve_result_status
         summ = out["summary"]
         confirmed = bool(summ.get("materials_confirmed", False)) if materials_confirmed is None else bool(materials_confirmed)
         warns = [
             w for w in (summ.get("warnings") or [])
-            if (w or {}).get("code") not in ("MATERIAL_NOT_CONFIRMED", "ASSUMED_FRAME_WIDTH")
+            if (w or {}).get("code") not in ("MATERIAL_NOT_CONFIRMED", "ASSUMED_FRAME_WIDTH", "FRAME_REVIEW_NEEDED")
         ]
         if not confirmed:
             grp_info = [
@@ -637,6 +646,14 @@ def rematerial_analysis(
                     "u_frame_eff": round(u_frame_eff, 3),
                 },
             })
+        frame_rev_w = build_frame_review_warning(
+            frame_ratio=frame_ratio_bldg,
+            frame_width_mm=eff_frame_width_mm,
+            frame_source=frame_source,
+            total_glazing_area_m2=total_glazing_area,
+        )
+        if frame_rev_w is not None:
+            warns.append(frame_rev_w)
         is_prov, label, comp = resolve_result_status(ottv_total_wm2, warns, is_sni_mode)
         summ["warnings"] = warns
         summ["is_provisional"] = is_prov

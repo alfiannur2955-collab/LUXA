@@ -273,17 +273,26 @@ def generate_pdf_report(analysis: Dict[str, Any]) -> bytes:
     if float(s.get("total_glazing_area_m2") or 0) > 1e-4:
         f_src_pdf = s.get("frame_source", "asumsi pengguna")
         fw_pdf = float(s.get("frame_width_mm") if s.get("frame_width_mm") is not None else 50.0)
+        u_cog_pdf = float(
+            s.get("avg_u_cog_wm2k")
+            if s.get("avg_u_cog_wm2k") is not None
+            else (s.get("active_materials") or {}).get("u_cog", 0.0)
+        )
+        u_fen_pdf = float(s.get("avg_u_fen_wm2k") or 0.0)
+        r_pct_pdf = float(s.get("frame_ratio_pct") if s.get("frame_ratio_pct") is not None else (
+            100.0 * float(s.get("total_a_frame_m2") or 0.0) / max(1e-4, float(s.get("total_glazing_area_m2") or 0.0))
+        ))
         fen_note = " (Lebar kusen asumsi)" if f_src_pdf != "terukur" else ""
-        elements.append(Paragraph(f"1b. Fenestrasi Tiga Zona (SNI Tabel 3 & Lampiran C){fen_note}", sec_style))
+        elements.append(Paragraph(f"1b. Fenestrasi Tiga Zona — SNI 6389:2020 butir 4.3.2.2 dan Tabel 3{fen_note}", sec_style))
         fen_data = [
-            ["U_f Tiga Zona (W/m²K)", "U_frame (W/m²K)", "A_frame (m²)", "A_edge (m²)", "Lebar Kusen (mm)", "Sumber"],
+            ["U kaca → U_f (W/m²K)", "U_frame Tabel 3 (W/m²K)", "Fraksi r (%)", "A_frame (m²)", "A_edge (m²)", "Lebar Kusen & Sumber"],
             [
-                f"{float(s.get('avg_u_fen_wm2k') or 0):.2f}".replace(".", ","),
+                f"{u_cog_pdf:.2f} → {u_fen_pdf:.2f}".replace(".", ","),
                 f"{float(s.get('u_frame_eff_wm2k') or 0):.2f}".replace(".", ","),
+                f"{r_pct_pdf:.1f}%".replace(".", ","),
                 f"{float(s.get('total_a_frame_m2') or 0):,.2f}".replace(",", "_").replace(".", ",").replace("_", "."),
                 f"{float(s.get('total_a_edge_m2') or 0):,.2f}".replace(",", "_").replace(".", ",").replace("_", "."),
-                f"{fw_pdf:.1f}".replace(".", ","),
-                str(f_src_pdf),
+                f"{fw_pdf:.1f} mm ({f_src_pdf})".replace(".", ","),
             ],
         ]
         t_fen = Table(fen_data, repeatRows=1)

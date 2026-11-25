@@ -60,38 +60,38 @@
       "total_envelope_area_m2": 1950.02,
       "total_floors": 6,
       "wwr": 0.624,
-      "ottv_total_wm2": 35.38,
+      "ottv_total_wm2": 34.75,
       "ottv_by_orientation": {
         "U": {
-          "ottv_wm2": 40.41,
+          "ottv_wm2": 39.66,
           "area_m2": 243.77
         },
         "TL": {
-          "ottv_wm2": 42.62,
+          "ottv_wm2": 41.88,
           "area_m2": 243.74
         },
         "T": {
-          "ottv_wm2": 19.15,
+          "ottv_wm2": 18.87,
           "area_m2": 243.76
         },
         "TGR": {
-          "ottv_wm2": 38.71,
+          "ottv_wm2": 37.96,
           "area_m2": 243.74
         },
         "S": {
-          "ottv_wm2": 34.27,
+          "ottv_wm2": 33.53,
           "area_m2": 243.77
         },
         "BD": {
-          "ottv_wm2": 41.09,
+          "ottv_wm2": 40.34,
           "area_m2": 243.74
         },
         "B": {
-          "ottv_wm2": 20.79,
+          "ottv_wm2": 20.52,
           "area_m2": 243.76
         },
         "BL": {
-          "ottv_wm2": 46.03,
+          "ottv_wm2": 45.28,
           "area_m2": 243.74
         }
       }
@@ -171,45 +171,45 @@
       "z_ground_offset_m": 0.12,
       "slivers_removed": 7816,
       "outer_area_by_role": {
-        "frame": 2125.72,
+        "frame": 2188.37,
         "glazing": 6988.29,
         "ignore": 0.0,
         "shading": 0.0,
         "spandrel": 2381.51,
         "unknown": 0.0
       },
-      "total_envelope_area_m2": 11445.68,
+      "total_envelope_area_m2": 9369.0,
       "total_floors": 24,
-      "wwr": 0.792,
-      "ottv_total_wm2": 37.04,
+      "wwr": 0.746,
+      "ottv_total_wm2": 34.4,
       "ottv_by_orientation": {
         "U": {
-          "ottv_wm2": 35.8,
-          "area_m2": 2689.71
+          "ottv_wm2": 33.88,
+          "area_m2": 2280.28
         },
         "TL": {
           "ottv_wm2": 0.0,
           "area_m2": 0.0
         },
         "T": {
-          "ottv_wm2": 38.99,
-          "area_m2": 3041.42
+          "ottv_wm2": 35.97,
+          "area_m2": 2402.67
         },
         "TGR": {
           "ottv_wm2": 0.0,
           "area_m2": 0.0
         },
         "S": {
-          "ottv_wm2": 30.52,
-          "area_m2": 2689.71
+          "ottv_wm2": 28.83,
+          "area_m2": 2280.28
         },
         "BD": {
           "ottv_wm2": 0.0,
           "area_m2": 0.0
         },
         "B": {
-          "ottv_wm2": 41.97,
-          "area_m2": 3024.84
+          "ottv_wm2": 38.59,
+          "area_m2": 2405.76
         },
         "BL": {
           "ottv_wm2": 0.0,
@@ -292,45 +292,45 @@
       "z_ground_offset_m": 0.12,
       "slivers_removed": 0,
       "outer_area_by_role": {
-        "frame": 2125.72,
+        "frame": 2188.37,
         "glazing": 6988.29,
         "ignore": 0.0,
         "shading": 0.0,
         "spandrel": 2381.51,
         "unknown": 0.0
       },
-      "total_envelope_area_m2": 11445.68,
+      "total_envelope_area_m2": 9369.0,
       "total_floors": 24,
-      "wwr": 0.792,
-      "ottv_total_wm2": 37.04,
+      "wwr": 0.746,
+      "ottv_total_wm2": 34.4,
       "ottv_by_orientation": {
         "U": {
-          "ottv_wm2": 35.8,
-          "area_m2": 2689.71
+          "ottv_wm2": 33.88,
+          "area_m2": 2280.29
         },
         "TL": {
           "ottv_wm2": 0.0,
           "area_m2": 0.0
         },
         "T": {
-          "ottv_wm2": 38.99,
-          "area_m2": 3041.42
+          "ottv_wm2": 35.97,
+          "area_m2": 2402.67
         },
         "TGR": {
           "ottv_wm2": 0.0,
           "area_m2": 0.0
         },
         "S": {
-          "ottv_wm2": 30.52,
-          "area_m2": 2689.71
+          "ottv_wm2": 28.83,
+          "area_m2": 2280.29
         },
         "BD": {
           "ottv_wm2": 0.0,
           "area_m2": 0.0
         },
         "B": {
-          "ottv_wm2": 41.97,
-          "area_m2": 3024.84
+          "ottv_wm2": 38.59,
+          "area_m2": 2405.76
         },
         "BL": {
           "ottv_wm2": 0.0,
@@ -651,42 +651,42 @@
       "z_ground_offset_m": 0.05,
       "slivers_removed": 2496,
       "outer_area_by_role": {
-        "frame": 2729.45,
+        "frame": 2388.16,
         "glazing": 1800.05,
         "wall": 78.56
       },
-      "total_envelope_area_m2": 4607.91,
+      "total_envelope_area_m2": 1878.46,
       "total_floors": 13,
-      "wwr": 0.983,
-      "ottv_total_wm2": 63.98,
+      "wwr": 0.958,
+      "ottv_total_wm2": 54.09,
       "ottv_by_orientation": {
         "U": {
-          "ottv_wm2": 62.53,
-          "area_m2": 1297.12
+          "ottv_wm2": 52.74,
+          "area_m2": 554.2
         },
         "TL": {
           "ottv_wm2": 3.72,
           "area_m2": 2.12
         },
         "T": {
-          "ottv_wm2": 68.75,
-          "area_m2": 1009.19
+          "ottv_wm2": 60.15,
+          "area_m2": 380.9
         },
         "TGR": {
           "ottv_wm2": 3.72,
           "area_m2": 4.24
         },
         "S": {
-          "ottv_wm2": 54.19,
-          "area_m2": 1308.13
+          "ottv_wm2": 44.09,
+          "area_m2": 559.45
         },
         "BD": {
           "ottv_wm2": 3.72,
           "area_m2": 2.12
         },
         "B": {
-          "ottv_wm2": 74.82,
-          "area_m2": 980.76
+          "ottv_wm2": 66.7,
+          "area_m2": 371.19
         },
         "BL": {
           "ottv_wm2": 3.72,

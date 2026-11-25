@@ -2023,6 +2023,48 @@ def build_material_warning(
     }
 
 
+def build_frame_review_warning(
+    frame_ratio: float,
+    frame_width_mm: float,
+    frame_source: str,
+    total_glazing_area_m2: float,
+) -> Optional[Dict[str, Any]]:
+    """Peringatan tinjauan (review) bila fraksi rangka r < 5% atau > 30%, atau lebar kusen > 200 mm."""
+    if total_glazing_area_m2 <= 1e-4:
+        return None
+    r_pct = frame_ratio * 100.0
+    fw_mm = float(frame_width_mm)
+    reasons: List[str] = []
+    parts: List[str] = []
+    if frame_ratio < 0.05:
+        reasons.append("ratio_low")
+        parts.append(f"fraksi rangka r = {r_pct:.1f}% (< 5%)".replace(".", ","))
+    elif frame_ratio > 0.30:
+        reasons.append("ratio_high")
+        parts.append(f"fraksi rangka r = {r_pct:.1f}% (> 30%)".replace(".", ","))
+    if fw_mm > 200.0:
+        reasons.append("width_high")
+        fw_txt = f"{fw_mm:.0f}" if fw_mm.is_integer() else f"{fw_mm:.1f}".replace(".", ",")
+        parts.append(f"lebar kusen {fw_txt} mm (> 200 mm)")
+    if not reasons:
+        return None
+    msg = (
+        f"Perlu ditinjau: {', '.join(parts)} (sumber: {frame_source}; kisaran lazim: r 5–30% dan lebar kusen ≤ 200 mm). "
+        "Periksa geometri atau peran grup rangka di tahap Periksa Model / Material."
+    )
+    return {
+        "code": "FRAME_REVIEW_NEEDED",
+        "message": msg,
+        "detail": {
+            "frame_ratio": round(frame_ratio, 4),
+            "frame_ratio_pct": round(r_pct, 1),
+            "frame_width_mm": round(fw_mm, 1),
+            "frame_source": frame_source,
+            "reasons": reasons,
+        },
+    }
+
+
 # ============================================================================
 # U_f TIGA ZONA (SNI 6389:2020 butir 3.15, 3.17, 4.3.2.2, Tabel 3 & Lampiran C)
 # ============================================================================
@@ -2366,17 +2408,24 @@ def _measure_frame_groups_for_panels(
     disabled_groups: Sequence[str],
     z_ground_cut: float = 0.0,
 ) -> Dict[str, Any]:
-    """Mengukur muka luar grup rangka (A_frame) dan median lebar profil, lalu membaginya ke panel kaca terdekat.
+    """Mengukur muka depan luar grup rangka (A_frame) dan median lebar profil, lalu membaginya ke panel kaca terdekat.
 
-    Hanya muka luar yang menghadap searah bidang kaca terdekat (dot >= 0,70, dalam pita bidang kaca
-    [-0,25..+0,45] m, bukan sisi samping return, bukan muka belakang, dan bukan bagian dalam/tertutup)
-    yang dihitung. Muka yang berada di sela-sela panel kaca menambah A_f dan A_o; muka yang menempel
-    langsung di depan kaca menerus dicatat sebagai overlap agar tidak menggandakan A_o.
+    Aturan geometri:
+    1. Hanya muka depan rangka yang sejajar fasad (|cos| >= 0,90 terhadap normal bidang fasad terdekat,
+       dalam pita bidang [-0,15..+0,45] m dan jarak <= 0,50 m) yang dihitung; sisi samping dan kedalaman profil dibuang.
+    2. Muka yang terhalang kulit fasad luar atau muka depan rangka lain (lintas grup, <= 0,50 m) dibuang.
+    3. Muka kusen yang berada di depan atau berbatasan dengan spandrel/dinding (bukan kaca) masuk ke kategori
+       dinding (`opaque_frame_area_m2`), bukan fenestrasi.
+    4. Muka kusen fenestrasi menggantikan luas kaca di belakangnya (`overlap_area_by_panel`), tidak menambah A_o.
     """
     live_frames = [rg for rg in frame_groups if rg.group_name not in disabled_groups and len(rg.faces) > 0]
-    glz_indices = [
+    active_indices = [
         idx for idx, p in enumerate(panel_records)
-        if p.get("active") and p.get("element_type") in ("glazing", "composite_cw") and float(p.get("area_m2", 0.0)) > 1e-6
+        if p.get("active") and float(p.get("area_m2", 0.0)) > 1e-6 and len(p.get("vertices") or []) >= 3
+    ]
+    glz_indices = [
+        idx for idx in active_indices
+        if panel_records[idx].get("element_type") in ("glazing", "composite_cw")
     ]
     if not live_frames or not glz_indices:
         return {
@@ -2386,46 +2435,80 @@ def _measure_frame_groups_for_panels(
             "overlap_area_by_panel": {},
             "group_outer_area": {},
             "total_measured_area": 0.0,
+            "opaque_frame_area_m2": 0.0,
         }
 
-    glz_c = np.array([panel_records[i]["centroid"] for i in glz_indices], dtype=np.float64)
-    glz_n = np.array([panel_records[i]["normal"] for i in glz_indices], dtype=np.float64)
-    glz_min = np.array([np.min(panel_records[i]["vertices"], axis=0) for i in glz_indices], dtype=np.float64)
-    glz_max = np.array([np.max(panel_records[i]["vertices"], axis=0) for i in glz_indices], dtype=np.float64)
-    gz_lo = glz_min[:, 2]
-    gz_hi = glz_max[:, 2]
+    all_c = np.array([panel_records[i]["centroid"] for i in active_indices], dtype=np.float64)
+    all_n = np.array([panel_records[i]["normal"] for i in active_indices], dtype=np.float64)
+    all_min = np.array([np.min(panel_records[i]["vertices"], axis=0) for i in active_indices], dtype=np.float64)
+    all_max = np.array([np.max(panel_records[i]["vertices"], axis=0) for i in active_indices], dtype=np.float64)
+    all_is_glz = np.array(
+        [panel_records[i].get("element_type") in ("glazing", "composite_cw") for i in active_indices],
+        dtype=bool,
+    )
+    glz_min = all_min[all_is_glz]
+    glz_max = all_max[all_is_glz]
+    op_min = all_min[~all_is_glz]
+    op_max = all_max[~all_is_glz]
 
-    # Segitiga kaca aktif (untuk deteksi tumpang tindih kaca menerus) & cangkang luar aktif (untuk deteksi sisi dalam)
     glz_tris_list: List[List[List[float]]] = []
-    shell_tris_list: List[List[List[float]]] = []
-    for p in panel_records:
-        if not p.get("active"):
-            continue
-        vs = p.get("vertices") or []
-        if len(vs) < 3:
-            continue
-        t1 = [vs[0], vs[1], vs[2]]
-        shell_tris_list.append(t1)
-        is_g = p.get("element_type") in ("glazing", "composite_cw")
-        if is_g:
-            glz_tris_list.append(t1)
+    op_tris_list: List[List[List[float]]] = []
+    for i in active_indices:
+        p = panel_records[i]
+        vs = p["vertices"]
+        dst = glz_tris_list if p.get("element_type") in ("glazing", "composite_cw") else op_tris_list
+        dst.append([vs[0], vs[1], vs[2]])
         if len(vs) >= 4:
-            t2 = [vs[0], vs[2], vs[3]]
-            shell_tris_list.append(t2)
-            if is_g:
-                glz_tris_list.append(t2)
+            dst.append([vs[0], vs[2], vs[3]])
     glz_tris = np.array(glz_tris_list, dtype=np.float64) if glz_tris_list else np.empty((0, 3, 3), dtype=np.float64)
-    shell_tris = np.array(shell_tris_list, dtype=np.float64) if shell_tris_list else np.empty((0, 3, 3), dtype=np.float64)
+    op_tris = np.array(op_tris_list, dtype=np.float64) if op_tris_list else np.empty((0, 3, 3), dtype=np.float64)
+    shell_tris = (
+        np.vstack([arr for arr in (glz_tris, op_tris) if len(arr) > 0])
+        if (len(glz_tris) > 0 or len(op_tris) > 0)
+        else np.empty((0, 3, 3), dtype=np.float64)
+    )
 
-    gap_by_panel: Dict[int, float] = {}
-    ov_by_panel: Dict[int, float] = {}
-    group_outer_area: Dict[str, float] = {}
-    width_samples: List[np.ndarray] = []
-    total_measured = 0.0
+    z_all_min = float(all_min[:, 2].min()) - 1.0
+    z_all_max = float(all_max[:, 2].max()) + 1.0
+    max_reach = max(40.0, 2.0 * max(1.0, z_all_max - z_all_min))
 
-    z_glz_min = float(gz_lo.min()) - 2.0
-    z_glz_max = float(gz_hi.max()) + 2.0
+    def _nearest_aabb_zbucket(
+        pts_arr: np.ndarray,
+        b_min: np.ndarray,
+        b_max: np.ndarray,
+        pad_z: float = 2.0,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        n_q = len(pts_arr)
+        dists = np.full(n_q, 1e9, dtype=np.float64)
+        idxs = np.full(n_q, -1, dtype=np.int64)
+        if n_q == 0 or len(b_min) == 0:
+            return dists, idxs
+        z0 = float(pts_arr[:, 2].min())
+        zb = np.floor((pts_arr[:, 2] - z0) / 3.0).astype(np.int64)
+        bz_lo = b_min[:, 2]
+        bz_hi = b_max[:, 2]
+        for b_id in np.unique(zb):
+            fm = np.where(zb == b_id)[0]
+            zlo = z0 + float(b_id) * 3.0 - pad_z
+            zhi = z0 + float(b_id + 1) * 3.0 + pad_z
+            pm = np.where((bz_hi >= zlo) & (bz_lo <= zhi))[0]
+            if len(pm) == 0:
+                continue
+            mn_s = b_min[pm]
+            mx_s = b_max[pm]
+            for i0 in range(0, len(fm), 500):
+                sl = fm[i0:i0 + 500]
+                q = pts_arr[sl, None, :]
+                dx = np.maximum(0.0, np.maximum(mn_s[None, :, :] - q, q - mx_s[None, :, :]))
+                d2 = np.sum(dx * dx, axis=2)
+                j = np.argmin(d2, axis=1)
+                dists[sl] = np.sqrt(d2[np.arange(len(j)), j])
+                idxs[sl] = pm[j]
+        return dists, idxs
 
+    # Tahap 1: kumpulkan kandidat muka depan sejajar fasad (|cos| >= 0,90) di semua grup rangka
+    group_outer_area: Dict[str, float] = {rg.group_name: 0.0 for rg in live_frames}
+    cands: List[Tuple[str, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]] = []
     for rg in live_frames:
         v_arr = rg.vertices
         f_arr = rg.faces
@@ -2437,124 +2520,53 @@ def _measure_frame_groups_for_panels(
         n = cr1 / np.maximum(nl[:, None], 1e-12)
         cent = np.where(iq[:, None], 0.25 * (p0 + p1 + p2 + p3), (p0 + p1 + p2) / 3.0)
 
-        vert = (np.abs(n[:, 2]) < 0.707) & (areas > 1e-5) & (cent[:, 2] >= z_glz_min) & (cent[:, 2] <= z_glz_max)
+        vert = (np.abs(n[:, 2]) < 0.707) & (areas > 1e-5) & (cent[:, 2] >= z_all_min) & (cent[:, 2] <= z_all_max)
         if z_ground_cut > 0.05:
             vert &= cent[:, 2] >= (z_ground_cut - 0.05)
         idx_v = np.where(vert)[0]
         if len(idx_v) == 0:
-            group_outer_area[rg.group_name] = 0.0
             continue
 
         fc = cent[idx_v]
         fn = n[idx_v]
+        best_dist, best_p = _nearest_aabb_zbucket(fc, all_min, all_max, pad_z=2.5)
+        valid_p = best_p >= 0
         best_dot = np.zeros(len(idx_v), dtype=np.float64)
-        best_dist = np.full(len(idx_v), 1e9, dtype=np.float64)
         best_plane_off = np.full(len(idx_v), 1e9, dtype=np.float64)
-        best_glz_pos = np.full(len(idx_v), -1, dtype=np.int64)
+        if np.any(valid_p):
+            vp_idx = best_p[valid_p]
+            best_dot[valid_p] = np.sum(fn[valid_p] * all_n[vp_idx], axis=1)
+            best_plane_off[valid_p] = np.sum((fc[valid_p] - all_c[vp_idx]) * all_n[vp_idx], axis=1)
 
-        z_lo_all = float(fc[:, 2].min())
-        zb_idx = np.floor((fc[:, 2] - z_lo_all) / 3.0).astype(np.int64)
-        for zb in np.unique(zb_idx):
-            fm = np.where(zb_idx == zb)[0]
-            zlo = z_lo_all + float(zb) * 3.0 - 2.5
-            zhi = z_lo_all + float(zb + 1) * 3.0 + 2.5
-            gm = np.where((gz_hi >= zlo) & (gz_lo <= zhi))[0]
-            if len(gm) == 0:
-                continue
-            gc_sub = glz_c[gm]
-            gn_sub = glz_n[gm]
-            gmn_sub = glz_min[gm]
-            gmx_sub = glz_max[gm]
-            for i0 in range(0, len(fm), 500):
-                sl = fm[i0:i0 + 500]
-                pts = fc[sl, None, :]
-                # Jarak ke AABB panel kaca (bukan pusat panel) agar mullion di tepi jendela pita lebar tetap cocok
-                dx = np.maximum(0.0, np.maximum(gmn_sub[None, :, :] - pts, pts - gmx_sub[None, :, :]))
-                d2 = np.sum(dx ** 2, axis=2)
-                j = np.argmin(d2, axis=1)
-                idx_r = np.arange(len(j))
-                best_dist[sl] = np.sqrt(d2[idx_r, j])
-                best_dot[sl] = np.sum(fn[sl] * gn_sub[j], axis=1)
-                best_plane_off[sl] = np.sum((fc[sl] - gc_sub[j]) * gn_sub[j], axis=1)
-                best_glz_pos[sl] = gm[j]
-
-        near = (best_glz_pos >= 0) & (best_dist <= 1.5) & (best_plane_off >= -0.25) & (best_plane_off <= 0.45)
-        n_pos = int(np.sum(near & (best_dot >= 0.70)))
-        n_neg = int(np.sum(near & (best_dot <= -0.70)))
+        near = valid_p & (best_dist <= 0.50) & (best_plane_off >= -0.15) & (best_plane_off <= 0.45)
+        n_pos = int(np.sum(near & (best_dot >= 0.90)))
+        n_neg = int(np.sum(near & (best_dot <= -0.90)))
         if n_pos == 0 and n_neg > 0:
             # Mesh rangka satu sisi dengan normal terbalik (mis. IfcMember datar)
-            front_m = near & (best_dot <= -0.70)
+            front_m = near & (best_dot <= -0.90)
             eff_n = -fn[front_m]
         else:
-            front_m = near & (best_dot >= 0.70)
+            front_m = near & (best_dot >= 0.90)
             eff_n = fn[front_m]
         if not np.any(front_m):
-            group_outer_area[rg.group_name] = 0.0
             continue
 
         f_orig = idx_v[front_m]
-        f_glz_pos = best_glz_pos[front_m]
-        f_cent = cent[f_orig]
-        f_areas = areas[f_orig]
         sdims = _compute_face_shortest_dims(p0[f_orig], p1[f_orig], p2[f_orig], p3[f_orig], iq[f_orig], eff_n)
+        cands.append((
+            rg.group_name,
+            p0[f_orig],
+            p1[f_orig],
+            p2[f_orig],
+            p3[f_orig],
+            iq[f_orig],
+            cent[f_orig],
+            eff_n,
+            areas[f_orig],
+            sdims,
+        ))
 
-        # Saring pelat lebar non-profil (> 0,60 m) yang kadang tergabung di layer logam (mis. cladding ArchiCAD)
-        slim_m = sdims <= 0.60
-        if not np.any(slim_m):
-            group_outer_area[rg.group_name] = 0.0
-            continue
-        f_orig = f_orig[slim_m]
-        f_glz_pos = f_glz_pos[slim_m]
-        f_cent = f_cent[slim_m]
-        f_areas = f_areas[slim_m]
-        eff_n = eff_n[slim_m]
-        sdims = sdims[slim_m]
-
-        # Buang muka rangka di belakang kulit fasad luar (interior / terhalang kulit luar)
-        blocked_by_shell = _vectorized_ray_hit_any(
-            shell_tris, f_cent + eff_n * 0.005, eff_n, min_dist=0.005, max_dist=max(40.0, 2.0 * max(1.0, z_glz_max - z_glz_min)), bucket_m=1.5
-        )
-        # Buang muka dalam profil ekstrusi berongga (terhalang muka depan rangka sendiri dalam <= 0,50 m)
-        front_tris_chunks = [np.stack([p0[f_orig], p1[f_orig], p2[f_orig]], axis=1)]
-        fq_m = iq[f_orig]
-        if np.any(fq_m):
-            f_oq = f_orig[fq_m]
-            front_tris_chunks.append(np.stack([p0[f_oq], p2[f_oq], p3[f_oq]], axis=1))
-        front_tris = np.vstack(front_tris_chunks)
-        blocked_by_self = _vectorized_ray_hit_any(
-            front_tris, f_cent + eff_n * 0.003, eff_n, min_dist=0.003, max_dist=0.50, bucket_m=0.5
-        )
-        ext_m = (~blocked_by_shell) & (~blocked_by_self)
-        if not np.any(ext_m):
-            group_outer_area[rg.group_name] = 0.0
-            continue
-
-        e_glz_pos = f_glz_pos[ext_m]
-        e_cent = f_cent[ext_m]
-        e_areas = f_areas[ext_m]
-        e_n = eff_n[ext_m]
-        e_sdims = sdims[ext_m]
-
-        # Cek apakah di belakang muka rangka ada kaca menerus (jarak <= 0,45 m ke arah -normal)
-        ov_m = _vectorized_ray_hit_any(
-            glz_tris, e_cent + e_n * 0.004, -e_n, min_dist=0.002, max_dist=0.45, bucket_m=1.0
-        )
-
-        # Distribusikan luas muka luar rangka ke panel kaca terdekat
-        grp_a = float(e_areas.sum())
-        group_outer_area[rg.group_name] = round(grp_a, 2)
-        total_measured += grp_a
-        width_samples.append(np.clip(e_sdims, 0.005, 0.60))
-
-        for k_i in range(len(e_areas)):
-            p_idx = glz_indices[int(e_glz_pos[k_i])]
-            a_i = float(e_areas[k_i])
-            if ov_m[k_i]:
-                ov_by_panel[p_idx] = ov_by_panel.get(p_idx, 0.0) + a_i
-            else:
-                gap_by_panel[p_idx] = gap_by_panel.get(p_idx, 0.0) + a_i
-
-    if total_measured <= 1e-4 or not width_samples:
+    if not cands:
         return {
             "measured": False,
             "frame_width_m": 0.0,
@@ -2562,6 +2574,129 @@ def _measure_frame_groups_for_panels(
             "overlap_area_by_panel": {},
             "group_outer_area": group_outer_area,
             "total_measured_area": 0.0,
+            "opaque_frame_area_m2": 0.0,
+        }
+
+    # Bangun segitiga muka depan lintas-grup untuk menyaring lapisan dalam / tumpang tindih
+    ft_chunks: List[np.ndarray] = []
+    for _, p0c, p1c, p2c, p3c, iqc, *_ in cands:
+        ft_chunks.append(np.stack([p0c, p1c, p2c], axis=1))
+        if np.any(iqc):
+            ft_chunks.append(np.stack([p0c[iqc], p2c[iqc], p3c[iqc]], axis=1))
+    all_front_tris = np.vstack(ft_chunks) if ft_chunks else np.empty((0, 3, 3), dtype=np.float64)
+
+    ov_by_panel: Dict[int, float] = {}
+    width_samples: List[np.ndarray] = []
+    total_glz_measured = 0.0
+    total_opaque_frame = 0.0
+
+    # Tahap 2: saring visibilitas luar + pisahkan muka kusen fenestrasi vs spandrel/dinding
+    for gname, p0c, p1c, p2c, p3c, iqc, f_cent, eff_n, f_areas, sdims in cands:
+        blocked_by_shell = _vectorized_ray_hit_any(
+            shell_tris, f_cent + eff_n * 0.005, eff_n, min_dist=0.005, max_dist=max_reach, bucket_m=1.5
+        )
+        blocked_by_self = _vectorized_ray_hit_any(
+            all_front_tris, f_cent + eff_n * 0.003, eff_n, min_dist=0.003, max_dist=0.50, bucket_m=0.5
+        )
+        # Saring pelat cladding lebar non-profil (> 0,60 m)
+        ext_m = (~blocked_by_shell) & (~blocked_by_self) & (sdims <= 0.60)
+        if not np.any(ext_m):
+            continue
+
+        p0e, p1e, p2e, p3e, iqe = p0c[ext_m], p1c[ext_m], p2c[ext_m], p3c[ext_m], iqc[ext_m]
+        e_cent = f_cent[ext_m]
+        e_n = eff_n[ext_m]
+        e_areas = f_areas[ext_m]
+        e_sdims = sdims[ext_m]
+
+        z_lo = np.minimum(np.minimum(p0e[:, 2], p1e[:, 2]), np.where(iqe, np.minimum(p2e[:, 2], p3e[:, 2]), p2e[:, 2]))
+        z_hi = np.maximum(np.maximum(p0e[:, 2], p1e[:, 2]), np.where(iqe, np.maximum(p2e[:, 2], p3e[:, 2]), p2e[:, 2]))
+        dz = z_hi - z_lo
+        n_e = len(e_cent)
+        # Muka vertikal tinggi (mullion yang melintasi spandrel & kaca) dibagi 3 titik sepanjang tinggi Z
+        is_tall = dz >= 0.15
+        g_frac = np.zeros(n_e, dtype=np.float64)
+        o_frac = np.zeros(n_e, dtype=np.float64)
+        grp_glz_a = 0.0
+        grp_op_a = 0.0
+
+        sample_specs: List[Tuple[np.ndarray, float, float]] = [
+            (np.where(~is_tall)[0], 0.50, 1.0),
+            (np.where(is_tall)[0], 0.17, 1.0 / 3.0),
+            (np.where(is_tall)[0], 0.50, 1.0 / 3.0),
+            (np.where(is_tall)[0], 0.83, 1.0 / 3.0),
+        ]
+        for sub_idx, alpha, weight in sample_specs:
+            if len(sub_idx) == 0:
+                continue
+            sp = e_cent[sub_idx].copy()
+            if weight < 0.99:
+                sp[:, 2] = z_lo[sub_idx] + alpha * dz[sub_idx]
+            sn = e_n[sub_idx]
+            sd_sub = e_sdims[sub_idx]
+            ar_sub = e_areas[sub_idx] * weight
+
+            hg = _vectorized_ray_hit_any(glz_tris, sp + sn * 0.004, -sn, min_dist=0.001, max_dist=0.50, bucket_m=1.0)
+            ho = (
+                _vectorized_ray_hit_any(op_tris, sp + sn * 0.004, -sn, min_dist=0.001, max_dist=0.50, bucket_m=1.0)
+                if len(op_tris) > 0
+                else np.zeros(len(sub_idx), dtype=bool)
+            )
+            need_border = (~hg) & (~ho)
+            is_glz_sample = hg.copy()
+            dg_sub = np.full(len(sub_idx), 1e9, dtype=np.float64)
+            glz_j_sub = np.full(len(sub_idx), -1, dtype=np.int64)
+
+            if np.any(need_border):
+                nb_loc = np.where(need_border)[0]
+                dg_nb, gj_nb = _nearest_aabb_zbucket(sp[nb_loc], glz_min, glz_max, pad_z=2.0)
+                dg_sub[nb_loc] = dg_nb
+                glz_j_sub[nb_loc] = gj_nb
+                if len(op_min) > 0:
+                    do_nb, _ = _nearest_aabb_zbucket(sp[nb_loc], op_min, op_max, pad_z=2.0)
+                else:
+                    do_nb = np.full(len(nb_loc), 1e9, dtype=np.float64)
+                # Muka kusen di celah hanya masuk fenestrasi bila lebih dekat ke kaca dibanding spandrel/dinding
+                # dan merupakan profil ramping (<= 0,25 m) yang benar-benar membatasi kaca (<= 0,25 m).
+                glz_border = (dg_nb <= do_nb + 0.02) & (sd_sub[nb_loc] <= 0.25) & (dg_nb <= 0.25)
+                is_glz_sample[nb_loc] = glz_border
+
+            # Untuk sampel yang mengenai kaca langsung, cari panel kaca terdekatnya untuk distribusi A_frame
+            if np.any(hg):
+                hg_loc = np.where(hg)[0]
+                _, gj_hg = _nearest_aabb_zbucket(sp[hg_loc], glz_min, glz_max, pad_z=2.0)
+                glz_j_sub[hg_loc] = gj_hg
+
+            g_mask_s = is_glz_sample & (glz_j_sub >= 0)
+            o_mask_s = ~g_mask_s
+            g_frac[sub_idx[g_mask_s]] += weight
+            o_frac[sub_idx[o_mask_s]] += weight
+
+            if np.any(g_mask_s):
+                g_locs = np.where(g_mask_s)[0]
+                grp_glz_a += float(np.sum(ar_sub[g_locs]))
+                for loc_i in g_locs:
+                    p_idx = glz_indices[int(glz_j_sub[loc_i])]
+                    ov_by_panel[p_idx] = ov_by_panel.get(p_idx, 0.0) + float(ar_sub[loc_i])
+            if np.any(o_mask_s):
+                grp_op_a += float(np.sum(ar_sub[o_mask_s]))
+
+        group_outer_area[gname] = round(grp_glz_a + grp_op_a, 2)
+        total_glz_measured += grp_glz_a
+        total_opaque_frame += grp_op_a
+        glz_face_m = g_frac > 0.1
+        if np.any(glz_face_m):
+            width_samples.append(np.clip(e_sdims[glz_face_m], 0.005, 0.60))
+
+    if total_glz_measured <= 1e-4 or not width_samples:
+        return {
+            "measured": False,
+            "frame_width_m": 0.0,
+            "gap_area_by_panel": {},
+            "overlap_area_by_panel": {},
+            "group_outer_area": group_outer_area,
+            "total_measured_area": 0.0,
+            "opaque_frame_area_m2": round(total_opaque_frame, 2),
         }
 
     all_w = np.concatenate(width_samples)
@@ -2569,10 +2704,11 @@ def _measure_frame_groups_for_panels(
     return {
         "measured": True,
         "frame_width_m": med_w,
-        "gap_area_by_panel": gap_by_panel,
+        "gap_area_by_panel": {},
         "overlap_area_by_panel": ov_by_panel,
         "group_outer_area": group_outer_area,
-        "total_measured_area": total_measured,
+        "total_measured_area": total_glz_measured,
+        "opaque_frame_area_m2": round(total_opaque_frame, 2),
     }
 
 
@@ -3528,6 +3664,7 @@ def analyze_building_ottv(
     total_a_edge_m2 = 0.0
     total_a_cog_m2 = 0.0
     sum_uf_fen_area = 0.0
+    sum_ucog_fen_area = 0.0
     total_wall_cond_w = 0.0
     total_glass_cond_w = 0.0
     total_solar_rad_w = 0.0
@@ -3783,6 +3920,7 @@ def analyze_building_ottv(
             total_a_edge_m2 += a_edge_k
             total_a_cog_m2 += a_cog_k
             sum_uf_fen_area += u_f_k * glz_a
+            sum_ucog_fen_area += u_cog_k * glz_a
             total_wall_cond_w += qw_w
             total_glass_cond_w += qgc_w
             total_solar_rad_w += qsol_w
@@ -4183,6 +4321,11 @@ def analyze_building_ottv(
     avg_u_fen_bldg = (
         sum_uf_fen_area / total_glazing_area if total_glazing_area > 1e-4 else (float(glz_mat["u_value"]) if glz_mat else float(params.u_fenestration))
     )
+    avg_u_cog_bldg = (
+        sum_ucog_fen_area / total_glazing_area if total_glazing_area > 1e-4 else (float(glz_mat["u_value"]) if glz_mat else float(params.u_fenestration))
+    )
+    frame_ratio_bldg = (total_a_frame_m2 / total_glazing_area) if total_glazing_area > 1e-4 else 0.0
+    total_opaque_frame_m2 = float(frame_meas.get("opaque_frame_area_m2") or 0.0)
     # Compute Smooth Facade Composite OTTV (`ottv_composite_wm2`) per panel so the 3D thermal
     # heatmap transitions continuously around the curved facade without spandrel/vision striping
     u_w_glob = float(wal_mat["u_value"]) if wal_mat else float(params.u_wall)
@@ -4504,6 +4647,14 @@ def analyze_building_ottv(
                 "u_frame_eff": round(u_frame_eff, 3),
             },
         })
+    frame_rev_w = build_frame_review_warning(
+        frame_ratio=frame_ratio_bldg,
+        frame_width_mm=eff_frame_width_mm,
+        frame_source=frame_source,
+        total_glazing_area_m2=total_glazing_area,
+    )
+    if frame_rev_w is not None:
+        summary_warnings.append(frame_rev_w)
     if dedupe_stats.get("conflicts"):
         # Kaca menimpa dinding dsb.: mana yang benar hanya diketahui perancang -> wajib dikonfirmasi
         summary_warnings.append({
@@ -4721,7 +4872,7 @@ def analyze_building_ottv(
                 "glazing_id": glz_mat["id"] if glz_mat else params.glazing_material_id,
                 "glazing_name": glz_mat["name"] if glz_mat else "Kaca Ganda (IGU) Triple-Silver Ultra-Selective 6+12Ar+6mm",
                 "glazing_brand": glz_mat["brand"] if glz_mat else "Generik (Nilai Tipikal)",
-                "u_cog": round(float(glz_mat["u_value"]) if glz_mat else float(params.u_fenestration), 3),
+                "u_cog": round(avg_u_cog_bldg, 3),
                 "u_fenestration": round(avg_u_fen_bldg, 3),
                 "sc_glass": round(sc_1_glob, 3),
                 "shgc_glass": get_material_shgc(glz_mat, fallback_sc=sc_1_glob),
@@ -4731,9 +4882,12 @@ def analyze_building_ottv(
                 "u_frame": round(u_frame_eff, 3),
                 "frame_width_mm": eff_frame_width_mm,
                 "frame_source": frame_source,
+                "frame_ratio": round(frame_ratio_bldg, 4),
+                "frame_ratio_pct": round(frame_ratio_bldg * 100.0, 1),
                 "a_frame_m2": round(total_a_frame_m2, 2),
                 "a_edge_m2": round(total_a_edge_m2, 2),
                 "a_cog_m2": round(total_a_cog_m2, 2),
+                "opaque_frame_area_m2": round(total_opaque_frame_m2, 2),
                 "louver_depth_m": round(float(params.louver_depth_m), 2),
                 "louver_spacing_m": round(float(params.louver_spacing_m), 2),
                 "louver_tilt_deg": round(float(params.louver_tilt_deg), 1),
@@ -4744,10 +4898,14 @@ def analyze_building_ottv(
             "total_a_frame_m2": round(total_a_frame_m2, 2),
             "total_a_edge_m2": round(total_a_edge_m2, 2),
             "total_a_cog_m2": round(total_a_cog_m2, 2),
+            "total_opaque_frame_area_m2": round(total_opaque_frame_m2, 2),
+            "avg_u_cog_wm2k": round(avg_u_cog_bldg, 3),
             "avg_u_fen_wm2k": round(avg_u_fen_bldg, 3),
             "u_frame_eff_wm2k": round(u_frame_eff, 3),
             "frame_width_mm": eff_frame_width_mm,
             "frame_source": frame_source,
+            "frame_ratio": round(frame_ratio_bldg, 4),
+            "frame_ratio_pct": round(frame_ratio_bldg * 100.0, 1),
             "effective_wwr": round(eff_wwr, 3),
             "avg_sf_wm2": round(avg_sf_bldg, 2),
             "avg_sc_effective": round(avg_sc_bldg, 3),

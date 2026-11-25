@@ -551,13 +551,25 @@ def _sheet_summary(ws, analysis: Dict[str, Any], refs: Dict[str, Dict[str, str]]
     # Ringkasan Fenestrasi 3-Zona (SNI 6389:2020 butir 4.3.2.2, Tabel 3 & Lampiran C)
     if float(summ.get("total_glazing_area_m2") or 0.0) > 1e-4:
         r_fen = r + 7
-        _set(ws, f"A{r_fen}", "Fenestrasi tiga zona (SNI Tabel 3 & Lampiran C)", F_H)
-        ws.merge_cells(f"A{r_fen}:D{r_fen}")
+        _set(ws, f"A{r_fen}", "Fenestrasi tiga zona (SNI 6389:2020 butir 4.3.2.2 & Tabel 3)", F_H)
+        ws.merge_cells(f"A{r_fen}:E{r_fen}")
         f_src = summ.get("frame_source") or "asumsi pengguna"
         fw_mm = summ.get("frame_width_mm")
+        u_cog_r = summ.get("avg_u_cog_wm2k")
+        if u_cog_r is None:
+            u_cog_r = (summ.get("active_materials") or {}).get("u_cog")
+        u_fen_r = summ.get("avg_u_fen_wm2k")
+        r_frac = summ.get("frame_ratio")
+        if r_frac is None:
+            g_tot = float(summ.get("total_glazing_area_m2") or 0.0)
+            r_frac = float(summ.get("total_a_frame_m2") or 0.0) / g_tot if g_tot > 1e-4 else 0.0
+        u_arrow = f"{_fmt_id(u_cog_r, 2)} → {_fmt_id(u_fen_r, 2)} W/m²K"
         fen_rows = [
-            ("U_f rata-rata tiga zona (W/m²K)", summ.get("avg_u_fen_wm2k"), NUM2),
-            ("U_frame efektif (W/m²K)", summ.get("u_frame_eff_wm2k"), NUM2),
+            ("U kaca → U_f tiga zona", u_arrow, None),
+            ("U kaca pusat U_cog (W/m²K)", u_cog_r, NUM2),
+            ("U_f rata-rata tiga zona (W/m²K)", u_fen_r, NUM2),
+            ("U_frame efektif — Tabel 3 (W/m²K)", summ.get("u_frame_eff_wm2k"), NUM2),
+            ("Fraksi rangka r (A_frame / A_fen)", r_frac, "0.0%"),
             ("Luas rangka A_frame (m²)", summ.get("total_a_frame_m2"), NUM2),
             ("Luas tepi kaca A_edge (m²)", summ.get("total_a_edge_m2"), NUM2),
             ("Lebar kusen (mm)", fw_mm, "0.0"),
@@ -577,10 +589,12 @@ def _sheet_summary(ws, analysis: Dict[str, Any], refs: Dict[str, Dict[str, str]]
     if float(summ.get("total_glazing_area_m2") or 0.0) > 1e-4:
         f_src_n = summ.get("frame_source") or "asumsi pengguna"
         fw_n = _fmt_id(summ.get("frame_width_mm"), 1)
+        u_cog_n = summ.get("avg_u_cog_wm2k") if summ.get("avg_u_cog_wm2k") is not None else (summ.get("active_materials") or {}).get("u_cog")
+        r_pct_n = _fmt_id(summ.get("frame_ratio_pct"), 1) if summ.get("frame_ratio_pct") is not None else "-"
         notes.append(
-            f"U_f tiga zona (SNI Lampiran C): U_f rata-rata {_fmt_id(summ.get('avg_u_fen_wm2k'), 2)} W/m²K, "
-            f"A_frame {_fmt_id(summ.get('total_a_frame_m2'), 2)} m², A_edge {_fmt_id(summ.get('total_a_edge_m2'), 2)} m², "
-            f"lebar kusen {fw_n} mm ({f_src_n})."
+            f"U_f tiga zona (SNI 6389:2020 butir 4.3.2.2, Tabel 3 & Lampiran C): U kaca {_fmt_id(u_cog_n, 2)} → U_f {_fmt_id(summ.get('avg_u_fen_wm2k'), 2)} W/m²K "
+            f"(U_frame {_fmt_id(summ.get('u_frame_eff_wm2k'), 2)} W/m²K), A_frame {_fmt_id(summ.get('total_a_frame_m2'), 2)} m² (r = {r_pct_n}%), "
+            f"A_edge {_fmt_id(summ.get('total_a_edge_m2'), 2)} m², lebar kusen {fw_n} mm ({f_src_n})."
         )
         if f_src_n != "terukur":
             notes.append(f"Lebar kusen asumsi ({fw_n} mm) digunakan karena model tidak memiliki grup rangka terukur.")

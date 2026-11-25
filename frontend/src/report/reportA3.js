@@ -111,7 +111,7 @@ export function buildReportA3(state, { theme = 'dark', orient = 'landscape', use
             <div><dt>U<sub>f</sub> 3-zona</dt><dd>${f2(m.u_f)}</dd></div><div><dt>ΔT</dt><dd>${f1(m.delta_t)} K</dd></div><div><dt>SC kaca</dt><dd>${f3(m.sc_k)}</dd></div>
             <div><dt>Faktor peneduh</dt><dd>${f3(m.sc_eff)}</dd></div><div><dt>SF</dt><dd>${f0(m.sf ?? hot?.sni_sf_wm2)}</dd></div>
           </dl>
-          ${Number(s.total_glazing_area_m2 || 0) > 0.01 ? `<p class="note" style="margin-top:2mm">Kusen 3-zona: U<sub>f</sub> rata-rata ${f2(s.avg_u_fen_wm2k ?? m.u_f)} W/m²K · A<sub>frame</sub> ${f2(s.total_a_frame_m2 ?? 0)} m² · A<sub>edge</sub> ${f2(s.total_a_edge_m2 ?? 0)} m² · lebar kusen ${f1(s.frame_width_mm ?? 50)} mm (${esc(s.frame_source || 'asumsi pengguna')}${s.frame_source !== 'terukur' ? ' · Lebar kusen asumsi' : ''}).</p>` : ''}
+          ${Number(s.total_glazing_area_m2 || 0) > 0.01 ? `<p class="note" style="margin-top:2mm">Fenestrasi 3-zona (SNI 4.3.2.2 &amp; Tabel 3): U kaca ${f2(s.avg_u_cog_wm2k ?? s.active_materials?.u_cog ?? m.u_f)} → U<sub>f</sub> ${f2(s.avg_u_fen_wm2k ?? m.u_f)} W/m²K · r = ${f1(s.frame_ratio_pct ?? 0)}% · A<sub>frame</sub> ${f2(s.total_a_frame_m2 ?? 0)} m² · A<sub>edge</sub> ${f2(s.total_a_edge_m2 ?? 0)} m² · lebar kusen ${f1(s.frame_width_mm ?? 50)} mm (${esc(s.frame_source || 'asumsi pengguna')}${s.frame_source !== 'terukur' ? ' · Lebar kusen asumsi' : ''}).</p>` : ''}
           ${m.formula_substitution ? `<p class="formula">${esc(m.formula_substitution)}</p>` : ''}
         </div>
         <div class="panel facp"><div class="facp-hd"><p class="kick">Fasad terbentang 360° · selubung dibuka searah jarum jam, tiap panel diwarnai OTTV-nya</p>
