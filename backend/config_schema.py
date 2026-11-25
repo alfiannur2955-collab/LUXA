@@ -65,6 +65,7 @@ class CustomMaterialSpec(BaseModel):
     origin: Literal["sni_generic", "brand_reference", "user"] = "user"
     status: Literal["datasheet", "nilai_tipikal"] = "nilai_tipikal"
     brand: str = "Buatan saya"
+    certified: bool = False
 
     def to_catalog_dict(self) -> Dict[str, Any]:
         if self.category == "wall":
@@ -108,6 +109,7 @@ class CustomMaterialSpec(BaseModel):
             "catatan": self.catatan,
             "origin": self.origin,
             "status": self.status if self.sumber else "nilai_tipikal",
+            "certified": bool(self.certified),
             "is_custom": True,
         }
 
@@ -647,3 +649,4 @@ class ValidateMaterialRequest(BaseModel):
     status: str = "nilai_tipikal"
     catatan: str = ""
     description: str = ""
+    certified: bool = False

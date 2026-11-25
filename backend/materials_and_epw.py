@@ -621,19 +621,37 @@ def resolve_u_frame(
     fallback_u_frame: float = 8.0,
 ) -> float:
     """Nilai U_frame (W/m²K) efektif.
-    Di mode SNI, mengikuti Tabel 3 (aluminium/metal 8,0; kayu 3,0; vinyl/plastik 2,0) —
-    thermal break TIDAK boleh menurunkan U_frame di bawah nilai Tabel 3."""
+    Di mode SNI:
+      - bila material rangka kosong/tak dikenal -> 8,0 (Tabel 3 aluminium, bukan fallback rendah);
+      - material bawaan mengikuti Tabel 3 (aluminium/metal 8,0; kayu 3,0; vinyl/plastik 2,0);
+      - material rangka kustom dengan U < Tabel 3 wajib `certified: True` + `sumber`, tanpa itu pakai Tabel 3."""
     if not isinstance(frm_mat, dict):
-        return float(fallback_u_frame)
+        return float(SNI_TABLE_3_U_FRAME["aluminium"]) if is_sni_mode else float(fallback_u_frame)
     if is_sni_mode:
+        cls = classify_frame_material_class(frm_mat)
+        table3_u = (
+            float(SNI_TABLE_3_U_FRAME[cls])
+            if cls in SNI_TABLE_3_U_FRAME
+            else float(SNI_TABLE_3_U_FRAME["aluminium"])
+        )
+        is_custom = bool(frm_mat.get("is_custom")) or str(frm_mat.get("origin") or "").lower() == "user"
+        if is_custom and frm_mat.get("u_value") is not None:
+            u_val = float(frm_mat["u_value"])
+            if u_val >= table3_u - 1e-9:
+                return u_val
+            has_cert = bool(frm_mat.get("certified")) and bool(str(frm_mat.get("sumber") or "").strip())
+            return u_val if has_cert else table3_u
         if frm_mat.get("sni_u_frame") is not None:
             return float(frm_mat["sni_u_frame"])
-        cls = classify_frame_material_class(frm_mat)
         if cls in SNI_TABLE_3_U_FRAME:
             return float(SNI_TABLE_3_U_FRAME[cls])
         if frm_mat.get("u_value") is not None:
-            return float(frm_mat["u_value"])
-        return float(fallback_u_frame)
+            u_val = float(frm_mat["u_value"])
+            if u_val >= table3_u - 1e-9:
+                return u_val
+            has_cert = bool(frm_mat.get("certified")) and bool(str(frm_mat.get("sumber") or "").strip())
+            return u_val if has_cert else table3_u
+        return float(SNI_TABLE_3_U_FRAME["aluminium"])
     if frm_mat.get("u_value") is not None:
         return float(frm_mat["u_value"])
     return float(fallback_u_frame)
@@ -778,6 +796,7 @@ def validate_custom_material(data: Dict[str, Any]) -> Dict[str, Any]:
         "origin_label": "Buatan saya",
         "catatan": str(data.get("catatan") or data.get("description") or "").strip(),
         "description": str(data.get("catatan") or data.get("description") or "").strip(),
+        "certified": bool(data.get("certified", False)),
         "is_custom": True,
     }
 

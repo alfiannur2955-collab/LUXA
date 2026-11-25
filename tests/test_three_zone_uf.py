@@ -627,3 +627,78 @@ def test_c3_lebar_kusen_terukur_di_atas_200mm_pakai_frame_width_mm_untuk_pita_te
     assert abs(fast80["summary"]["total_a_edge_m2"] - r80["summary"]["total_a_edge_m2"]) <= 0.05
     assert abs(fast80["ottv_total_wm2"] - r80["ottv_total_wm2"]) <= 0.01
 
+
+def test_c4_cadangan_u_frame_sni_dan_rangka_kustom_certified(tmp_path):
+    """C4: di mode SNI, rangka kosong/tak dikenal -> 8,0 (bukan params.u_frame 2,10);
+    rangka kustom dengan U < Tabel 3 wajib certified=True + sumber, tanpa itu pakai Tabel 3."""
+    # 1. Unit: None / kosong di mode SNI -> selalu 8,0 walau fallback 2,10
+    assert resolve_u_frame(None, is_sni_mode=True, fallback_u_frame=2.10) == 8.0
+    assert resolve_u_frame(None, is_sni_mode=False, fallback_u_frame=2.10) == 2.10
+
+    # 2. Unit: rangka kustom U < Tabel 3 tanpa certified atau tanpa sumber -> pakai Tabel 3
+    alu_nocert = {"id": "usr_alu", "name": "Aluminium Khusus", "category": "frame", "u_value": 2.5, "sumber": "Brochure", "is_custom": True}
+    alu_nosrc = {"id": "usr_alu2", "name": "Aluminium Khusus", "category": "frame", "u_value": 2.5, "certified": True, "sumber": "", "is_custom": True}
+    alu_ok = {"id": "usr_alu3", "name": "Aluminium Khusus", "category": "frame", "u_value": 2.5, "certified": True, "sumber": "Uji ISO 10077-2", "is_custom": True}
+    assert resolve_u_frame(alu_nocert, is_sni_mode=True) == 8.0
+    assert resolve_u_frame(alu_nosrc, is_sni_mode=True) == 8.0
+    assert resolve_u_frame(alu_ok, is_sni_mode=True) == 2.5
+
+    wood_nocert = {"id": "usr_wood", "name": "Kayu Jati Insulasi", "category": "frame", "u_value": 1.8, "sumber": "Lab", "is_custom": True}
+    wood_ok = {"id": "usr_wood2", "name": "Kayu Jati Insulasi", "category": "frame", "u_value": 1.8, "certified": True, "sumber": "Uji NFRC 100", "is_custom": True}
+    assert resolve_u_frame(wood_nocert, is_sni_mode=True) == 3.0
+    assert resolve_u_frame(wood_ok, is_sni_mode=True) == 1.8
+
+    gen_nocert = {"id": "usr_gen", "name": "Rangka Komposit XYZ", "category": "frame", "u_value": 1.5, "is_custom": True}
+    gen_ok = {"id": "usr_gen2", "name": "Rangka Komposit XYZ", "category": "frame", "u_value": 1.5, "certified": True, "sumber": "Lab tersertifikasi", "is_custom": True}
+    assert resolve_u_frame(gen_nocert, is_sni_mode=True) == 8.0
+    assert resolve_u_frame(gen_ok, is_sni_mode=True) == 1.5
+
+    # 3. End-to-end: material rangka tak dikenal + params.u_frame=2,10 -> tetap 8,0 di mode SNI
+    path = _write_box_3dm(str(tmp_path / "box_c4.3dm"), with_mullions=False)
+    prm_unk = ProjectConfig(settings=SettingsConfig(materials_confirmed=True, mode="sni", frame_material_id="frm_tidak_ada")).to_envelope_parameters()
+    prm_unk.u_frame = 2.10
+    res_unk = analyze_building_ottv(path, "box_c4.3dm", prm_unk)
+    assert res_unk["summary"]["u_frame_eff_wm2k"] == 8.0
+
+    # 4. End-to-end: CustomMaterialSpec certified=False vs certified=True + sumber
+    cfg_nc = ProjectConfig(
+        settings=SettingsConfig(
+            materials_confirmed=True,
+            mode="sni",
+            frame_material_id="usr_frm_nc",
+            custom_materials=[
+                CustomMaterialSpec(
+                    id="usr_frm_nc",
+                    name="Rangka Aluminium Kustom",
+                    category="frame",
+                    u_value=2.4,
+                    sumber="Katalog internal",
+                    certified=False,
+                )
+            ],
+        )
+    )
+    cfg_cert = ProjectConfig(
+        settings=SettingsConfig(
+            materials_confirmed=True,
+            mode="sni",
+            frame_material_id="usr_frm_cert",
+            custom_materials=[
+                CustomMaterialSpec(
+                    id="usr_frm_cert",
+                    name="Rangka Aluminium Kustom Tersertifikasi",
+                    category="frame",
+                    u_value=2.4,
+                    sumber="Sertifikat NFRC 100 / ISO 10077",
+                    certified=True,
+                )
+            ],
+        )
+    )
+    res_nc = analyze_building_ottv(path, "box_c4.3dm", cfg_nc.to_envelope_parameters())
+    res_cert = analyze_building_ottv(path, "box_c4.3dm", cfg_cert.to_envelope_parameters())
+    assert res_nc["summary"]["u_frame_eff_wm2k"] == 8.0
+    assert res_cert["summary"]["u_frame_eff_wm2k"] == 2.4
+    assert res_cert["ottv_total_wm2"] < res_nc["ottv_total_wm2"]
+
+
