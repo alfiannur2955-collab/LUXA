@@ -167,7 +167,7 @@ def _rows_for_orientation(panels: List[Dict[str, Any]], code: str) -> List[Dict[
         a_f = area * wwr
         wall = (round(float(p.get("alpha_wall_eff") or 0), 4), round(float(p.get("u_wall_eff") or 0), 4),
                 round(float(p.get("td_ek_eff") or 0), 3)) if a_w > 1e-9 else None
-        glass = (round(float(p.get("u_fen_eff") or 0), 4), round(float(p.get("sc_glass") or 0), 6),
+        glass = (round(float(p.get("u_fen_eff") or 0), 6), round(float(p.get("sc_glass") or 0), 6),
                  round(float(p.get("sc_effective") or 0), 6), round(float(p.get("sf_wm2") or 0), 3)) if a_f > 1e-9 else None
         key = (p.get("group_name"), p.get("floor_label") or "", p.get("material_id"), wall, glass)
         r = rows.get(key)
@@ -262,7 +262,7 @@ def _sheet_orientation(wb: Workbook, analysis: Dict[str, Any], code: str, name: 
         ("E7", "OTTV arah (W/m²)", "G7", "=G4+G5+G6", NUM2),
         ("I4", "Total panas (W)", "K4", f"=SUM({rng('S')})", NUM2),
         ("I5", "OTTV arah di aplikasi", "K5", round(float(ori_app.get("ottv_orientation_wm2") or 0.0), 2), NUM2),
-        ("I6", "Selisih Excel − aplikasi", "K6", "=ROUND(G7-K5,2)", NUM2),
+        ("I6", "Selisih Excel − aplikasi", "K6", "=ROUND(ROUND(G7,2)-K5,2)", NUM2),
     ]
     for lab_ref, lab, val_ref, val, fmt in blocks:
         _set(ws, lab_ref, lab, F_H)
@@ -514,7 +514,7 @@ def _sheet_summary(ws, analysis: Dict[str, Any], refs: Dict[str, Dict[str, str]]
         _set(ws, f"E{n}", f"={rf['ottv']}", fmt=NUM2, border=True)
         _set(ws, f"F{n}", f"={rf['heat']}", fmt=NUM2, border=True)
         _set(ws, f"G{n}", round(float((app_ori.get(code) or {}).get("ottv_orientation_wm2") or 0.0), 2), fill=FILL_INPUT, fmt=NUM2, border=True)
-        _set(ws, f"H{n}", f"=ROUND(E{n}-G{n},2)", fill=FILL_CHECK, fmt=NUM2, border=True)
+        _set(ws, f"H{n}", f"=ROUND(ROUND(E{n},2)-G{n},2)", fill=FILL_CHECK, fmt=NUM2, border=True)
     tr = r0 + 9
     a, b = r0 + 1, r0 + 8
     _set(ws, f"A{tr}", "Seluruh selubung", F_H, FILL_TOTAL, border=True)
@@ -524,7 +524,7 @@ def _sheet_summary(ws, analysis: Dict[str, Any], refs: Dict[str, Dict[str, str]]
     _set(ws, f"E{tr}", f"=IF(B{tr}=0,0,F{tr}/B{tr})", F_RESULT, FILL_TOTAL, NUM2, border=True)
     _set(ws, f"F{tr}", f"=SUM(F{a}:F{b})", F_H, FILL_TOTAL, NUM2, border=True)
     _set(ws, f"G{tr}", round(float(analysis.get("ottv_total_wm2") or 0.0), 2), F_H, FILL_INPUT, NUM2, border=True)
-    _set(ws, f"H{tr}", f"=ROUND(E{tr}-G{tr},2)", F_H, FILL_CHECK, NUM2, border=True)
+    _set(ws, f"H{tr}", f"=ROUND(ROUND(E{tr},2)-G{tr},2)", F_H, FILL_CHECK, NUM2, border=True)
 
     r = tr + 2
     verdict = str(

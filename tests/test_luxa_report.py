@@ -100,3 +100,49 @@ def test_libreoffice_recalculation_matches_app():
                 assert abs(float(ws_r["B21"].value) - float(rt["rttv_wm2"])) <= 0.01, case
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_ci_excel_six_decimal_uf_and_selisih_formula():
+    """Butir 1 (CI Excel): u_fen_eff dibulatkan 6 desimal di engine, rematerial, dan kunci baris Excel;
+    rumus Selisih di Ringkasan memakai ROUND(ROUND(E{n},2)-G{n},2); folder .luxa_tmp tidak ada."""
+    from recommender import rematerial_analysis
+
+    a = _analyze("01_kotak_m")
+    # Pilih kaca dengan U yang menghasilkan U_f > 4 angka di belakang koma
+    a_rem = rematerial_analysis(a, glazing_material_id="glz_igu_lowe_selektif", materials_confirmed=True)
+    # Cek langsung pada panel 07_silinder (panel melengkung -> U_f pecahan tak habis 4 desimal)
+    a_cyl = _analyze("07_silinder")
+    a_cyl_rem = rematerial_analysis(a_cyl, glazing_material_id="glz_igu_lowe_selektif", materials_confirmed=True)
+
+    def _has_gt4_decimals(panels):
+        for p in panels:
+            if p.get("active") and p.get("element_type") == "glazing":
+                v = float(p.get("u_fen_eff") or 0.0)
+                if abs(v - round(v, 4)) > 1e-7:
+                    return True
+        return False
+
+    assert _has_gt4_decimals(a_cyl["panels"]), "engine u_fen_eff masih dibulatkan 4 desimal"
+    assert _has_gt4_decimals(a_cyl_rem["panels"]), "rematerial u_fen_eff masih dibulatkan 4 desimal"
+
+    wb = openpyxl.load_workbook(io.BytesIO(generate_luxa_report(a_cyl)))
+    ws = wb["Ringkasan"]
+    for i in range(len(ORIENTATIONS)):
+        n = 16 + i
+        assert ws[f"H{n}"].value == f"=ROUND(ROUND(E{n},2)-G{n},2)"
+    assert ws["H24"].value == "=ROUND(ROUND(E24,2)-G24,2)"
+
+    # Kunci baris lembar orientasi juga menyimpan 6 desimal u_fen_eff
+    found_6dec_in_sheet = False
+    for _, _, title in ORIENTATIONS:
+        ws_o = wb[title]
+        for r in range(11, ws_o.max_row):
+            val = ws_o[f"K{r}"].value
+            if isinstance(val, (int, float)) and abs(float(val) - round(float(val), 4)) > 1e-7:
+                found_6dec_in_sheet = True
+                break
+        if found_6dec_in_sheet:
+            break
+    assert found_6dec_in_sheet, "luxa_report masih membulatkan u_fen_eff ke 4 desimal"
+    assert not os.path.exists(os.path.join(ROOT_DIR, ".luxa_tmp"))
+

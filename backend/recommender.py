@@ -361,7 +361,7 @@ def rematerial_analysis(
         p["u_cog"] = round(u_cog_k, 4)
         p["u_frame_eff"] = round(u_frame_eff, 4)
         p["u_edge_eff"] = round(u_edge_k, 4)
-        p["u_fen_eff"] = round(u_f_k, 4)
+        p["u_fen_eff"] = round(u_f_k, 6)
         p["a_cog_m2"] = round(a_cog_k, 4)
         p["a_edge_m2"] = round(a_edge_k, 4)
         p["a_frame_m2"] = round(a_frame_k, 4)
