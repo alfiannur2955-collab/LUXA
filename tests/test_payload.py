@@ -105,3 +105,15 @@ def test_adapter_frontend_membongkar_identik(full, remat, tmp_path):
         if a["active"]:
             for k in REMATERIAL_FIELDS:
                 assert b[k] == a[k], (a["id"], k)
+
+
+def test_rangka_twisted_dikirim_utuh_tidak_bolong(full):
+    """Mullion/transom twisted (34.560 face, vertex tidak dilas antar face) harus terkirim utuh ke viewer.
+    Dulu anggaran 14.000 face + komponen per indeks vertex membuat tiap face dianggap elemen sendiri,
+    sehingga 2 dari 3 face batang dibuang dan rangka tampil bolong."""
+    frames = full["frame_elements"]
+    n_tri = sum(len(g["faces"]) for g in frames)
+    names = {g["group_name"] for g in frames}
+    assert "Layer 01 :: CW_Vertical_Mullions" in names
+    # 34.560 face quad → minimal 34.560 segitiga; tidak boleh dijarangkan
+    assert n_tri >= 34_560, n_tri

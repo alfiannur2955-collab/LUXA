@@ -4578,6 +4578,14 @@ def analyze_building_ottv(
             f_arr = np.asarray(r.faces, dtype=np.int64)
             if f_arr.ndim != 2 or len(f_arr) == 0:
                 continue
+            # Las vertex per posisi (1 mm): mesh render Rhino/IFC sering tidak berbagi vertex antar face.
+            # Dipakai untuk (a) komponen elemen saat penjarangan, agar batang mullion/transom tidak dibuang
+            # per face sehingga tampil bolong, dan (b) memperkecil data kirim. Viewer menggambar tanpa
+            # indeks (flat), jadi vertex bersama tidak mengubah tampilan.
+            vk = np.round(np.asarray(r.vertices, dtype=np.float64) / 1e-3).astype(np.int64)
+            uk, weld = np.unique(vk, axis=0, return_inverse=True)
+            weld = np.asarray(weld, dtype=np.int64).reshape(-1)
+            f_arr = weld[f_arr]
             if stride > 1:
                 comp = _face_components(f_arr)
                 uniq, inv = np.unique(comp, return_inverse=True)
@@ -4585,9 +4593,9 @@ def analyze_building_ottv(
                     f_arr = f_arr[(inv % stride) == 0]
                 # Mesh yang menyatu jadi satu/sedikit komponen dikirim utuh: lebih baik berat daripada rusak.
             used = np.unique(f_arr[:, :4] if f_arr.shape[1] >= 4 else f_arr)
-            remap = np.full(len(r.vertices), -1, dtype=np.int64)
+            remap = np.full(len(uk), -1, dtype=np.int64)
             remap[used] = np.arange(len(used))
-            vs = np.round(np.asarray(r.vertices, dtype=np.float64)[used], 3).tolist()
+            vs = np.round(uk[used].astype(np.float64) * 1e-3, 3).tolist()
             fr = remap[f_arr]
             if fr.shape[1] >= 4:
                 is_q = fr[:, 2] != fr[:, 3]
@@ -5057,7 +5065,7 @@ def analyze_building_ottv(
         "recommendations": recommendations,
         "solar_vectors": solar_vectors,
         "panels": panel_records,
-        "frame_elements": _serialize_raw_groups(frame_groups, max_faces=14000),
+        "frame_elements": _serialize_raw_groups(frame_groups, max_faces=48000),
         "shading_elements": _serialize_raw_groups(shading_groups, max_faces=48000),
         "roof_elements": _serialize_raw_groups(roof_groups, max_faces=4000),
         "context_elements": _serialize_raw_groups(context_groups, max_faces=40000),
