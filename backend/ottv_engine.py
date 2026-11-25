@@ -141,7 +141,7 @@ class EnvelopeParameters:
     materials_confirmed: bool = False
     glazing_material_id: Optional[str] = "glz_igu_triple_silver"
     wall_material_id: Optional[str] = "wal_spandrel_insulasi_50"
-    frame_material_id: Optional[str] = "frm_aluminium_thermal_break"
+    frame_material_id: Optional[str] = "frm_aluminium_standar"
     roof_material_id: Optional[str] = "rf_dak_beton_120_insulasi"
     custom_materials: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -193,15 +193,20 @@ def classify_sni_orientation(azimuth_deg: float) -> str:
 def interpolate_sni_solar_factor(
     azimuth_deg: float,
     tilt_deg: float = 90.0,
-    climate_multiplier: float = 1.0
+    climate_multiplier: float = 1.0,
+    sf_table: Optional[Dict[str, float]] = None,
 ) -> float:
     az = azimuth_deg % 360.0
     sector = int(az // 45.0) % 8
     next_sector = (sector + 1) % 8
     t = (az - (sector * 45.0)) / 45.0
 
-    sf_start = SNI_SF_ANCHORS[sector][3]
-    sf_end = SNI_SF_ANCHORS[next_sector][3]
+    if sf_table is not None:
+        sf_start = float(sf_table.get(ORIENTATION_CODES[sector], SNI_SF_ANCHORS[sector][3]))
+        sf_end = float(sf_table.get(ORIENTATION_CODES[next_sector], SNI_SF_ANCHORS[next_sector][3]))
+    else:
+        sf_start = SNI_SF_ANCHORS[sector][3]
+        sf_end = SNI_SF_ANCHORS[next_sector][3]
     sf_interp = ((1.0 - t) * sf_start + t * sf_end) * climate_multiplier
 
     tilt_rad = math.radians(max(15.0, min(165.0, tilt_deg)))
@@ -2758,8 +2763,15 @@ def analyze_building_ottv(
         lat_deg = float(loc_info.get("latitude_deg", params.latitude_deg))
         lon_deg = float(loc_info.get("longitude_deg", params.longitude_deg))
         delta_t = float(loc_info.get("design_delta_t", params.delta_t))
-        sf_mult = float(loc_info.get("sf_multiplier", params.sf_climate_multiplier))
+        # A3-18: jangkar SF mode simulasi memakai Tabel 8 SNI 6389:2020 kota aktif (bukan tabel 2011 lama).
+        # Pengali iklim hanya dipakai saat EPW kustom diunggah agar tidak menggandakan koreksi kota.
+        sf_mult = (
+            float(loc_info.get("sf_multiplier", params.sf_climate_multiplier))
+            if params.custom_epw_info
+            else 1.0
+        )
         custom_hourly_dni = loc_info.get("hourly_dni_profile")
+    sim_sf_table: Dict[str, float] = dict(sni_city_entry["sf"])
 
     # Apply material library specs (including per-model custom_materials)
     extra_mats = params.custom_materials or []
@@ -3120,7 +3132,11 @@ def analyze_building_ottv(
             az_val = az_r[i]
             tilt_val = tilt_r[i]
             orient_code = classify_sni_orientation(az_val)
-            sf_val = sf_by_orient_sni[orient_code] if is_sni_mode else interpolate_sni_solar_factor(az_val, tilt_val, sf_mult)
+            sf_val = (
+                sf_by_orient_sni[orient_code]
+                if is_sni_mode
+                else interpolate_sni_solar_factor(az_val, tilt_val, sf_mult, sf_table=sim_sf_table)
+            )
 
             # Resolve panel material via single canonical resolve_material()
             if panel_cat != eff_cat or (has_orient_ov and orient_code in orient_ov_map):
@@ -3592,7 +3608,7 @@ def analyze_building_ottv(
             "code": code,
             "name_id": ORIENTATION_NAMES[code],
             "azimuth_center_deg": ORIENTATION_ANGLES[code],
-            "sni_sf_wm2": get_sf_for_source(params.city_preset, code, sf_source) if is_sni_mode else round(ORIENTATION_BASE_SF[code] * sf_mult, 1),
+            "sni_sf_wm2": get_sf_for_source(params.city_preset, code, sf_source) if is_sni_mode else round(sim_sf_table[code] * sf_mult, 1),
             "panel_count": 0,
             "total_area_m2": 0.0,
             "wall_area_m2": 0.0,

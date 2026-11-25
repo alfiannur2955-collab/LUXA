@@ -332,4 +332,4 @@ def suggest_material_id_for_group(
             return "wal_panel_insulasi_pir_50"
         return default_wall_id or "wal_spandrel_insulasi_50"
 
-    return default_frame_id or "frm_aluminium_thermal_break"
+    return default_frame_id or "frm_aluminium_standar"

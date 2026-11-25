@@ -33,7 +33,7 @@ from universal_pipeline import suggest_material_id_for_group
 
 DEFAULT_GLAZING_MAT_ID = "glz_igu_triple_silver"
 DEFAULT_WALL_MAT_ID = "wal_spandrel_insulasi_50"
-DEFAULT_FRAME_MAT_ID = "frm_aluminium_thermal_break"
+DEFAULT_FRAME_MAT_ID = "frm_aluminium_standar"
 DEFAULT_ROOF_MAT_ID = "rf_dak_beton_120_insulasi"
 
 
@@ -359,8 +359,8 @@ def _migrate_legacy_scalars_into_settings(settings_dict: Dict[str, Any], source_
             settings_dict["glazing_material_id"] = mid
 
     if "u_frame" in source_dict:
-        u_fr = float(source_dict.get("u_frame", 2.10))
-        if abs(u_fr - 2.10) > 1e-3 and settings_dict.get("frame_material_id") in (None, DEFAULT_FRAME_MAT_ID):
+        u_fr = float(source_dict.get("u_frame", 8.0))
+        if abs(u_fr - 2.10) > 1e-3 and abs(u_fr - 8.0) > 1e-3 and settings_dict.get("frame_material_id") in (None, DEFAULT_FRAME_MAT_ID):
             mid = "migrated_frame_custom"
             if mid not in existing_ids:
                 custom_mats.append({

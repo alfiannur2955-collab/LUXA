@@ -40,7 +40,7 @@ export function createDefaultConfig() {
       materials_confirmed: false,
       glazing_material_id: 'glz_igu_triple_silver',
       wall_material_id: 'wal_spandrel_insulasi_50',
-      frame_material_id: 'frm_aluminium_thermal_break',
+      frame_material_id: 'frm_aluminium_standar',
       roof_material_id: 'rf_dak_beton_120_insulasi',
       custom_materials: [],
       orientation_material_overrides: {},

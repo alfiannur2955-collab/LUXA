@@ -213,7 +213,7 @@ export async function readProjectFile(file) {
         north_angle_deg: Number(raw.north_angle_deg || 0),
         glazing_material_id: raw.glazing_material_id || 'glz_igu_triple_silver',
         wall_material_id: raw.wall_material_id || 'wal_spandrel_insulasi_50',
-        frame_material_id: raw.frame_material_id || 'frm_aluminium_thermal_break',
+        frame_material_id: raw.frame_material_id || 'frm_aluminium_standar',
         roof_material_id: raw.roof_material_id || 'rf_dak_beton_120_insulasi',
       },
     });

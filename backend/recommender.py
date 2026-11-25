@@ -152,7 +152,7 @@ def rematerial_analysis(
     prev_params = out.get("parameters_used") or {}
     eff_glz_id = glazing_material_id or prev_params.get("glazing_material_id") or "glz_igu_triple_silver"
     eff_wal_id = wall_material_id or prev_params.get("wall_material_id") or "wal_spandrel_insulasi_50"
-    eff_frm_id = frame_material_id or prev_params.get("frame_material_id") or "frm_aluminium_thermal_break"
+    eff_frm_id = frame_material_id or prev_params.get("frame_material_id") or "frm_aluminium_standar"
     eff_rf_id = roof_material_id or prev_params.get("roof_material_id") or "rf_dak_beton_120_insulasi"
 
     ori_overrides = dict(
