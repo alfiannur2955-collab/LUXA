@@ -1,9 +1,9 @@
 # Log Pengerjaan LUXA (otomatis dari git)
 
-Dibuat 25 Nov 2026 06:17 WIB oleh `tools/log_pengerjaan.py`. Jangan edit manual; jalankan ulang skripnya.
+Dibuat 25 Nov 2026 07:06 WIB oleh `tools/log_pengerjaan.py`. Jangan edit manual; jalankan ulang skripnya.
 Ringkasan naratif dan angka hasil ada di `docs/LOG_PENGERJAAN.md`.
 
-Total 229 commit dalam 5 hari kerja.
+Total 231 commit dalam 5 hari kerja.
 
 | Tanggal | Commit | Jam pertama–terakhir (WIB) |
 |---|---|---|
@@ -11,7 +11,7 @@ Total 229 commit dalam 5 hari kerja.
 | Minggu, 22 Nov 2026 | 115 | 01:04–23:57 |
 | Senin, 23 Nov 2026 | 41 | 00:37–21:55 |
 | Selasa, 24 Nov 2026 | 30 | 01:35–23:40 |
-| Rabu, 25 Nov 2026 | 11 | 00:23–06:17 |
+| Rabu, 25 Nov 2026 | 13 | 00:23–07:05 |
 
 ## Sabtu, 21 Nov 2026
 
@@ -266,3 +266,5 @@ Total 229 commit dalam 5 hari kerja.
 | 01:56 | `e8d604f` | T7: percepatan engine OTTV 2,3x-2,9x dengan paritas angka identik |
 | 01:58 | `4e2bae2` | docs: tulis laporan pagi 25 Nov 2026, perbarui serah-terima dan log git otomatis |
 | 06:17 | `f013ec7` | feat(engine,ui,report): T5 fenestrasi kaca+kusen dan U_f tiga zona (A3-11, A3-13) |
+| 06:18 | `b7cd150` | docs: perbarui log git otomatis pasca-T5 |
+| 07:05 | `97a1618` | fix(engine,report): perbaiki pengukuran muka rangka T5 agar A_o tidak bertambah |
