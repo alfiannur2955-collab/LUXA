@@ -1196,6 +1196,9 @@ function buildRematerialPayloadFromConfig(cfg) {
     frame_material_id: cfg.settings.frame_material_id,
     roof_material_id: cfg.settings.roof_material_id,
     frame_width_mm: Number.isFinite(Number(cfg.settings.frame_width_mm)) ? Number(cfg.settings.frame_width_mm) : 50,
+    glass_module_width_mm: Number.isFinite(Number(cfg.settings.glass_module_width_mm))
+      ? Number(cfg.settings.glass_module_width_mm)
+      : 1500,
     orientation_material_overrides: cfg.settings.orientation_material_overrides || {},
     group_material_map: cfg.roles?.group_material_map || {},
     custom_materials: cfg.settings.custom_materials || [],
@@ -1213,6 +1216,13 @@ function applyPatchToConfigClone(baseCfg, patch) {
   }
   if (patch.frame_width_mm !== undefined && patch.frame_width_mm !== null && Number.isFinite(Number(patch.frame_width_mm))) {
     nextCfg.settings.frame_width_mm = Math.max(0, Math.min(300, Number(patch.frame_width_mm)));
+  }
+  if (
+    patch.glass_module_width_mm !== undefined &&
+    patch.glass_module_width_mm !== null &&
+    Number.isFinite(Number(patch.glass_module_width_mm))
+  ) {
+    nextCfg.settings.glass_module_width_mm = Math.max(0, Math.min(10000, Number(patch.glass_module_width_mm)));
   }
   if (patch.orientation_material_overrides && typeof patch.orientation_material_overrides === 'object') {
     const nextMap = {};
@@ -1486,6 +1496,13 @@ const panelBuilders = createRailPanelBuilders({
     const prev = Number(getState().config?.settings?.frame_width_mm ?? 50);
     if (Math.abs(prev - val) < 1e-6 && getState().config?.settings?.materials_confirmed) return;
     applyMaterialPatchFast({ frame_width_mm: val }, `Lebar kusen diperbarui (${fmtId(val, 1)} mm).`);
+  },
+  onChangeGlassModuleWidthMm: (mm) => {
+    const val = Math.max(0, Math.min(10000, Number(mm)));
+    if (!Number.isFinite(val)) return;
+    const prev = Number(getState().config?.settings?.glass_module_width_mm ?? 1500);
+    if (Math.abs(prev - val) < 1e-6 && getState().config?.settings?.materials_confirmed) return;
+    applyMaterialPatchFast({ glass_module_width_mm: val }, `Modul kaca diperbarui (${fmtId(val, 0)} mm).`);
   },
   onChangeOrientationMaterial: (code, materialId) => {
     const normCode = normalizeOrientCode(code);

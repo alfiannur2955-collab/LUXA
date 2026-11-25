@@ -45,6 +45,7 @@ export function createDefaultConfig() {
       custom_materials: [],
       orientation_material_overrides: {},
       frame_width_mm: 50,
+      glass_module_width_mm: 1500,
       include_frame_conduction: true,
       frame_area_ratio: 0.08,
       wwr_override: null,

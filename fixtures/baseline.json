@@ -390,10 +390,10 @@
       "total_envelope_area_m2": 240.0,
       "total_floors": 3,
       "wwr": 0.2,
-      "ottv_total_wm2": 12.58,
+      "ottv_total_wm2": 13.08,
       "ottv_by_orientation": {
         "U": {
-          "ottv_wm2": 12.16,
+          "ottv_wm2": 12.67,
           "area_m2": 60.0
         },
         "TL": {
@@ -401,7 +401,7 @@
           "area_m2": 0.0
         },
         "T": {
-          "ottv_wm2": 13.22,
+          "ottv_wm2": 13.72,
           "area_m2": 60.0
         },
         "TGR": {
@@ -409,7 +409,7 @@
           "area_m2": 0.0
         },
         "S": {
-          "ottv_wm2": 10.51,
+          "ottv_wm2": 11.01,
           "area_m2": 60.0
         },
         "BD": {
@@ -417,7 +417,7 @@
           "area_m2": 0.0
         },
         "B": {
-          "ottv_wm2": 14.42,
+          "ottv_wm2": 14.92,
           "area_m2": 60.0
         },
         "BL": {

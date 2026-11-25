@@ -127,6 +127,7 @@ def rematerial_analysis(
     frame_material_id: Optional[str] = None,
     roof_material_id: Optional[str] = None,
     frame_width_mm: Optional[float] = None,
+    glass_module_width_mm: Optional[float] = None,
     orientation_material_overrides: Optional[Dict[str, str]] = None,
     group_material_map: Optional[Dict[str, str]] = None,
     custom_materials: Optional[List[Dict[str, Any]]] = None,
@@ -209,6 +210,22 @@ def rematerial_analysis(
         eff_frame_width_mm = round(max(0.0, float(raw_fw)), 1)
     eff_frame_width_m = eff_frame_width_mm / 1000.0
     frame_measured = frame_source == "terukur"
+    raw_mod_w = (
+        glass_module_width_mm
+        if glass_module_width_mm is not None
+        else (
+            prev_params.get("glass_module_width_mm")
+            if prev_params.get("glass_module_width_mm") is not None
+            else prev_summary.get("glass_module_width_mm", 1500.0)
+        )
+    )
+    eff_mod_w_mm = round(max(0.0, float(raw_mod_w)), 1)
+    eff_mod_w_m = eff_mod_w_mm / 1000.0
+    eff_mod_h_m = float(
+        prev_params.get("glass_module_height_m")
+        or prev_summary.get("glass_module_height_m")
+        or 3.5
+    )
 
     # Prepare orientation & floor accumulators
     prev_orient_meta = {r["code"]: r for r in (out.get("orientation_breakdown") or [])}
@@ -297,6 +314,8 @@ def rematerial_analysis(
             if p.get("opening_area_m2") and p.get("opening_perimeter_m"):
                 op_area = float(p["opening_area_m2"])
                 op_perim = float(p["opening_perimeter_m"])
+                op_w = float(p.get("opening_width_m") or 0.0)
+                op_h = float(p.get("opening_height_m") or 0.0)
                 op_gap = float(p.get("opening_gap_frame_m2") or 0.0)
                 op_ov = float(p.get("opening_ov_frame_m2") or 0.0)
                 share = float(p.get("opening_share") if p.get("opening_share") is not None else 1.0)
@@ -308,6 +327,10 @@ def rematerial_analysis(
                     frame_width_m=eff_frame_width_m,
                     measured_a_frame_m2=op_gap if frame_measured else None,
                     overlap_a_frame_m2=op_ov if frame_measured else 0.0,
+                    module_width_m=eff_mod_w_m if not frame_measured else None,
+                    module_height_m=eff_mod_h_m if not frame_measured else None,
+                    opening_width_m=op_w if op_w > 1e-6 else None,
+                    opening_height_m=op_h if op_h > 1e-6 else None,
                 )
                 u_f_k = tz["u_f"]
                 u_edge_k = tz["u_edge"]
@@ -332,6 +355,8 @@ def rematerial_analysis(
                     frame_width_m=eff_frame_width_m,
                     measured_a_frame_m2=gap_a if frame_measured else None,
                     overlap_a_frame_m2=ov_a if frame_measured else 0.0,
+                    module_width_m=eff_mod_w_m if not frame_measured else None,
+                    module_height_m=eff_mod_h_m if not frame_measured else None,
                 )
                 u_f_k = tz["u_f"]
                 u_edge_k = tz["u_edge"]
@@ -575,6 +600,8 @@ def rematerial_analysis(
         out["summary"]["total_a_edge_m2"] = round(total_a_edge_m2, 2)
         out["summary"]["total_a_cog_m2"] = round(total_a_cog_m2, 2)
         out["summary"]["frame_width_mm"] = eff_frame_width_mm
+        out["summary"]["glass_module_width_mm"] = eff_mod_w_mm
+        out["summary"]["glass_module_height_m"] = eff_mod_h_m
         out["summary"]["frame_source"] = frame_source
         out["summary"]["frame_ratio"] = round(frame_ratio_bldg, 4)
         out["summary"]["frame_ratio_pct"] = round(frame_ratio_bldg * 100.0, 1)
@@ -606,6 +633,7 @@ def rematerial_analysis(
             am["u_fenestration"] = avg_u_fen_bldg
             am["u_frame"] = round(u_frame_eff, 3)
             am["frame_width_mm"] = eff_frame_width_mm
+            am["glass_module_width_mm"] = eff_mod_w_mm
             am["frame_source"] = frame_source
             am["frame_ratio"] = round(frame_ratio_bldg, 4)
             am["frame_ratio_pct"] = round(frame_ratio_bldg * 100.0, 1)
@@ -672,6 +700,8 @@ def rematerial_analysis(
         out["parameters_used"]["roof_material_id"] = eff_rf_id
         out["parameters_used"]["u_frame"] = round(u_frame_eff, 3)
         out["parameters_used"]["frame_width_mm"] = eff_frame_width_mm
+        out["parameters_used"]["glass_module_width_mm"] = eff_mod_w_mm
+        out["parameters_used"]["glass_module_height_m"] = eff_mod_h_m
         out["parameters_used"]["frame_source"] = frame_source
         out["parameters_used"]["orientation_material_overrides"] = ori_overrides
         out["parameters_used"]["group_material_map"] = grp_map

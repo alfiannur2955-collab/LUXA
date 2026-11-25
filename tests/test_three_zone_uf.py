@@ -283,6 +283,7 @@ def test_kotak_dengan_dan_tanpa_mullion_ao_sama_dan_ottv_dekat(tmp_path):
             city_preset="jakarta",
             frame_material_id="frm_aluminium_standar",
             frame_width_mm=50.0,
+            glass_module_width_mm=4000.0,  # samakan modul asumsi (4 m) dengan 1 mullion tengah di box_with_mullion
         )
     )
     r_no = analyze_building_ottv(p_no, "box_no_mullion.3dm", cfg.to_envelope_parameters())
@@ -300,9 +301,8 @@ def test_kotak_dengan_dan_tanpa_mullion_ao_sama_dan_ottv_dekat(tmp_path):
     assert abs(r_yes["summary"]["total_glazing_area_m2"] - r_no["summary"]["total_glazing_area_m2"]) <= 0.15
     assert abs(r_yes["summary"]["total_glazing_area_m2"] - 64.0) <= 0.15
 
-    # OTTV dekat (selisih kecil karena ada 1 mullion tengah tambahan di model dengan mullion)
-    assert abs(r_yes["ottv_total_wm2"] - r_no["ottv_total_wm2"]) <= 1.2
-    assert r_yes["ottv_total_wm2"] >= r_no["ottv_total_wm2"] - 0.1
+    # OTTV dekat (modul virtual 4 m pada bukaan 8 m memberi 2 modul yang sangat dekat dengan 1 mullion tengah terukur)
+    assert abs(r_yes["ottv_total_wm2"] - r_no["ottv_total_wm2"]) <= 0.5
 
 
 def test_tabel3_u_frame_dan_thermal_break_tidak_menurunkan_di_mode_sni(tmp_path):

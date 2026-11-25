@@ -213,17 +213,18 @@ LUXA_SHEET = {"U": "U Utara", "TL": "TL Timur Laut", "T": "T Timur", "TGR": "TG 
 
 def test_case1_box_wwr40_jakarta_matches_manual_calculation():
     """Case 1: 10x10x4m box, WWR 40%, Jakarta (no shading), dengan U_f tiga zona (kusen 50 mm, U_frame 8,0)."""
-    # Manual calculation (SNI 6389:2020 Tabel 3, Tabel 7, Tabel 8 & Lampiran C):
-    # Window 8m x 2m (A=16.0 m2), kusen asumsi 50mm, U_cog=1.90, U_frame=8.0, U_edge=4.95:
-    #   Wg=7.90, Hg=1.90 -> Ag=15.01, A_frame=0.99
-    #   Wcog=7.70, Hcog=1.70 -> A_cog=13.09, A_edge=1.92
-    #   U_f = (1.90*13.09 + 8.0*0.99 + 4.95*1.92) / 16.0 = 2.6434375 W/m2K
+    # Manual calculation (SNI 6389:2020 Tabel 3, Tabel 7, Tabel 8 & Lampiran C + C1 modul 1500 mm):
+    # Window 8m x 2m (A=16.0 m2) tanpa mullion dipecah ke 5 modul virtual 1.60m x 2.00m (A_m=3.20 m2):
+    #   kusen asumsi 50mm, U_cog=1.90, U_frame=8.0, U_edge=4.95:
+    #   Wg=1.50, Hg=1.90 -> Ag=2.85, A_frame=0.35
+    #   Wcog=1.30, Hcog=1.70 -> A_cog=2.21, A_edge=0.64
+    #   U_f = (1.90*2.21 + 8.0*0.35 + 4.95*0.64) / 3.20 = 3.1771875 W/m2K
     # alpha=0.50, Uw=1.40, TDek=12.0, WWR=0.40, deltaT=5.0, SC=0.35*1.0=0.35
     # Q_wall  = 0.50 * 1.40 * 0.60 * 12.0       = 5.040000 W/m2
-    # Q_glass = 2.6434375 * 0.40 * 5.0          = 5.286875 W/m2
-    # Q_base  = Q_wall + Q_glass                = 10.326875 W/m2
+    # Q_glass = 3.1771875 * 0.40 * 5.0          = 6.354375 W/m2
+    # Q_base  = Q_wall + Q_glass                = 11.394375 W/m2
     # SF Jakarta: U=148, T=171, S=112, B=197
-    q_base = 5.04 + 2.6434375 * 0.40 * 5.0  # 10.326875
+    q_base = 5.04 + 3.1771875 * 0.40 * 5.0  # 11.394375
     expected_by_ori = {
         "U": round(q_base + 148.0 * 0.40 * 0.35, 2),  # 31.05
         "T": round(q_base + 171.0 * 0.40 * 0.35, 2),  # 34.27
@@ -275,8 +276,8 @@ def test_case1_box_wwr40_jakarta_matches_manual_calculation():
 
 def test_case2_box_wwr40_surabaya_matches_manual_calculation():
     """Case 2: 10x10x4m box, WWR 40%, Surabaya (no shading), dengan U_f tiga zona (kusen 50 mm, U_frame 8,0)."""
-    # SF Surabaya (Tabel 8, hlm. 11): U=155, T=194, S=110, B=211; Q_base = 10.326875 W/m2
-    q_base = 5.04 + 2.6434375 * 0.40 * 5.0
+    # SF Surabaya (Tabel 8, hlm. 11): U=155, T=194, S=110, B=211; Q_base = 11.394375 W/m2
+    q_base = 5.04 + 3.1771875 * 0.40 * 5.0
     expected_by_ori = {
         "U": round(q_base + 155.0 * 0.14, 2),
         "T": round(q_base + 194.0 * 0.14, 2),
@@ -311,7 +312,7 @@ def test_case3_box_wwr40_jakarta_with_overhang_matches_manual_calculation():
     assert sceff_us == pytest.approx(0.7210, abs=1e-4)
     assert sceff_tb == pytest.approx(0.7248, abs=1e-4)
 
-    q_base = 5.04 + 2.6434375 * 0.40 * 5.0
+    q_base = 5.04 + 3.1771875 * 0.40 * 5.0
     expected_by_ori = {
         "U": q_base + 148.0 * 0.40 * (0.35 * sceff_us),
         "T": q_base + 171.0 * 0.40 * (0.35 * sceff_tb),
@@ -376,8 +377,8 @@ def test_sf_source_default_sni2020_and_old_table_honest_labeling():
         assert ori_map["T"]["sni_sf_wm2"] == 179.0
         assert ori_map["S"]["sni_sf_wm2"] == 111.0
         assert ori_map["B"]["sni_sf_wm2"] == 219.0
-        # Fase 5c + T5: SC = SHGC / 0.87 dan U_f tiga zona (Q_base = 10.326875)
-        exp_u = (5.04 + 2.6434375 * 0.40 * 5.0) + 152.0 * 0.40 * (round(0.35 * 0.87, 4) / 0.87)
+        # Fase 5c + T5 + C1: SC = SHGC / 0.87 dan U_f tiga zona (Q_base = 11.394375)
+        exp_u = (5.04 + 3.1771875 * 0.40 * 5.0) + 152.0 * 0.40 * (round(0.35 * 0.87, 4) / 0.87)
         assert abs(ori_map["U"]["ottv_orientation_wm2"] - exp_u) <= 0.01
 
         xlsx_bytes = generate_excel_report(res)

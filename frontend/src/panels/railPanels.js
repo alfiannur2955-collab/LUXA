@@ -293,6 +293,12 @@ export function createRailPanelBuilders(handlers) {
             const fwVal = isMeasured
               ? Number(summ?.frame_width_mm ?? 50)
               : Number(state.config?.settings?.frame_width_mm ?? 50);
+            const modVal = Number(state.config?.settings?.glass_module_width_mm ?? summ?.glass_module_width_mm ?? 1500);
+
+            const pairGrid = document.createElement('div');
+            pairGrid.style.display = 'grid';
+            pairGrid.style.gridTemplateColumns = '1fr 1fr';
+            pairGrid.style.gap = '8px';
 
             const fwRow = document.createElement('div');
             fwRow.style.display = 'flex';
@@ -307,6 +313,7 @@ export function createRailPanelBuilders(handlers) {
             fwInp.step = '5';
             fwInp.value = String(Number.isFinite(fwVal) ? fwVal : 50);
             fwInp.style.flex = '1';
+            fwInp.style.minWidth = '0';
             fwInp.setAttribute('aria-label', 'Lebar kusen dalam milimeter');
             fwInp.disabled = isMeasured;
             fwInp.addEventListener('change', () => {
@@ -319,13 +326,48 @@ export function createRailPanelBuilders(handlers) {
             const unitSpan = document.createElement('span');
             unitSpan.className = 'lbl';
             unitSpan.textContent = 'mm';
-
             fwRow.append(fwInp, unitSpan);
 
+            const modRow = document.createElement('div');
+            modRow.style.display = 'flex';
+            modRow.style.alignItems = 'center';
+            modRow.style.gap = '6px';
+
+            const modInp = document.createElement('input');
+            modInp.type = 'number';
+            modInp.className = 'field-input num';
+            modInp.min = '0';
+            modInp.max = '10000';
+            modInp.step = '100';
+            modInp.value = String(Number.isFinite(modVal) ? modVal : 1500);
+            modInp.style.flex = '1';
+            modInp.style.minWidth = '0';
+            modInp.setAttribute('aria-label', 'Lebar modul kaca dalam milimeter');
+            modInp.disabled = isMeasured;
+            modInp.addEventListener('change', () => {
+              const num = Math.max(0, Math.min(10000, Number(modInp.value)));
+              if (!Number.isFinite(num)) return;
+              modInp.value = String(num);
+              handlers.onChangeGlassModuleWidthMm?.(num);
+            });
+
+            const modUnit = document.createElement('span');
+            modUnit.className = 'lbl';
+            modUnit.textContent = 'mm';
+            modRow.append(modInp, modUnit);
+
             const fwHint = isMeasured
-              ? `Terukur otomatis dari grup rangka model (${fmtId(fwVal, 1)} mm).`
-              : 'Lebar kusen asumsi (bawaan 50 mm) bila model tidak memiliki grup rangka. Mengubah nilai ini sekaligus mengonfirmasi material.';
-            container.appendChild(makeField('Lebar kusen', fwRow, fwHint));
+              ? `Terukur otomatis dari grup rangka (${fmtId(fwVal, 1)} mm).`
+              : 'Asumsi bila tanpa grup rangka (bawaan 50 mm).';
+            const modHint = isMeasured
+              ? 'Tidak dipakai karena rangka sudah terukur.'
+              : 'Pecahan modul virtual bukaan kaca lebar (bawaan 1.500 mm, tinggi = tinggi lantai).';
+
+            pairGrid.append(
+              makeField('Lebar kusen', fwRow, fwHint),
+              makeField('Modul kaca', modRow, modHint),
+            );
+            container.appendChild(pairGrid);
           }
         }
 

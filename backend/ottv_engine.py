@@ -127,6 +127,7 @@ class EnvelopeParameters:
 
     # Curtain wall Frame (Mullion/Transom) thermal parameters — SNI 6389:2020 Tabel 3 & Lampiran C
     frame_width_mm: float = 50.0  # Lebar kusen asumsi (mm) bila model tidak memiliki grup rangka terukur
+    glass_module_width_mm: float = 1500.0  # C1: Lebar modul kaca virtual (mm) bila tidak ada rangka terukur (0 = nonaktif)
     include_frame_conduction: bool = True  # legacy field (dipertahankan untuk kompatibilitas .ottv.json lama)
     u_frame: float = 8.0
     frame_area_ratio: float = 0.08  # legacy field (tidak lagi dipakai; diganti U_f 3-zona)
@@ -2112,6 +2113,10 @@ def compute_three_zone_uf(
     frame_width_m: float,
     measured_a_frame_m2: Optional[float] = None,
     overlap_a_frame_m2: float = 0.0,
+    module_width_m: Optional[float] = None,
+    module_height_m: Optional[float] = None,
+    opening_width_m: Optional[float] = None,
+    opening_height_m: Optional[float] = None,
 ) -> Dict[str, float]:
     """Menghitung U_f tiga zona SNI 6389:2020 Lampiran C untuk satu bidang fenestrasi.
 
@@ -2156,14 +2161,39 @@ def compute_three_zone_uf(
             a_cog = a_base
             a_edge = 0.0
         else:
-            w_g = max(0.0, w_eq - 2.0 * wf)
-            h_g = max(0.0, h_eq - 2.0 * wf)
-            a_glass = min(a_base, w_g * h_g)
-            a_frame = max(0.0, a_base - a_glass)
-            w_cog = max(0.0, w_g - 4.0 * wf)
-            h_cog = max(0.0, h_g - 4.0 * wf)
-            a_cog = min(a_glass, w_cog * h_cog)
-            a_edge = max(0.0, a_glass - a_cog)
+            # C1: bila tidak ada rangka terukur, bukaan lebar/tinggi dipecah ke modul virtual
+            w_op = float(opening_width_m) if (opening_width_m and opening_width_m > 1e-6) else w_eq
+            h_op = float(opening_height_m) if (opening_height_m and opening_height_m > 1e-6) else h_eq
+            mw = float(module_width_m or 0.0)
+            mh = float(module_height_m or 0.0)
+            n_cols = max(1, int(round(w_op / mw))) if (mw > 1e-3 and w_op > mw) else 1
+            n_rows = max(1, int(round(h_op / mh))) if (mh > 1e-3 and h_op > mh) else 1
+            if n_cols > 1 or n_rows > 1:
+                n_mod = n_cols * n_rows
+                w_m = w_op / n_cols
+                h_m = h_op / n_rows
+                a_m = w_m * h_m
+                w_g = max(0.0, w_m - 2.0 * wf)
+                h_g = max(0.0, h_m - 2.0 * wf)
+                a_glass_m = min(a_m, w_g * h_g)
+                a_frame_m = max(0.0, a_m - a_glass_m)
+                w_cog = max(0.0, w_g - 4.0 * wf)
+                h_cog = max(0.0, h_g - 4.0 * wf)
+                a_cog_m = min(a_glass_m, w_cog * h_cog)
+                a_edge_m = max(0.0, a_glass_m - a_cog_m)
+                scale_a = a_base / max(1e-12, a_m * n_mod)
+                a_frame = a_frame_m * n_mod * scale_a
+                a_cog = a_cog_m * n_mod * scale_a
+                a_edge = a_edge_m * n_mod * scale_a
+            else:
+                w_g = max(0.0, w_eq - 2.0 * wf)
+                h_g = max(0.0, h_eq - 2.0 * wf)
+                a_glass = min(a_base, w_g * h_g)
+                a_frame = max(0.0, a_base - a_glass)
+                w_cog = max(0.0, w_g - 4.0 * wf)
+                h_cog = max(0.0, h_g - 4.0 * wf)
+                a_cog = min(a_glass, w_cog * h_cog)
+                a_edge = max(0.0, a_glass - a_cog)
         a_fen = a_cog + a_edge + a_frame
     else:
         gap_a = max(0.0, float(measured_a_frame_m2))
@@ -2399,7 +2429,24 @@ def _group_coplanar_glazing_openings(
         )
         if avg_wwr < 1.0 - 1e-6:
             b_perim *= math.sqrt(max(0.0, avg_wwr))
-        info = {"members": members, "area_m2": comp_area, "perimeter_m": b_perim}
+        zs_comp = [
+            float(v[2])
+            for idx_m in members
+            for v in (panel_records[idx_m].get("vertices") or [])
+        ]
+        z_span_c = (max(zs_comp) - min(zs_comp)) if zs_comp else 0.0
+        if z_span_c > 1e-3 and comp_area > 1e-9:
+            h_op = z_span_c * (math.sqrt(max(0.0, avg_wwr)) if avg_wwr < 1.0 - 1e-6 else 1.0)
+            w_op = comp_area / max(1e-6, h_op)
+        else:
+            w_op, h_op = equivalent_rectangle(comp_area, b_perim)
+        info = {
+            "members": members,
+            "area_m2": comp_area,
+            "perimeter_m": b_perim,
+            "width_m": w_op,
+            "height_m": h_op,
+        }
         for idx_m in members:
             out[idx_m] = info
     return out
@@ -3706,6 +3753,18 @@ def analyze_building_ottv(
         eff_frame_width_mm = round(max(0.0, float(params.frame_width_mm)), 1)
         eff_frame_width_m = eff_frame_width_mm / 1000.0
         frame_source = "asumsi pengguna"
+    eff_glass_module_width_mm = round(max(0.0, float(params.glass_module_width_mm)), 1)
+    eff_glass_module_width_m = eff_glass_module_width_mm / 1000.0
+    _fl_hs = [
+        float(fd["z_max"]) - float(fd["z_min"])
+        for fd in (floor_defs or [])
+        if float(fd.get("z_max", 0.0)) - float(fd.get("z_min", 0.0)) > 0.5
+    ]
+    eff_glass_module_height_m = (
+        round(float(np.median(_fl_hs)), 3)
+        if _fl_hs
+        else round(float(params.floor_height_m or 3.5), 3)
+    )
     gap_area_by_panel: Dict[int, float] = frame_meas["gap_area_by_panel"]
     ov_area_by_panel: Dict[int, float] = frame_meas["overlap_area_by_panel"]
 
@@ -3795,6 +3854,8 @@ def analyze_building_ottv(
                 cid = id(op_info)
                 op_area = float(op_info["area_m2"])
                 op_perim = float(op_info["perimeter_m"])
+                op_w = float(op_info.get("width_m") or 0.0)
+                op_h = float(op_info.get("height_m") or 0.0)
                 op_gap = float(comp_gap_sum.get(cid, 0.0))
                 op_ov = float(comp_ov_sum.get(cid, 0.0))
                 share = base_glz / op_area
@@ -3809,6 +3870,10 @@ def analyze_building_ottv(
                     frame_width_m=eff_frame_width_m,
                     measured_a_frame_m2=op_gap if frame_measured else None,
                     overlap_a_frame_m2=op_ov if frame_measured else 0.0,
+                    module_width_m=eff_glass_module_width_m if not frame_measured else None,
+                    module_height_m=eff_glass_module_height_m if not frame_measured else None,
+                    opening_width_m=op_w if op_w > 1e-6 else None,
+                    opening_height_m=op_h if op_h > 1e-6 else None,
                 )
                 u_f_k = tz_op["u_f"]
                 u_edge_k = tz_op["u_edge"]
@@ -3817,6 +3882,8 @@ def analyze_building_ottv(
                 a_frame_k = tz_op["a_frame"] * share
                 p["opening_area_m2"] = round(op_area, 4)
                 p["opening_perimeter_m"] = round(op_perim, 4)
+                p["opening_width_m"] = round(op_w, 4)
+                p["opening_height_m"] = round(op_h, 4)
                 p["opening_gap_frame_m2"] = round(op_gap, 4)
                 p["opening_ov_frame_m2"] = round(op_ov, 4)
                 p["opening_share"] = round(share, 6)
@@ -3830,6 +3897,8 @@ def analyze_building_ottv(
                     frame_width_m=eff_frame_width_m,
                     measured_a_frame_m2=gap_a if frame_measured else None,
                     overlap_a_frame_m2=ov_a if frame_measured else 0.0,
+                    module_width_m=eff_glass_module_width_m if not frame_measured else None,
+                    module_height_m=eff_glass_module_height_m if not frame_measured else None,
                 )
                 u_f_k = tz["u_f"]
                 a_cog_k = tz["a_cog"]
@@ -4899,6 +4968,7 @@ def analyze_building_ottv(
                 "frame_name": frm_mat["name"] if frm_mat else "Rangka Aluminium Curtain Wall + Thermal Break",
                 "u_frame": round(u_frame_eff, 3),
                 "frame_width_mm": eff_frame_width_mm,
+                "glass_module_width_mm": eff_glass_module_width_mm,
                 "frame_source": frame_source,
                 "frame_ratio": round(frame_ratio_bldg, 4),
                 "frame_ratio_pct": round(frame_ratio_bldg * 100.0, 1),
@@ -4921,6 +4991,8 @@ def analyze_building_ottv(
             "avg_u_fen_wm2k": round(avg_u_fen_bldg, 3),
             "u_frame_eff_wm2k": round(u_frame_eff, 3),
             "frame_width_mm": eff_frame_width_mm,
+            "glass_module_width_mm": eff_glass_module_width_mm,
+            "glass_module_height_m": eff_glass_module_height_m,
             "frame_source": frame_source,
             "frame_ratio": round(frame_ratio_bldg, 4),
             "frame_ratio_pct": round(frame_ratio_bldg * 100.0, 1),
@@ -4944,6 +5016,8 @@ def analyze_building_ottv(
             "u_fenestration": round(float(glz_mat["u_value"]) if glz_mat else float(params.u_fenestration), 3),
             "u_frame": round(u_frame_eff, 3),
             "frame_width_mm": eff_frame_width_mm,
+            "glass_module_width_mm": eff_glass_module_width_mm,
+            "glass_module_height_m": eff_glass_module_height_m,
             "frame_source": frame_source,
             "sc_glass": round(sc_1_glob, 4),
             "u_wall": round(u_w_glob, 3),
