@@ -6,14 +6,14 @@ Baca seluruhnya sebelum mengubah kode. Riwayat lengkap ada di `docs/LOG_PENGERJA
 
 ## 1. Status saat serah-terima
 
-- Branch `main`. Semua tes lulus (417 lulus, 1 dilewati), `tools/compare_baseline.py` 0 selisih terhadap baseline pasca-T5.
+- Branch `main`. Semua tes lulus (430 lulus, 1 dilewati), `tools/compare_baseline.py` 0 selisih terhadap baseline pasca-T5+C1+C3.
 - Model acuan `backend/samples/Fasad_Tower_Twisted.3dm` (milik pengguna): OTTV **41,25** (triple-silver, material
   dikonfirmasi, dengan `U_f` tiga zona 2,85 W/m²K, fraksi rangka `r = 13,5%`, dan kusen terukur 87,6 mm; dulu 34,18 sebelum T5). Opsi studi
   `corpus/_studi_peneduh/Fasad_Tower_Twisted_OpsiA_SiripTerakota.3dm`: **37,52** (dulu 30,45).
 - Selesai: AUDIT-01..03, A3-01, A3-02, A3-03, A3-04 Fase 0+1, A3-05, A3-06, A3-07, A3-08, A3-09, A3-10, A3-11, A3-12 (sebagian), A3-13, A3-14, A3-15, A3-16 (status 4 kondisi), A3-17 (lencana mode), A3-18 (paritas mode, lihat
-  `docs/PARITAS_MODE_SNI_SIMULASI.md`), A3-19 (Belajar OTTV pakai U_f tiga zona), percepatan
+  `docs/PARITAS_MODE_SNI_SIMULASI.md`), A3-19 (Belajar OTTV pakai U_f tiga zona), tindak lanjut T5 (CI Excel, C1 modul kaca virtual, C3 batas lebar terukur > 200 mm, C4 cadangan U_frame 8,0 + certified rangka kustom, C8 label Porsi fenestrasi, C10 paritas rematerial; analisis C5 skylight di `docs/AUDIT_T5_FENESTRASI.md`), percepatan
   engine (raycast, peneduh, rematerial, inspeksi, T7: cache indeks-Z, vektorisasi round/serializer, SF/SC/material cache), service worker.
-- Belum: A3-04 Fase 2–4 (T6, opsional; lihat §6).
+- Belum: keputusan C5 skylight RTTV (`docs/AUDIT_T5_FENESTRASI.md`), dan A3-04 Fase 2–4 (T6, opsional; lihat §6).
 
 ## 2. Aturan kerja (wajib)
 

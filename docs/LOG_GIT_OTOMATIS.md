@@ -1,9 +1,9 @@
 # Log Pengerjaan LUXA (otomatis dari git)
 
-Dibuat 25 Nov 2026 08:14 WIB oleh `tools/log_pengerjaan.py`. Jangan edit manual; jalankan ulang skripnya.
+Dibuat 25 Nov 2026 11:10 WIB oleh `tools/log_pengerjaan.py`. Jangan edit manual; jalankan ulang skripnya.
 Ringkasan naratif dan angka hasil ada di `docs/LOG_PENGERJAAN.md`.
 
-Total 236 commit dalam 5 hari kerja.
+Total 245 commit dalam 5 hari kerja.
 
 | Tanggal | Commit | Jam pertama–terakhir (WIB) |
 |---|---|---|
@@ -11,7 +11,7 @@ Total 236 commit dalam 5 hari kerja.
 | Minggu, 22 Nov 2026 | 115 | 01:04–23:57 |
 | Senin, 23 Nov 2026 | 41 | 00:37–21:55 |
 | Selasa, 24 Nov 2026 | 30 | 01:35–23:40 |
-| Rabu, 25 Nov 2026 | 18 | 00:23–08:14 |
+| Rabu, 25 Nov 2026 | 27 | 00:23–11:10 |
 
 ## Sabtu, 21 Nov 2026
 
@@ -273,3 +273,12 @@ Total 236 commit dalam 5 hari kerja.
 | 07:41 | `0929300` | feat(ui): lencana Mode SNI/Simulasi, tombol kembali ke SNI, dan reset saat unggah (A3-17) |
 | 08:06 | `44ae5cc` | fix(engine): paritas Mode SNI vs Simulasi - kusen bawaan aluminium 8,0 dan SF Tabel 8 di simulasi (A3-18) |
 | 08:14 | `ee54445` | feat(belajar): Belajar OTTV memakai U_f tiga zona dan kalimat jembatan termal (A3-19) |
+| 08:15 | `9dc9f8e` | docs: catat A3-16..A3-19 di audit dan serah-terima, perbarui log git otomatis |
+| 10:36 | `28b9f0c` | fix(report): presisi u_fen_eff 6 desimal dan pembulatan rumus Selisih Excel (CI Excel) |
+| 10:44 | `3d6102d` | feat(engine,ui): modul kaca virtual untuk U_f tiga zona tanpa rangka terukur (C1) |
+| 10:49 | `8e29b86` | fix(engine): lebar kusen terukur > 200 mm tidak dipakai untuk pita tepi A_edge (C3) |
+| 10:52 | `c26db2d` | fix(engine): cadangan U_frame 8,0 di mode SNI dan syarat certified+sumber rangka kustom (C4) |
+| 10:56 | `3278b1c` | feat(ui,report): perbarui label WWR menjadi Porsi fenestrasi (kaca + kusen) (C8) |
+| 10:58 | `f53214a` | test(engine): uji paritas rematerial frame_width_mm dan selaraskan field orientasi (C10) |
+| 11:02 | `11c6cf7` | docs(audit): analisis C5 skylight RTTV (U_s vs U_f) untuk keputusan pengguna |
+| 11:10 | `723508a` | test(synthetic): selaraskan rumus analitik expected.json dengan modul kaca virtual C1 |

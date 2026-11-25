@@ -299,11 +299,21 @@ simulasi diinterpolasi dari tabel 2011 lama (rata-rata 147,36 vs Tabel 8 SNI 156
 (`sf_multiplier` hanya untuk EPW kustom). Angka mode SNI tidak berubah (baseline 0 selisih). Tabel per suku dan
 penjelasan selisih: `docs/PARITAS_MODE_SNI_SIMULASI.md`. Uji: `tests/test_mode_parity.py`.
 
-### A3-19 · RENDAH · Belajar OTTV memakai U_f tiga zona — diperbaiki
+### A3-19 · RENDAH · Belajar OTTV memakai U_f tiga zona — diperbaiki (`ee54445`)
 
 **Perbaikan.** `frontend/src/learn/ottvCalc.js` → `threeZoneUf` (sama dengan `compute_three_zone_uf`), dipakai
 `learn3d/sim.js` dengan kusen aluminium 8,0 lebar 50 mm pada panel contoh 1,5 m × tinggi kaca. Materi menambah
 kalimat jembatan termal (SNI 3.8, 4.3.2.2). Uji: `tests/test_learn3d_uf.py` (Lampiran C 4,75 dan cocok dengan engine).
+
+### Tindak lanjut fenestrasi T5 (CI Excel, C1, C3, C4, C5, C8, C10) — diperbaiki (`28b9f0c`..`11c6cf7`)
+
+- **CI Excel** (`28b9f0c`): `u_fen_eff` dibulatkan 6 desimal di engine, `rematerial`, dan kunci baris `luxa_report.py`; rumus Selisih `=ROUND(ROUND(E,2)-G,2)`; `.luxa_tmp/` dihapus.
+- **C1** (`3d6102d`): modul kaca virtual (`settings.glass_module_width_mm`, bawaan `1500 mm`, tinggi = tinggi lantai) bila tanpa rangka terukur + isian "Modul kaca" di samping "Lebar kusen" (`tests/test_glass_module_c1.py`). Baseline: hanya `Honeybee_MultiZone_Office_3F.hbjson` berubah `12,58 → 13,08` (+0,50 W/m²).
+- **C3** (`8e29b86`): lebar kusen terukur > 200 mm tidak dipakai untuk pita tepi $A_{\text{edge}}$ (memakai `frame_width_mm` + peringatan `FRAME_REVIEW_NEEDED`). Baseline: hanya `archicad_bim_curtainwall.ifc` (lebar IfcMember `355,3 mm`) berubah `34,75 → 29,40` (−5,35 W/m²).
+- **C4** (`c26db2d`): cadangan $U_{\text{frame}}$ mode SNI = `8,0` bila kosong/tak dikenal; rangka kustom dengan $U < \text{Tabel 3}$ wajib `certified: true` + `sumber` (0 selisih baseline).
+- **C8** (`3278b1c`): label WWR di layar & semua ekspor → `"Porsi fenestrasi (kaca + kusen)"` (0 selisih baseline).
+- **C10** (`f53214a`): uji paritas `rematerial` `frame_width_mm` baru vs `analyze` penuh (`tests/test_rematerial_frame_parity.py`) + penyelarasan field kanonik `orientation_breakdown` di `recommender.py` (0 selisih baseline).
+- **C5** (`11c6cf7`): analisis skylight RTTV ($U_s$ vs $U_f$) ditulis di `docs/AUDIT_T5_FENESTRASI.md` (menunggu keputusan pengguna; kode belum diubah).
 
 ---
 
