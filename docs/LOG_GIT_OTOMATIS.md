@@ -1,9 +1,9 @@
 # Log Pengerjaan LUXA (otomatis dari git)
 
-Dibuat 25 Nov 2026 07:06 WIB oleh `tools/log_pengerjaan.py`. Jangan edit manual; jalankan ulang skripnya.
+Dibuat 25 Nov 2026 08:14 WIB oleh `tools/log_pengerjaan.py`. Jangan edit manual; jalankan ulang skripnya.
 Ringkasan naratif dan angka hasil ada di `docs/LOG_PENGERJAAN.md`.
 
-Total 231 commit dalam 5 hari kerja.
+Total 236 commit dalam 5 hari kerja.
 
 | Tanggal | Commit | Jam pertama–terakhir (WIB) |
 |---|---|---|
@@ -11,7 +11,7 @@ Total 231 commit dalam 5 hari kerja.
 | Minggu, 22 Nov 2026 | 115 | 01:04–23:57 |
 | Senin, 23 Nov 2026 | 41 | 00:37–21:55 |
 | Selasa, 24 Nov 2026 | 30 | 01:35–23:40 |
-| Rabu, 25 Nov 2026 | 13 | 00:23–07:05 |
+| Rabu, 25 Nov 2026 | 18 | 00:23–08:14 |
 
 ## Sabtu, 21 Nov 2026
 
@@ -268,3 +268,8 @@ Total 231 commit dalam 5 hari kerja.
 | 06:17 | `f013ec7` | feat(engine,ui,report): T5 fenestrasi kaca+kusen dan U_f tiga zona (A3-11, A3-13) |
 | 06:18 | `b7cd150` | docs: perbarui log git otomatis pasca-T5 |
 | 07:05 | `97a1618` | fix(engine,report): perbaiki pengukuran muka rangka T5 agar A_o tidak bertambah |
+| 07:07 | `d5b64d8` | docs: perbarui log git otomatis pasca-perbaikan T5 |
+| 07:36 | `f4ff3e3` | feat(engine,ui,report): status 4 kondisi verdict (A3-16) |
+| 07:41 | `0929300` | feat(ui): lencana Mode SNI/Simulasi, tombol kembali ke SNI, dan reset saat unggah (A3-17) |
+| 08:06 | `44ae5cc` | fix(engine): paritas Mode SNI vs Simulasi - kusen bawaan aluminium 8,0 dan SF Tabel 8 di simulasi (A3-18) |
+| 08:14 | `ee54445` | feat(belajar): Belajar OTTV memakai U_f tiga zona dan kalimat jembatan termal (A3-19) |

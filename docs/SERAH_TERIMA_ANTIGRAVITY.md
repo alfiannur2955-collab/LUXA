@@ -6,11 +6,12 @@ Baca seluruhnya sebelum mengubah kode. Riwayat lengkap ada di `docs/LOG_PENGERJA
 
 ## 1. Status saat serah-terima
 
-- Branch `main`. Semua tes lulus (406 lulus, 1 dilewati), `tools/compare_baseline.py` 0 selisih terhadap baseline pasca-T5.
+- Branch `main`. Semua tes lulus (417 lulus, 1 dilewati), `tools/compare_baseline.py` 0 selisih terhadap baseline pasca-T5.
 - Model acuan `backend/samples/Fasad_Tower_Twisted.3dm` (milik pengguna): OTTV **41,25** (triple-silver, material
   dikonfirmasi, dengan `U_f` tiga zona 2,85 W/m²K, fraksi rangka `r = 13,5%`, dan kusen terukur 87,6 mm; dulu 34,18 sebelum T5). Opsi studi
   `corpus/_studi_peneduh/Fasad_Tower_Twisted_OpsiA_SiripTerakota.3dm`: **37,52** (dulu 30,45).
-- Selesai: AUDIT-01..03, A3-01, A3-02, A3-03, A3-04 Fase 0+1, A3-05, A3-06, A3-07, A3-08, A3-09, A3-10, A3-11, A3-12 (sebagian), A3-13, A3-14, A3-15, percepatan
+- Selesai: AUDIT-01..03, A3-01, A3-02, A3-03, A3-04 Fase 0+1, A3-05, A3-06, A3-07, A3-08, A3-09, A3-10, A3-11, A3-12 (sebagian), A3-13, A3-14, A3-15, A3-16 (status 4 kondisi), A3-17 (lencana mode), A3-18 (paritas mode, lihat
+  `docs/PARITAS_MODE_SNI_SIMULASI.md`), A3-19 (Belajar OTTV pakai U_f tiga zona), percepatan
   engine (raycast, peneduh, rematerial, inspeksi, T7: cache indeks-Z, vektorisasi round/serializer, SF/SC/material cache), service worker.
 - Belum: A3-04 Fase 2–4 (T6, opsional; lihat §6).
 
@@ -40,7 +41,8 @@ Baca seluruhnya sebelum mengubah kode. Riwayat lengkap ada di `docs/LOG_PENGERJA
 | **Engine menyimpan hasil lengkap, tampilan menerima versi ramping** | `backend/payload.py` (`slim_analysis`, `slim_rematerial`) dibongkar oleh `frontend/src/engine/payload.js`. Bila tampilan butuh field panel baru, tambahkan ke `ACTIVE_PANEL_FIELDS` (dan `REMATERIAL_FIELDS` bila berubah saat ganti material). Laporan Excel/PDF dibuat dari salinan lengkap di engine (`_get_analysis`), bukan dari nilai kembalian `analyze()`. |
 | **`materials_confirmed`** | Default `false` → hasil "HASIL SEMENTARA" (`MATERIAL_NOT_CONFIRMED`). Uji yang bukan tentang material harus mengisi `materials_confirmed=True`. Setiap pilihan material dari pengguna (`applyMaterialPatchFast`) otomatis mengonfirmasi. |
 | **Override grup selalu menang** | Urutan material: `group_material_map` > override orientasi > material utama. Memilih material utama menghapus override grup peran itu (`applyPatchToConfigClone` di `main.js`). |
-| **Status hasil satu sumber** | `resolve_result_status()` dan `PROVISIONAL_WARNING_CODES` di `ottv_engine.py` dipakai hitung penuh dan `rematerial`. Kode peringatan baru yang perlu tindakan pengguna → tambahkan ke set itu. |
+| **Status hasil satu sumber** | `resolve_result_status()` dan `PROVISIONAL_WARNING_CODES` di `ottv_engine.py` dipakai hitung penuh dan `rematerial`. Kode peringatan baru yang perlu tindakan pengguna → tambahkan ke set itu. Tampilan WAJIB memakai `verdict` lewat `frontend/src/ui/verdict.js`, bukan `compliant` atau `ottv <= 35`. |
+| **Mode simulasi ≠ kepatuhan** | Mode simulasi memakai ΔT iklim/EPW dan peneduh raycast; U_f, A_frame, dan jangkar SF Tabel 8 harus tetap sama dengan mode SNI (`tests/test_mode_parity.py`). Kusen bawaan `frm_aluminium_standar`. |
 | **Nama layer tidak boleh jadi satu-satunya penentu** | Cek geometri: `loaders/sanity.py` (face kembar, batang = rangka) dijalankan di `universal_pipeline` dan dilaporkan engine. |
 | **Peneduh SNI** | SNI Lampiran A hanya mendefinisikan peneduh menempel di tepi jendela (R1 = P/H, R2 = P/W). Peneduh lepas/lebih tinggi: `_superposed_sceff`. Jangkauan 3 m (`SHADE_MAX_GAP_M`, `SHADE_MAX_RISE_M`). |
 | **Service worker menahan versi lama** | Setelah build, uji dengan Ctrl+Shift+R; bila masih lama, tutup semua tab lalu buka lagi. |

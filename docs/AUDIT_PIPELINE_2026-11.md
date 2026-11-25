@@ -34,6 +34,10 @@ Skrip probe tidak dimasukkan ke repo. Temuan yang diperbaiki wajib mendapat uji 
 | A3-13 | RENDAH | Hitung | Mode SNI: muka depan mullion tidak masuk luas selubung A_o — **diperbaiki** |
 | A3-14 | TINGGI | Tampilan | Daftar "Lihat catatan" di layar hasil menampilkan "[object Object]" — **diperbaiki** |
 | A3-15 | SEDANG | Hitung | Ganti material cepat (`rematerial`) tidak memperbarui status/peringatan — **diperbaiki** |
+| A3-16 | TINGGI | Tampilan | Mode simulasi/sementara ditampilkan sebagai "Memenuhi/Melebihi" (pakai `compliant` atau `ottv<=35`) — **diperbaiki** |
+| A3-17 | SEDANG | Tampilan | Mode aktif tidak terlihat di Hasil/Presentasi; mode simulasi terbawa saat unggah model baru — **diperbaiki** |
+| A3-18 | TINGGI | Hitung | Mode simulasi: kusen bawaan thermal break (U 2,10) dan SF tabel 2011 → U_f dan SF berbeda diam-diam dari mode SNI — **diperbaiki** |
+| A3-19 | RENDAH | Belajar | Belajar OTTV memakai U kaca sebagai U_f (tanpa kusen) — **diperbaiki** |
 
 Sudah diperbaiki selama audit (commit `d9238f1`, `71516e7`): nama jamak mullion/transom (AUDIT-01), `crown`
 sebagai token kaca, nama elemen IFC tidak dibaca (WWR 0%), penjarangan mesh peneduh merusak tampilan, baseline
@@ -266,6 +270,40 @@ memakai isian baru `settings.frame_width_mm` (bawaan 50 mm, ikut `materials_conf
 kusen asumsi"). Nilai `U kaca → U_f`, `A_frame`, `A_edge`, fraksi `r`, lebar kusen, dan sumbernya (`terukur`/`asumsi
 pengguna`) beserta rujukan SNI 6389:2020 butir 4.3.2.2 dan Tabel 3 tampil di UI Hasil serta laporan Excel dan PDF.
 Teruji di `tests/test_three_zone_uf.py` dan paritas browser `tests/test_browser_engine_parity.py`.
+
+---
+
+## Audit pasca-T5 (25 Nov 2026)
+
+### A3-16 · TINGGI · Status 4 kondisi (`verdict`) — diperbaiki (`f4ff3e3`)
+
+**Temuan.** Layar hasil, presentasi, dan laporan memakai `compliant` atau `ottv <= 35`, sehingga hasil mode
+simulasi (mis. 23,98) atau hasil sementara bisa tampil sebagai "Memenuhi", dan selisih ditulis dengan `Math.abs`.
+**Perbaikan.** Engine mengembalikan `verdict ∈ {memenuhi, melebihi, simulasi, sementara}` dari
+`resolve_result_status` (juga di `rematerial` dan payload ramping). Semua tampilan memakai
+`frontend/src/ui/verdict.js`; simulasi/sementara berlabel netral, selisih ditulis bertanda ("Di bawah batas X" /
+"Lewat X"). Uji: `tests/test_verdict_4_states.py`.
+
+### A3-17 · SEDANG · Mode terlihat — diperbaiki (`0929300`)
+
+**Perbaikan.** Lencana "Mode SNI"/"Mode Simulasi" di Hasil dan Presentasi, tombol "Kembali ke mode SNI", dan mode
+kembali ke SNI setiap kali model baru diunggah atau contoh dimuat.
+
+### A3-18 · TINGGI · Paritas mode SNI vs Simulasi — diperbaiki (`44ae5cc`)
+
+**Temuan.** Pada `Fasad_Tower_Twisted_OpsiA_SiripTerakota.3dm` (Jakarta, bawaan): geometri, `A_frame`, `A_edge`,
+lebar kusen, konduksi dinding identik, tetapi (1) kusen bawaan `frm_aluminium_thermal_break` membuat mode simulasi
+memakai `U_frame` 2,10 (U_f 1,354; konduksi kaca 5,46) sementara SNI memakai 8,0 (U_f 2,854; 11,51), dan (2) SF mode
+simulasi diinterpolasi dari tabel 2011 lama (rata-rata 147,36 vs Tabel 8 SNI 156,55; sisi Timur 110 vs 171).
+**Perbaikan.** Kusen bawaan = `frm_aluminium_standar` (8,0); mode simulasi menginterpolasi SF Tabel 8 kota aktif
+(`sf_multiplier` hanya untuk EPW kustom). Angka mode SNI tidak berubah (baseline 0 selisih). Tabel per suku dan
+penjelasan selisih: `docs/PARITAS_MODE_SNI_SIMULASI.md`. Uji: `tests/test_mode_parity.py`.
+
+### A3-19 · RENDAH · Belajar OTTV memakai U_f tiga zona — diperbaiki
+
+**Perbaikan.** `frontend/src/learn/ottvCalc.js` → `threeZoneUf` (sama dengan `compute_three_zone_uf`), dipakai
+`learn3d/sim.js` dengan kusen aluminium 8,0 lebar 50 mm pada panel contoh 1,5 m × tinggi kaca. Materi menambah
+kalimat jembatan termal (SNI 3.8, 4.3.2.2). Uji: `tests/test_learn3d_uf.py` (Lampiran C 4,75 dan cocok dengan engine).
 
 ---
 
