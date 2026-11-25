@@ -69,6 +69,9 @@ F_BODY = Font(name="Arial", size=9, color=INK)
 F_NOTE = Font(name="Arial", size=8, italic=True, color=MUTED)
 F_RESULT = Font(name="Arial", size=12, bold=True, color=TEAL)
 F_OK = Font(name="Arial", size=10, bold=True, color=TEAL)
+F_FAIL = Font(name="Arial", size=10, bold=True, color="B3261E")
+F_NEUTRAL = Font(name="Arial", size=10, bold=True, color=MUTED)
+F_WARN = Font(name="Arial", size=10, bold=True, color=AMBER)
 FILL_TH = PatternFill("solid", fgColor=TEAL)
 FILL_INPUT = PatternFill("solid", fgColor="FBF3E6")  # nilai dari model/aplikasi
 FILL_CALC = PatternFill("solid", fgColor="FFFFFF")  # rumus Excel
@@ -524,9 +527,36 @@ def _sheet_summary(ws, analysis: Dict[str, Any], refs: Dict[str, Dict[str, str]]
     _set(ws, f"H{tr}", f"=ROUND(E{tr}-G{tr},2)", F_H, FILL_CHECK, NUM2, border=True)
 
     r = tr + 2
+    verdict = str(
+        analysis.get("verdict")
+        or summ.get("verdict")
+        or (
+            "sementara"
+            if summ.get("is_provisional")
+            else (
+                "simulasi"
+                if str(analysis.get("calculation_mode") or "sni").lower() != "sni"
+                else (
+                    "memenuhi"
+                    if float(analysis.get("ottv_total_wm2") or 0.0) <= float(analysis.get("sni_limit_wm2") or SNI_OTTV_LIMIT_WM2)
+                    else "melebihi"
+                )
+            )
+        )
+    )
     _set(ws, f"A{r}", "OTTV total (W/m²)", F_H)
     _set(ws, f"B{r}", f"=E{tr}", F_RESULT, FILL_TOTAL, NUM2, border=True)
-    _set(ws, f"C{r}", f'=IF(B{r}<=OTTV_LIMIT,"Memenuhi (≤ "&TEXT(OTTV_LIMIT,"0")&" W/m²)","Tidak memenuhi (batas "&TEXT(OTTV_LIMIT,"0")&" W/m²)")', F_OK)
+    if verdict == "simulasi":
+        _set(ws, f"C{r}", "Simulasi — bukan untuk kepatuhan", F_NEUTRAL)
+    elif verdict == "sementara":
+        _set(ws, f"C{r}", "Hasil sementara — perlu konfirmasi", F_WARN)
+    else:
+        _set(
+            ws,
+            f"C{r}",
+            f'=IF(B{r}<=OTTV_LIMIT,"Memenuhi — Di bawah batas "&TEXT(OTTV_LIMIT-B{r},"0.00")&" W/m²","Melebihi — Lewat "&TEXT(B{r}-OTTV_LIMIT,"0.00")&" W/m²")',
+            F_OK if verdict == "memenuhi" else F_FAIL,
+        )
     ws.merge_cells(f"C{r}:F{r}")
     rttv_disabled = bool((analysis.get("rttv") or {}).get("disabled"))
     if rttv_disabled:

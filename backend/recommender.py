@@ -554,7 +554,8 @@ def rematerial_analysis(
     avg_sc_eff = round(sum_sc_eff_glz / total_glazing_area, 3) if total_glazing_area > 1e-4 else 0.0
 
     out["ottv_total_wm2"] = ottv_total_wm2
-    out["is_compliance"] = ottv_total_wm2 <= SNI_OTTV_LIMIT_WM2
+    out["margin_to_limit_wm2"] = round(SNI_OTTV_LIMIT_WM2 - ottv_total_wm2, 2)
+    out["is_compliance"] = bool(is_sni_mode)
     out["q_wall_conduction_wm2"] = q_wall_tot
     out["q_glass_conduction_wm2"] = q_glass_tot
     out["q_solar_radiation_wm2"] = q_solar_tot
@@ -654,13 +655,15 @@ def rematerial_analysis(
         )
         if frame_rev_w is not None:
             warns.append(frame_rev_w)
-        is_prov, label, comp = resolve_result_status(ottv_total_wm2, warns, is_sni_mode)
+        is_prov, label, comp, verdict = resolve_result_status(ottv_total_wm2, warns, is_sni_mode)
         summ["warnings"] = warns
         summ["is_provisional"] = is_prov
+        summ["verdict"] = verdict
         summ["materials_confirmed"] = confirmed
         out["warnings"] = warns
         out["status_label"] = label
         out["compliant"] = comp
+        out["verdict"] = verdict
 
     if isinstance(out.get("parameters_used"), dict):
         out["parameters_used"]["glazing_material_id"] = eff_glz_id

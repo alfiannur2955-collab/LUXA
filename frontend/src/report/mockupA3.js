@@ -1,5 +1,6 @@
 // Laporan PDF A3 (mendatar/tegak, terang/gelap) bergaya bersih. Semua teks penjelas disusun dari angka engine.
 import { escapeHtml as esc } from '../ui/escapeHtml.js';
+import { sideVerdict, verdictInfo } from '../ui/verdict.js';
 import { sidesOf, sideName, projectName } from '../present/content.js';
 import { heatColor } from '../present/heat.js';
 import { sunPath, floorStack } from './charts.js';
@@ -41,6 +42,10 @@ h1 .acc { color: var(--acc); }
 .tag { display: inline-flex; align-items: center; height: 4.6mm; padding: 0 2mm; border-radius: 2.3mm; font-size: 7.5pt; font-weight: 600; vertical-align: 0.2mm; margin-left: 1.5mm; }
 .tag.fail { color: var(--fail); background: color-mix(in srgb, var(--fail) 13%, transparent); }
 .tag.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
+.tag.neutral { color: var(--muted); background: var(--soft); }
+.tag.warn { color: var(--sun); background: color-mix(in srgb, var(--sun) 15%, transparent); }
+.lede b.neutral, .stat .v.neutral, .big.neutral { color: var(--muted); }
+.lede b.warn, .stat .v.warn, .big.warn { color: var(--sun); }
 h2 { font-size: 12pt; font-weight: 600; margin: 0 0 2.5mm; letter-spacing: -0.005em; }
 p.b { font-size: 10.5pt; line-height: 1.6; color: var(--body); margin: 0; }
 p.b b { color: var(--ink); font-weight: 600; }
@@ -186,7 +191,8 @@ export function buildMockup(state, { assets, theme = 'light', orient = 'land', l
   const tHeat = (v) => `color-mix(in srgb, ${heatColor(v)} 72%, var(--ink))`;
   const sn = (r) => `<span class="hs" style="color:${tHeat(r.ottv_orientation_wm2)}">${sideName(r.code)}</span>`;
   const a = state.analysisData, s = a.summary || {};
-  const limit = Number(a.sni_limit_wm2 || 35), ottv = Number(a.ottv_total_wm2), ok = Boolean(a.compliant);
+  const limit = Number(a.sni_limit_wm2 || 35), ottv = Number(a.ottv_total_wm2);
+  const vi = verdictInfo(a, 2);
   const sides = sidesOf(a);
   const byHeat = [...sides].sort((x, y) => y.ottv_orientation_wm2 - x.ottv_orientation_wm2);
   const hot = byHeat[0], cool = byHeat[byHeat.length - 1];
@@ -198,18 +204,24 @@ export function buildMockup(state, { assets, theme = 'light', orient = 'land', l
   const name = projectName(a);
   const dk = (theme === 'dark' ? ' dark' : '') + PT;
   const top = (crumb, n) => `<div class="top">${logoUrl ? `<img src="${logoUrl}" alt="LUXA">` : '<b>LUXA</b>'}<span class="crumb">${esc(name)} · <b>${crumb}</b></span><span>${String(n).padStart(2, '0')} / {{N}}</span></div>`;
-  const tag = (o) => `<span class="tag ${o ? 'ok' : 'fail'}">${o ? 'Memenuhi' : 'Melebihi'}</span>`;
+  const tagCls = (cls, text) => `<span class="tag ${cls}">${esc(text)}</span>`;
 
   // ---- 02 Ringkasan
-  const margin = Math.abs(ottv - limit);
-  const lede = ok
-    ? `Rata-rata panas yang masuk lewat selubung gedung ini <b>${f2(ottv)} W/m²</b>. Batas SNI 6389:2020 adalah ${f0(limit)} W/m², jadi gedung ini <b class="ok">memenuhi syarat</b> dengan sisa ${f2(margin)} W/m².`
-    : `Rata-rata panas yang masuk lewat selubung gedung ini <b>${f2(ottv)} W/m²</b>. Batas SNI 6389:2020 adalah ${f0(limit)} W/m², jadi gedung ini <b class="fail">lewat ${f2(margin)} W/m²</b> dan belum memenuhi syarat.`;
+  const lede = vi.isOk
+    ? `Rata-rata panas yang masuk lewat selubung gedung ini <b>${f2(ottv)} W/m²</b>. Batas SNI 6389:2020 adalah ${f0(limit)} W/m², jadi gedung ini <b class="ok">memenuhi syarat</b> (${esc(vi.delta.short)}).`
+    : vi.isFail
+      ? `Rata-rata panas yang masuk lewat selubung gedung ini <b>${f2(ottv)} W/m²</b>. Batas SNI 6389:2020 adalah ${f0(limit)} W/m², jadi gedung ini <b class="fail">${esc(vi.delta.short.toLowerCase())}</b> dan belum memenuhi syarat.`
+      : vi.isSim
+        ? `Rata-rata panas yang masuk lewat selubung gedung ini <b>${f2(ottv)} W/m²</b> pada <b class="neutral">mode simulasi eksplorasi</b> (bukan untuk kepatuhan SNI). ${esc(vi.delta.short)}.`
+        : `Rata-rata panas yang masuk lewat selubung gedung ini <b>${f2(ottv)} W/m²</b> (<b class="warn">hasil sementara</b> — perlu konfirmasi model/material sebelum evaluasi kepatuhan).`;
   const pS = share(s.q_solar_radiation_wm2), pW = share(s.q_wall_conduction_wm2), pG = share(s.q_glass_conduction_wm2);
   const pathTxt = pS >= 0.5
     ? `Sebagian besar panas, <b>${pc(pS)}</b>, masuk sebagai sinar matahari yang menembus kaca. Porsi kaca gedung ini ${pc(s.effective_wwr)}, jadi dinding padat hanya menyumbang ${pc(pW)} dan perpindahan panas lewat kaca karena beda suhu ${pc(pG)}.`
     : `Panas masuk lewat tiga jalur: sinar matahari lewat kaca ${pc(pS)}, beda suhu lewat kaca ${pc(pG)}, dan dinding ${pc(pW)}.`;
-  const sideTxt = `Sisi ${sn(hot)} paling panas (${f2(hot.ottv_orientation_wm2)} W/m²)${Number(hot.sni_sf_wm2) >= sfMax ? `, karena menerima sinar terkuat di ${esc(a.location_info?.city || 'lokasi ini')}: faktor matahari ${f0(hot.sni_sf_wm2)} W/m², tertinggi di antara arah yang ada` : ''}. ${over.length ? `${over.length} dari ${sides.length} sisi melewati batas: ${list(over.map((r) => sn(r)))}.` : `Semua ${sides.length} sisi berada di bawah batas.`} Sisi paling sejuk adalah ${sn(cool)} (${f2(cool.ottv_orientation_wm2)} W/m²).`;
+  const sideOverTxt = vi.isSniFinal
+    ? (over.length ? `${over.length} dari ${sides.length} sisi melewati batas: ${list(over.map((r) => sn(r)))}.` : `Semua ${sides.length} sisi berada di bawah batas.`)
+    : `Terdapat ${sides.length} sisi fasad aktif pada ${vi.isSim ? 'simulasi ini' : 'hasil sementara ini'}.`;
+  const sideTxt = `Sisi ${sn(hot)} paling panas (${f2(hot.ottv_orientation_wm2)} W/m²)${Number(hot.sni_sf_wm2) >= sfMax ? `, karena menerima sinar terkuat di ${esc(a.location_info?.city || 'lokasi ini')}: faktor matahari ${f0(hot.sni_sf_wm2)} W/m², tertinggi di antara arah yang ada` : ''}. ${sideOverTxt} Sisi paling sejuk adalah ${sn(cool)} (${f2(cool.ottv_orientation_wm2)} W/m²).`;
   const maxV = Math.max(limit * 1.3, ...sides.map((r) => r.ottv_orientation_wm2));
   // label penunjuk: hanya sisi yang menghadap kamera; bila bertumpuk, yang lebih panas didahulukan
   const kept = [];
@@ -233,7 +245,15 @@ export function buildMockup(state, { assets, theme = 'light', orient = 'land', l
       <g transform="rotate(${ang.toFixed(1)} 20 20)"><path d="M20 5 L25 24 L20 21 L15 24 Z" fill="currentColor"/></g>
       <text x="20" y="38.5" text-anchor="middle" font-size="7" font-weight="700" fill="currentColor">U</text></svg>`;
   }
-  const calls = kept.map((l) => `<div class="call${l.v > limit ? ' over' : ''}" style="left:${l.x}%;top:${l.y}%"><i></i><span>${sideName(l.code)}<b>${f1(l.v)}</b></span></div>`).join('');
+  const calls = kept.map((l) => `<div class="call${vi.isSniFinal && l.v > limit ? ' over' : ''}" style="left:${l.x}%;top:${l.y}%"><i></i><span>${sideName(l.code)}<b>${f1(l.v)}</b></span></div>`).join('');
+  const stat3Val = vi.isSniFinal
+    ? `${f2(vi.isOk ? Math.max(0, limit - ottv) : Math.max(0, ottv - limit))}<small>W/m²</small>`
+    : vi.isSim
+      ? `${f2(Math.abs(limit - ottv))}<small>${ottv <= limit ? 'di bawah acuan' : 'di atas acuan'}</small>`
+      : 'Sementara';
+  const stripInl = vi.isSniFinal
+    ? `Memenuhi<b>${sides.length - over.length}</b>· Melebihi<b>${over.length}</b>· Batas<b>${f0(limit)} W/m²</b>· panjang batang = OTTV, warna = skala panas`
+    : `${vi.isSim ? 'Mode simulasi' : 'Hasil sementara'} · Acuan<b>${f0(limit)} W/m²</b>· panjang batang = OTTV, warna = skala panas`;
   const p2 = `<section class="pg${dk}">
     <div class="bg"><img src="${assets.iso?.img}" alt=""></div><div class="veil"></div>${calls}${northGlyph}
     <div class="draw-cap" style="right:20mm;${port ? 'top:calc(57% + 19mm)' : 'bottom:72mm'};text-align:right"><b>Isometri</b>warna = OTTV tiap sisi</div>
@@ -241,9 +261,9 @@ export function buildMockup(state, { assets, theme = 'light', orient = 'land', l
     <div class="txt">
       <div class="hd"><h1>Ringkasan hasil</h1><p class="lede">${lede}</p></div>
       <div class="stats">
-        <div class="stat"><div class="k">OTTV gedung ${tag(ok)}</div><div class="v ${ok ? 'ok' : 'fail'}">${f2(ottv)}<small>W/m²</small></div></div>
-        <div class="stat"><div class="k">Batas SNI</div><div class="v">${f0(limit)}<small>W/m²</small></div></div>
-        <div class="stat"><div class="k">${ok ? 'Sisa ke batas' : 'Lewat batas'}</div><div class="v">${f2(margin)}<small>W/m²</small></div></div>
+        <div class="stat"><div class="k">OTTV gedung ${tagCls(vi.pillClass, vi.badge)}</div><div class="v ${vi.pillClass}">${f2(ottv)}<small>W/m²</small></div></div>
+        <div class="stat"><div class="k">${vi.isSim ? 'Acuan SNI' : 'Batas SNI'}</div><div class="v">${f0(limit)}<small>W/m²</small></div></div>
+        <div class="stat"><div class="k">${esc(vi.delta.label)}</div><div class="v">${stat3Val}</div></div>
       </div>
       <div class="r4"><h2>Dari mana panas masuk</h2><p class="b">${pathTxt}</p>
         <div class="split"><i style="width:${pW * 100}%;background:#A79E90"></i><i style="width:${pG * 100}%;background:#5B95B8"></i><i style="width:${pS * 100}%;background:var(--sun)"></i></div>
@@ -251,8 +271,8 @@ export function buildMockup(state, { assets, theme = 'light', orient = 'land', l
       <div class="r4"><h2>Sisi mana yang paling panas</h2><p class="b">${sideTxt}</p></div>
     </div>
     <div class="strip">
-      <div class="strip-hd"><h2>OTTV per sisi</h2><span class="inl">Memenuhi<b>${sides.length - over.length}</b>· Melebihi<b>${over.length}</b>· Batas<b>${f0(limit)} W/m²</b>· panjang batang = OTTV, warna = skala panas</span></div>
-      <div class="cols" style="--n:${sides.length}">${sides.map((r) => `<div class="col"><div class="k">${sideName(r.code)}</div><div class="v${r.ottv_orientation_wm2 > limit ? ' over' : ''}">${f1(r.ottv_orientation_wm2)}<small>W/m²</small></div><div class="bar" style="--w:${(r.ottv_orientation_wm2 / maxV) * 100}%;--c:${heatColor(r.ottv_orientation_wm2)}"></div><div class="s">${f0(r.total_area_m2)} m² · kaca ${pc(r.wwr)}</div></div>`).join('')}</div>
+      <div class="strip-hd"><h2>OTTV per sisi</h2><span class="inl">${stripInl}</span></div>
+      <div class="cols" style="--n:${sides.length}">${sides.map((r) => `<div class="col"><div class="k">${sideName(r.code)}</div><div class="v${vi.isSniFinal && r.ottv_orientation_wm2 > limit ? ' over' : ''}">${f1(r.ottv_orientation_wm2)}<small>W/m²</small></div><div class="bar" style="--w:${(r.ottv_orientation_wm2 / maxV) * 100}%;--c:${heatColor(r.ottv_orientation_wm2)}"></div><div class="s">${f0(r.total_area_m2)} m² · kaca ${pc(r.wwr)}</div></div>`).join('')}</div>
     </div>
     <div class="foot"><span>LUXA by Alf Studio · Laporan OTTV SNI 6389:2020${userName ? ` · disusun oleh ${esc(userName)}` : ''}</span><span>Angka dari hasil hitung LUXA</span></div>
   </section>`;
@@ -330,7 +350,7 @@ export function buildMockup(state, { assets, theme = 'light', orient = 'land', l
     ${top(`03 Sisi ${sideName(hot.code)}`, 3)}
     <div class="txt">
       <div class="hd"><h1>Sisi <span class="acc" style="--acc:${tHeat(hot.ottv_orientation_wm2)}">${sideName(hot.code)}</span></h1>
-        <p class="lede">Sisi ini menyumbang panas terbanyak: <b>${f2(hot.ottv_orientation_wm2)} W/m²</b>${hot.ottv_orientation_wm2 > limit ? `, ${f2(hot.ottv_orientation_wm2 - limit)} W/m² di atas batas` : `, masih di bawah batas ${f0(limit)} W/m²`}.</p></div>
+        <p class="lede">Sisi ini menyumbang panas terbanyak: <b>${f2(hot.ottv_orientation_wm2)} W/m²</b>${vi.isSniFinal ? (hot.ottv_orientation_wm2 > limit ? `, lewat ${f2(hot.ottv_orientation_wm2 - limit)} W/m² dari batas` : `, di bawah batas ${f0(limit)} W/m²`) : ` (${vi.isSim ? 'mode simulasi' : 'hasil sementara'})`}.</p></div>
       <div class="r3"><h2>Kenapa paling panas</h2><ol class="why">${why.map((t) => `<li><span>${t}</span></li>`).join('')}</ol></div>
       <div class="r3"><h2>Hitungannya</h2><p class="formula">${esc(m.formula_substitution || '')}</p>
         <div class="terms"><span>Dinding<b>${f2(qs[0])}</b></span><span>Kaca, beda suhu<b>${f2(qs[1])}</b></span><span>Sinar lewat kaca<b>${f2(qs[2])}</b></span></div></div>
@@ -352,7 +372,7 @@ export function buildMockup(state, { assets, theme = 'light', orient = 'land', l
     <div class="foot"><span>LUXA by Alf Studio · Laporan OTTV SNI 6389:2020</span><span>Semua sisi dirinci di halaman berikutnya</span></div>
   </section>`;
 
-  return finish(state, { p2, p3, a, s, sides, byHeat, hot, cool, over, limit, ottv, ok, name, dk, top, tag, tHeat, sn, assets, theme, port, userName, date, pS, pW, pG });
+  return finish(state, { p2, p3, a, s, sides, byHeat, hot, cool, over, limit, ottv, vi, name, dk, top, tagCls, tHeat, sn, assets, theme, port, userName, date, pS, pW, pG });
 }
 
 const T_LIGHT = { ink: '#1E1F24', muted: '#857E73', line: 'rgba(30,31,36,0.14)', ok: '#0F6E66', fail: '#B3261E', pWall: '#A79E90', pGlass: '#5B95B8', pSun: '#E8890C', surface: '#FFFFFF', track: 'rgba(30,31,36,0.07)' };
@@ -362,10 +382,9 @@ const tanggal = (d) => `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()
 
 /** Halaman 01, 04 sampai 07, lalu satukan semua halaman. */
 function finish(state, c) {
-  const { p2, p3, a, s, sides, byHeat, hot, cool, over, limit, ottv, ok, name, dk, top, tag, tHeat, sn, assets, theme, port, userName, date, pS, pW, pG } = c;
+  const { p2, p3, a, s, sides, byHeat, hot, cool, over, limit, ottv, vi, name, dk, top, tagCls, tHeat, sn, assets, theme, port, userName, date, pS, pW, pG } = c;
   const T = theme === 'dark' ? T_DARK : T_LIGHT;
   const city = a.location_info?.city || 'lokasi ini';
-  const margin = Math.abs(ottv - limit);
   const foot = (right = '') => `<div class="foot"><span>LUXA by Alf Studio · Laporan OTTV SNI 6389:2020${userName ? ` · disusun oleh ${esc(userName)}` : ''}</span><span>${right}</span></div>`;
   const floors = [...(a.floor_breakdown || [])].sort((x, y) => x.floor_number - y.floor_number);
   const area = Number(s.total_envelope_area_m2) || sides.reduce((t, r) => t + Number(r.total_area_m2 || 0), 0);
@@ -375,10 +394,10 @@ function finish(state, c) {
     <div class="bg"><img src="${assets.cover || assets.iso?.img}" alt=""></div><div class="veil"></div>
     ${top('01 Sampul', 1)}
     <div class="txt">
-      <div class="hd"><p class="cover-k">Laporan OTTV · SNI 6389:2020</p><h1>${esc(name)}</h1>
+      <div class="hd"><p class="cover-k">Laporan OTTV · ${vi.isSim ? 'Mode Simulasi' : 'SNI 6389:2020'}</p><h1>${esc(name)}</h1>
         <p class="lede">Perhitungan nilai perpindahan termal menyeluruh selubung gedung di ${esc(city)}, ${tanggal(date)}${userName ? `, disusun oleh <b>${esc(userName)}</b>` : ''}.</p></div>
-      <div class="r4"><div class="stat"><div class="k">OTTV gedung ${tag(ok)}</div></div><div class="big ${ok ? 'ok' : 'fail'}">${f2(ottv)}<small>W/m²</small></div>
-        <p class="b" style="margin-top:3mm">Batas ${f0(limit)} W/m². ${ok ? `Sisa ${f2(margin)} W/m² ke batas.` : `Lewat ${f2(margin)} W/m² dari batas.`}</p></div>
+      <div class="r4"><div class="stat"><div class="k">OTTV gedung ${tagCls(vi.pillClass, vi.badge)}</div></div><div class="big ${vi.pillClass}">${f2(ottv)}<small>W/m²</small></div>
+        <p class="b" style="margin-top:3mm">${esc(vi.isSniFinal ? `Batas ${f0(limit)} W/m². ${vi.delta.short}.` : vi.delta.sentence)}</p></div>
     </div>
     <div class="strip"><div class="cols" style="--n:${port ? 3 : 6}">
       <div class="col"><div class="k">Lokasi</div><div class="v" style="font-size:14pt">${esc(city)}</div><div class="s">${esc(a.location_info?.station || '')}</div></div>
@@ -397,7 +416,7 @@ function finish(state, c) {
   const rowsHtml = sides.map((r) => {
     const q = [Number(r.q_wall_conduction_wm2), Number(r.q_glass_conduction_wm2), Number(r.q_solar_radiation_wm2)], qt = q[0] + q[1] + q[2] || 1;
     return `<div class="nm" style="color:${tHeat(r.ottv_orientation_wm2)}">${sideName(r.code)}</div>
-      <div class="ov${r.ottv_orientation_wm2 > limit ? ' over' : ''}">${f2(r.ottv_orientation_wm2)}<small>W/m²</small></div>
+      <div class="ov${vi.isSniFinal && r.ottv_orientation_wm2 > limit ? ' over' : ''}">${f2(r.ottv_orientation_wm2)}<small>W/m²</small></div>
       <div><div class="lbar"><i style="width:${(r.ottv_orientation_wm2 / maxV) * 100}%;background:${heatColor(r.ottv_orientation_wm2)}"></i><b style="left:${(limit / maxV) * 100}%"></b></div></div>
       <div class="xp"><div class="tsplit"><i style="width:${(q[0] / qt) * 100}%;background:${T.pWall}"></i><i style="width:${(q[1] / qt) * 100}%;background:${T.pGlass}"></i><i style="width:${(q[2] / qt) * 100}%;background:${T.pSun}"></i></div></div>
       <div class="nv">${f0(r.total_area_m2)} m²</div><div class="nv">${pc(r.wwr)}</div><div class="nv">${f3(r.avg_sc_effective ?? r.manual_calc?.sc_eff)}</div><div class="nv xp">${f0(r.sni_sf_wm2)}</div>`;
@@ -405,7 +424,7 @@ function finish(state, c) {
   const p4 = `<section class="pg${dk}">
     ${top('04 Tiap sisi', 4)}
     <div class="body">
-      <div class="hd"><h1>Tiap sisi</h1><p class="lede">${over.length ? `${over.length} dari ${sides.length} sisi melewati batas ${f0(limit)} W/m². Yang paling perlu ditangani: ${list([...over].sort((x, y) => y.ottv_orientation_wm2 - x.ottv_orientation_wm2).slice(0, 3).map((r) => `<b style="color:${tHeat(r.ottv_orientation_wm2)}">${sideName(r.code)}</b>`))}.` : `Semua ${sides.length} sisi berada di bawah batas ${f0(limit)} W/m². Yang paling panas ${sn(hot)}, yang paling sejuk ${sn(cool)}.`}</p></div>
+      <div class="hd"><h1>Tiap sisi</h1><p class="lede">${vi.isSniFinal ? (over.length ? `${over.length} dari ${sides.length} sisi melewati batas ${f0(limit)} W/m². Yang paling perlu ditangani: ${list([...over].sort((x, y) => y.ottv_orientation_wm2 - x.ottv_orientation_wm2).slice(0, 3).map((r) => `<b style="color:${tHeat(r.ottv_orientation_wm2)}">${sideName(r.code)}</b>`))}.` : `Semua ${sides.length} sisi berada di bawah batas ${f0(limit)} W/m². Yang paling panas ${sn(hot)}, yang paling sejuk ${sn(cool)}.`) : `Perbandingan ${sides.length} sisi fasad (${vi.isSim ? 'mode simulasi' : 'hasil sementara'}). Yang paling panas ${sn(hot)}, yang paling sejuk ${sn(cool)}.`}</p></div>
       <div class="rows">
         <div class="th">Sisi</div><div class="th">OTTV</div><div class="th">Terhadap batas (garis putus = ${f0(limit)})</div><div class="th xp">Porsi jalur panas</div><div class="th">Luas A₀</div><div class="th">WWR</div><div class="th">SC efektif</div><div class="th xp">SF (W/m²)</div>
         ${rowsHtml}
@@ -466,22 +485,33 @@ function finish(state, c) {
 
   // ---- 07 Kesimpulan
   const todo = [];
-  if (!ok) {
-    const need = ottv - limit;
+  if (vi.isFail) {
+    const need = Math.max(0, ottv - limit);
     todo.push(`<b>Turunkan OTTV minimal ${f2(need)} W/m²</b> supaya memenuhi batas ${f0(limit)} W/m².`);
+  } else if (vi.isSim) {
+    todo.push(`<b>Beralih ke Mode SNI</b> untuk mengevaluasi kepatuhan resmi terhadap batas SNI 6389:2020 (${f0(limit)} W/m²).`);
+  } else if (vi.isProv) {
+    todo.push(`<b>Selesaikan konfirmasi model dan material</b> di aplikasi sebelum mengambil keputusan kepatuhan SNI.`);
   }
-  const hotSides = (over.length ? over : byHeat.slice(0, 2)).slice(0, 3);
+  const hotSides = (vi.isSniFinal && over.length ? over : byHeat.slice(0, 2)).slice(0, 3);
   if (pS >= 0.5) todo.push(`<b>Kurangi sinar yang masuk di sisi ${list(hotSides.map((r) => sideName(r.code)))}</b>: pilih kaca dengan SC lebih kecil atau tambah peneduh di sisi itu. Sinar lewat kaca menyumbang ${pc(pS)} OTTV gedung.`);
   if (Number(s.effective_wwr) > 0.5) todo.push(`<b>Tinjau porsi kaca ${pc(s.effective_wwr)}</b>: mengurangi kaca di sisi yang paling panas menurunkan suku sinar dan beda suhu sekaligus.`);
   if (pW >= 0.3) todo.push(`<b>Perbaiki isolasi dinding</b>: dinding menyumbang ${pc(pW)} OTTV, nilai U dinding ${f2(am.u_wall)} masih bisa diturunkan.`);
   for (const r of (a.recommendations || []).slice(0, 2)) { const t = r?.title || r?.text || (typeof r === 'string' ? r : ''); if (t) todo.push(esc(t)); }
   todo.push(`<b>Bandingkan sebelum memutuskan</b>: coba alternatif material atau model di langkah Bandingkan LUXA untuk melihat selisih OTTV tiap sisi.`);
+  const p7Lede = vi.isOk
+    ? `OTTV gedung <b>${f2(ottv)} W/m²</b>, <b class="ok">memenuhi</b> batas SNI 6389:2020 sebesar ${f0(limit)} W/m² (${esc(vi.delta.short)}).`
+    : vi.isFail
+      ? `OTTV gedung <b>${f2(ottv)} W/m²</b>, <b class="fail">melebihi</b> batas SNI 6389:2020 sebesar ${f0(limit)} W/m² (${esc(vi.delta.short)}).`
+      : vi.isSim
+        ? `OTTV gedung <b>${f2(ottv)} W/m²</b> pada <b class="neutral">mode simulasi eksplorasi</b> — bukan untuk kepatuhan SNI (${esc(vi.delta.short)}).`
+        : `OTTV gedung <b>${f2(ottv)} W/m²</b> (<b class="warn">hasil sementara</b> — perlu konfirmasi model dan material).`;
   const p7 = `<section class="pg${dk}">
     ${top('07 Kesimpulan', 7)}
     <div class="body">
-      <div class="hd"><h1>Kesimpulan</h1><p class="lede">OTTV gedung <b>${f2(ottv)} W/m²</b>, ${ok ? `<b class="ok">memenuhi</b> batas SNI 6389:2020 sebesar ${f0(limit)} W/m² dengan sisa ${f2(margin)} W/m².` : `<b class="fail">belum memenuhi</b> batas SNI 6389:2020 sebesar ${f0(limit)} W/m²; perlu turun ${f2(margin)} W/m².`}</p></div>
+      <div class="hd"><h1>Kesimpulan</h1><p class="lede">${p7Lede}</p></div>
       <div class="two">
-        <div><h2>${ok ? 'Yang bisa ditingkatkan' : 'Langkah berikutnya'}</h2><ul class="do">${todo.map((t) => `<li><span>${t}</span></li>`).join('')}</ul></div>
+        <div><h2>${vi.isOk ? 'Yang bisa ditingkatkan' : 'Langkah berikutnya'}</h2><ul class="do">${todo.map((t) => `<li><span>${t}</span></li>`).join('')}</ul></div>
         <div><h2>Dasar perhitungan</h2>
           <ol class="refs">
             <li>SNI 6389:2020, Konservasi energi selubung bangunan pada bangunan gedung. Batas OTTV ${f0(limit)} W/m².</li>

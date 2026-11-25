@@ -169,18 +169,25 @@ export function floorStack(floors, limit, T, { w = 300, h = 300 } = {}) {
  * Penggaris batas (pengganti meteran): lajur skala panas 0–maks, garis batas SNI, penanda nilai,
  * dan kurung selisih ke batas. Hemat tempat dan langsung menjawab "seberapa jauh dari batas".
  */
-export function limitRuler(value, limit, T, { w = 520, h = 74 } = {}) {
+export function limitRuler(value, limit, T, { w = 520, h = 74, verdict = null } = {}) {
   const max = Math.max(60, limit * 1.6, value * 1.1), x0 = 8, x1 = w - 8, y = 34, th = 10;
   const X = (v) => x0 + (Math.min(v, max) / max) * (x1 - x0);
   const grad = [0, 0.25, 0.5, 0.75, 1].map((t) => `<stop offset="${t}" stop-color="${heatColor(t * max)}"/>`).join('');
-  const xv = X(value), xl = X(limit), okV = value <= limit;
+  const xv = X(value), xl = X(limit), under = value <= limit;
   const lo = Math.min(xv, xl), hi = Math.max(xv, xl);
+  const isNeutral = verdict === 'simulasi' || verdict === 'sementara';
+  const strokeCol = isNeutral ? T.muted : (under ? T.ok : T.fail);
+  const deltaTxt = verdict === 'simulasi'
+    ? (under ? `Di bawah acuan ${f2(limit - value)} W/m²` : `Di atas acuan ${f2(value - limit)} W/m²`)
+    : verdict === 'sementara'
+      ? 'Hasil sementara — perlu konfirmasi'
+      : (under ? `Di bawah batas ${f2(limit - value)} W/m²` : `Lewat ${f2(value - limit)} W/m²`);
   return `<svg viewBox="0 0 ${w} ${h}" class="ruler"><defs><linearGradient id="rg" x1="0" x2="1">${grad}</linearGradient></defs>
     <rect x="${x0}" y="${y}" width="${x1 - x0}" height="${th}" rx="${th / 2}" fill="url(#rg)"/>
     <line x1="${xl}" y1="${y - 8}" x2="${xl}" y2="${y + th + 8}" stroke="${T.ink}" stroke-width="1.6" stroke-dasharray="3 2"/>
-    <text x="${xl}" y="${y - 12}" text-anchor="middle" class="tiny b" fill="${T.ink}">batas ${f0(limit)}</text>
-    <path d="M${lo} ${y + th + 14} V${y + th + 18} H${hi} V${y + th + 14}" fill="none" stroke="${okV ? T.ok : T.fail}" stroke-width="1.2"/>
-    <text x="${(lo + hi) / 2}" y="${y + th + 30}" text-anchor="middle" class="tiny b" fill="${okV ? T.ok : T.fail}">${okV ? `${f1(limit - value)} di bawah batas` : `${f1(value - limit)} di atas batas`}</text>
+    <text x="${xl}" y="${y - 12}" text-anchor="middle" class="tiny b" fill="${T.ink}">${verdict === 'simulasi' ? `acuan ${f0(limit)}` : `batas ${f0(limit)}`}</text>
+    <path d="M${lo} ${y + th + 14} V${y + th + 18} H${hi} V${y + th + 14}" fill="none" stroke="${strokeCol}" stroke-width="1.2"/>
+    <text x="${(lo + hi) / 2}" y="${y + th + 30}" text-anchor="middle" class="tiny b" fill="${strokeCol}">${deltaTxt}</text>
     <circle cx="${xv}" cy="${y + th / 2}" r="8" fill="${T.surface}" stroke="${T.ink}" stroke-width="2.4"/>
     <text x="${x0}" y="${y - 12}" class="tiny" fill="${T.muted}">0</text><text x="${x1}" y="${y - 12}" text-anchor="end" class="tiny" fill="${T.muted}">${f0(max)} W/m²</text></svg>`;
 }

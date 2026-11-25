@@ -48,6 +48,8 @@
 .lxp-status { align-self: center; margin-left: auto; height: 28px; padding: 0 12px; border-radius: 12px; display: inline-flex; align-items: center; font-size: 12px; font-weight: 700; }
 .lxp-status.is-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
 .lxp-status.is-fail { color: var(--fail); background: color-mix(in srgb, var(--fail) 14%, transparent); }
+.lxp-status.is-neutral { color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); }
+.lxp-status.is-warn { color: #b45309; background: color-mix(in srgb, #f59e0b 16%, transparent); }
 .lxp-sub { margin: 0 0 16px; font-size: 13px; color: var(--muted); }
 
 .lxp-stats { display: grid; grid-template-columns: repeat(var(--cols, 3), 1fr); gap: 8px; margin: 0 0 16px; }

@@ -8,6 +8,7 @@
 import { fmtId } from '../ui/escapeHtml.js';
 import { icon } from '../ui/icons.js';
 import { makeTermTip } from '../ui/tooltips.js';
+import { verdictInfo } from '../ui/verdict.js';
 import { renderInteractiveCompass } from '../viewer/compass.js';
 import { renderFormulaSheet } from '../viewer/formulaPill.js';
 import { luxSvg } from '../ui/mascot.js';
@@ -183,8 +184,7 @@ export function renderResultsScreen(state, handlers) {
   const sniLimit = Number(analysis.sni_limit_wm2 ?? 35);
   const wwrPct = Number(summary.effective_wwr ?? 0) * 100;
   const avgSc = Number(summary.avg_sc_effective ?? 0);
-  const isProvisional = Boolean(summary.is_provisional);
-  const isCompliant = ottv <= sniLimit;
+  const vInfo = verdictInfo(analysis, 2);
   const warnings = summary.warnings || analysis.warnings || [];
   const orientList = analysis.orientation_breakdown || [];
   const orientByCode = new Map(orientList.map((o) => [o.code, o]));
@@ -480,17 +480,11 @@ export function renderResultsScreen(state, handlers) {
   chipRow.style.flexWrap = 'wrap';
   chipRow.style.marginTop = '8px';
 
-  if (!isCompliant) {
-    const failChip = document.createElement('span');
-    failChip.className = 'chip st-fail';
-    failChip.innerHTML = `${icon('close', 14)}<span>Tidak memenuhi, batas 35</span>`;
-    chipRow.appendChild(failChip);
-  } else if (!isProvisional) {
-    const okChip = document.createElement('span');
-    okChip.className = 'chip st-ok';
-    okChip.innerHTML = `${icon('check', 14)}<span>Memenuhi (≤ 35 W/m²)</span>`;
-    chipRow.appendChild(okChip);
-    // Lux ikut senang saat OTTV memenuhi batas.
+  const statusChip = document.createElement('span');
+  statusChip.className = `chip ${vInfo.chipClass}`;
+  if (vInfo.verdict === 'memenuhi') {
+    statusChip.innerHTML = `${icon('check', 14)}<span>${vInfo.badge} · ${vInfo.delta.short}</span>`;
+    chipRow.appendChild(statusChip);
     if (state.mascotOn !== false) {
       const happy = document.createElement('span');
       happy.className = 'hero-lux';
@@ -498,13 +492,15 @@ export function renderResultsScreen(state, handlers) {
       happy.innerHTML = luxSvg('happy', { size: 40 });
       chipRow.appendChild(happy);
     }
-  }
-
-  if (isProvisional) {
-    const provChip = document.createElement('span');
-    provChip.className = 'chip st-warn';
-    provChip.innerHTML = `${icon('warn', 14)}<span>Sementara</span>`;
-    chipRow.appendChild(provChip);
+  } else if (vInfo.verdict === 'melebihi') {
+    statusChip.innerHTML = `${icon('close', 14)}<span>${vInfo.badge} · ${vInfo.delta.short}</span>`;
+    chipRow.appendChild(statusChip);
+  } else if (vInfo.verdict === 'simulasi') {
+    statusChip.innerHTML = `<span>${vInfo.badge}</span>`;
+    chipRow.appendChild(statusChip);
+  } else {
+    statusChip.innerHTML = `${icon('warn', 14)}<span>${vInfo.badge}</span>`;
+    chipRow.appendChild(statusChip);
   }
 
   heroCard.append(heroHead, heroVal, chipRow);

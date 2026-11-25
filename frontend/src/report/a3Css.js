@@ -53,6 +53,8 @@ body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; -webkit-print-co
 .pill { display: inline-flex; align-items: center; gap: 1.5mm; height: 7mm; padding: 0 3.5mm; border-radius: 3.5mm; font-size: 9pt; font-weight: 700; }
 .pill.ok { color: var(--ok); background: var(--ok-bg); }
 .pill.fail { color: var(--fail); background: var(--fail-bg); }
+.pill.neutral { color: var(--muted); background: var(--track); }
+.pill.warn { color: var(--amber); background: color-mix(in srgb, var(--amber) 16%, transparent); }
 .big { font-size: 58pt; line-height: 0.95; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
 .unit { font-size: 12pt; font-weight: 500; color: var(--muted); margin-left: 2mm; letter-spacing: 0; }
 

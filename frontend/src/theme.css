@@ -665,6 +665,10 @@ kbd {
   color: var(--fail);
 }
 
+.st-neutral {
+  color: var(--muted);
+}
+
 .field-input,
 .field-select {
   width: 100%;

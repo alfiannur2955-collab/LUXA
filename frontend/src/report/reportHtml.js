@@ -1,6 +1,7 @@
 // Laporan OTTV bergaya LUXA: dokumen HTML A4 yang dicetak browser ke PDF.
 // Hanya menyusun tampilan dari hasil engine; tidak ada angka yang dihitung ulang.
 import { escapeHtml as esc } from '../ui/escapeHtml.js';
+import { sideVerdict, verdictInfo } from '../ui/verdict.js';
 import { sidesOf, sideName, projectName } from '../present/content.js';
 import { heatColor } from '../present/heat.js';
 import { REPORT_CSS } from './reportCss.js';
@@ -14,7 +15,7 @@ const pct = (v) => `${f1((Number(v) || 0) * 100)}%`;
 const AZ_RANGE = { U: '337,5°–22,5°', TL: '22,5°–67,5°', T: '67,5°–112,5°', TGR: '112,5°–157,5°', TG: '112,5°–157,5°', S: '157,5°–202,5°', BD: '202,5°–247,5°', B: '247,5°–292,5°', BL: '292,5°–337,5°' };
 const PART_C = { w: '#A79E90', g: '#6B9AB8', s: '#F49B1A' };
 
-const pill = (ok) => `<span class="pill ${ok ? 'ok' : 'fail'}">${ok ? 'Memenuhi' : 'Melebihi'}</span>`;
+const pillCls = (cls, text) => `<span class="pill ${cls}">${esc(text)}</span>`;
 const stats = (items, cls = '') => `<dl class="stats ${cls}" style="--cols:${items.length}">${items.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>`;
 function parts(qw, qg, qs) {
   const tot = qw + qg + qs || 1;
@@ -31,7 +32,7 @@ export function buildReportHtml(state, { userName = '', images = {}, logoUrl = '
   const s = a.summary || {};
   const mat = s.active_materials || {};
   const limit = Number(a.sni_limit_wm2 || 35);
-  const ok = Boolean(a.compliant);
+  const vi = verdictInfo(a, 2);
   const name = projectName(a);
   const sides = sidesOf(a);
   const hot = [...sides].sort((x, y) => y.ottv_orientation_wm2 - x.ottv_orientation_wm2)[0];
@@ -39,10 +40,10 @@ export function buildReportHtml(state, { userName = '', images = {}, logoUrl = '
   const who = userName && userName.trim() ? userName.trim() : '';
   const rttv = a.rttv || {};
   const hasRttv = rttv.applicable && !rttv.disabled;
-  const prov = s.is_provisional ? '<p class="ribbon">Hasil sementara: periksa catatan di aplikasi sebelum dipakai resmi</p>' : '';
+  const prov = vi.isProv ? '<p class="ribbon">Hasil sementara: periksa catatan di aplikasi sebelum dipakai resmi</p>' : '';
 
   const pages = [];
-  const head = `<div class="head">${logoUrl ? `<img src="${esc(logoUrl)}" alt="LUXA">` : '<b>LUXA</b>'}<span>Laporan OTTV · SNI 6389:2020</span></div>`;
+  const head = `<div class="head">${logoUrl ? `<img src="${esc(logoUrl)}" alt="LUXA">` : '<b>LUXA</b>'}<span>Laporan OTTV · ${vi.isSim ? 'Mode Simulasi' : 'SNI 6389:2020'}</span></div>`;
 
   // 1. Sampul
   pages.push(`<section class="page cover">${head}
@@ -53,8 +54,8 @@ export function buildReportHtml(state, { userName = '', images = {}, logoUrl = '
     <div class="band">
       <div class="result">
         <div class="lbl">OTTV total gedung</div>
-        <div class="big"><strong>${f2(a.ottv_total_wm2)}</strong><span>W/m² · batas ${f0(limit)} W/m²</span></div>
-        ${pill(ok)}
+        <div class="big"><strong>${f2(a.ottv_total_wm2)}</strong><span>W/m² · ${vi.isSim ? `acuan ${f0(limit)} W/m²` : `batas ${f0(limit)} W/m²`}</span></div>
+        ${pillCls(vi.pillClass, vi.isSniFinal ? `${vi.badge} · ${vi.delta.short}` : vi.badge)}
       </div>
       <dl class="stats grid2">${[['Lokasi', esc(a.location_info?.city || '-')], ['Tanggal', esc(dateText)], ['Jumlah lantai', f0(s.total_floors)], ['Luas selubung', `${f0(s.total_envelope_area_m2)} m²`]].map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('')}</dl>
     </div>
@@ -62,11 +63,10 @@ export function buildReportHtml(state, { userName = '', images = {}, logoUrl = '
 
   // 2. Ringkasan
   const tot = Number(s.q_wall_conduction_wm2 || 0) + Number(s.q_glass_conduction_wm2 || 0) + Number(s.q_solar_radiation_wm2 || 0);
-  const margin = Number(a.margin_to_limit_wm2 ?? limit - a.ottv_total_wm2);
   pages.push(`<section class="page">${head}
     <p class="kicker">Ringkasan</p>
-    <h2>${ok ? 'Gedung ini memenuhi batas OTTV SNI 6389:2020' : 'OTTV gedung ini melebihi batas SNI 6389:2020'}</h2>
-    <p class="lead">${ok ? `Nilai OTTV ${f2(a.ottv_total_wm2)} W/m², ${f2(Math.abs(margin))} W/m² di bawah batas ${f0(limit)} W/m².` : `Nilai OTTV ${f2(a.ottv_total_wm2)} W/m², ${f2(Math.abs(margin))} W/m² di atas batas ${f0(limit)} W/m².`}
+    <h2>${esc(vi.headline)}</h2>
+    <p class="lead">Nilai OTTV ${f2(a.ottv_total_wm2)} W/m². ${esc(vi.delta.sentence)}
       OTTV adalah rata-rata panas yang masuk lewat dinding luar dan kaca, per meter persegi selubung.</p>
     <div class="section">${stats([['OTTV total', `${f2(a.ottv_total_wm2)}<small>W/m²</small>`], ['Sisi terpanas', hot ? `${esc(sideName(hot.code))}<small>${f1(hot.ottv_orientation_wm2)} W/m²</small>` : '-'], ['Porsi kaca (WWR)', pct(s.effective_wwr)]], 'lg')}</div>
     <div class="card section"><h3>Asal panas</h3>${parts(Number(s.q_wall_conduction_wm2 || 0), Number(s.q_glass_conduction_wm2 || 0), Number(s.q_solar_radiation_wm2 || 0))}
@@ -74,10 +74,13 @@ export function buildReportHtml(state, { userName = '', images = {}, logoUrl = '
     <div class="cols">
       <div>${images.heat ? `<img class="heatimg" src="${images.heat}" alt="Heatmap OTTV per sisi">` : ''}
         <div class="scale"><span>0</span><i></i><span>50+ W/m²</span></div>
-        <p class="muted" style="font-size:7.5pt;margin:1.5mm 0 0">Warna model = OTTV tiap sisi. Garis putus = batas ${f0(limit)} W/m².</p></div>
+        <p class="muted" style="font-size:7.5pt;margin:1.5mm 0 0">Warna model = OTTV tiap sisi. Garis putus = ${vi.isSim ? 'acuan' : 'batas'} ${f0(limit)} W/m².</p></div>
       <div><table><thead><tr><th>Sisi</th><th class="r">Luas (m²)</th><th class="r">WWR</th><th class="r">OTTV</th><th class="r">Status</th></tr></thead><tbody>
-        ${sides.map((r) => `<tr class="${r.code === hot?.code ? 'hot' : ''}"><td><span class="sw" style="background:${heatColor(r.ottv_orientation_wm2)}"></span>${esc(sideName(r.code))}</td><td class="r">${f1(r.total_area_m2)}</td><td class="r">${pct(r.wwr)}</td><td class="r">${f2(r.ottv_orientation_wm2)}</td><td class="r ${r.ottv_orientation_wm2 <= limit ? 'st-ok' : 'st-fail'}">${r.ottv_orientation_wm2 <= limit ? 'Memenuhi' : 'Melebihi'}</td></tr>`).join('')}
-        <tr class="total"><td>Gedung</td><td class="r">${f1(s.total_envelope_area_m2)}</td><td class="r">${pct(s.effective_wwr)}</td><td class="r">${f2(a.ottv_total_wm2)}</td><td class="r ${ok ? 'st-ok' : 'st-fail'}">${ok ? 'Memenuhi' : 'Melebihi'}</td></tr>
+        ${sides.map((r) => {
+          const sv = sideVerdict(r.ottv_orientation_wm2, limit, vi.verdict);
+          return `<tr class="${r.code === hot?.code ? 'hot' : ''}"><td><span class="sw" style="background:${heatColor(r.ottv_orientation_wm2)}"></span>${esc(sideName(r.code))}</td><td class="r">${f1(r.total_area_m2)}</td><td class="r">${pct(r.wwr)}</td><td class="r">${f2(r.ottv_orientation_wm2)}</td><td class="r ${sv.textClass}">${esc(sv.text)}</td></tr>`;
+        }).join('')}
+        <tr class="total"><td>Gedung</td><td class="r">${f1(s.total_envelope_area_m2)}</td><td class="r">${pct(s.effective_wwr)}</td><td class="r">${f2(a.ottv_total_wm2)}</td><td class="r ${vi.chipClass}">${esc(vi.isSniFinal ? vi.badge : (vi.isSim ? 'Simulasi' : 'Sementara'))}</td></tr>
       </tbody></table></div>
     </div>
   </section>`);
@@ -86,9 +89,10 @@ export function buildReportHtml(state, { userName = '', images = {}, logoUrl = '
   const sideCard = (r) => {
     const m = r.manual_calc || {};
     const rows = m.rows || [];
+    const sv = sideVerdict(r.ottv_orientation_wm2, limit, vi.verdict);
     return `<div class="side">
       <div class="side-head"><h3>Sisi ${esc(sideName(r.code))} <span class="muted" style="font-weight:500;font-size:8pt">azimut ${AZ_RANGE[r.code] || ''}</span></h3>
-        <span class="val">${f2(r.ottv_orientation_wm2)}<small>W/m²</small></span>${pill(r.ottv_orientation_wm2 <= limit)}</div>
+        <span class="val">${f2(r.ottv_orientation_wm2)}<small>W/m²</small></span>${pillCls(sv.pillClass, sv.text)}</div>
       ${rows.length > 1 ? `<p class="combo">${rows.length} kombinasi material; nilai di bawah adalah rata-rata tertimbang luas.</p>` : rows[0]?.combination ? `<p class="combo">Material: ${esc(rows[0].combination)}</p>` : ''}
       <dl class="inputs">
         <div><dt>Luas A₀ (m²)</dt><dd>${f1(m.ao_m2 ?? r.total_area_m2)}</dd></div>
@@ -134,8 +138,11 @@ export function buildReportHtml(state, { userName = '', images = {}, logoUrl = '
     ${matCard('Kaca', hexOf(mat.glazing_id, 'glazing'), mat.glazing_name, mat.glazing_brand, [['SC', f3(mat.sc_glass)], ['SHGC', f3(mat.shgc_glass)], ['U kaca → U_f', `${f2(s.avg_u_cog_wm2k ?? mat.u_cog)} → ${f2(s.avg_u_fen_wm2k ?? mat.u_fenestration)}`], ['ΔT', `${f1(mat.delta_t)} K`]])}
     ${matCard('Dinding', hexOf(mat.wall_id, 'wall'), mat.wall_name, mat.wall_brand, [['α', f2(mat.alpha_wall)], ['U dinding', f2(mat.u_wall)], ['TDek', `${f1(mat.td_ek)} K`], ['', '']].filter((x) => x[0]))}
     ${mat.frame_name ? matCard('Rangka & Kusen (SNI 4.3.2.2 & Tabel 3)', hexOf(mat.frame_id, 'frame'), mat.frame_name, s.frame_source === 'terukur' ? 'Terukur dari model' : 'Lebar kusen asumsi', [['U_frame', f2(s.u_frame_eff_wm2k ?? mat.u_frame)], ['Lebar kusen', `${f1(s.frame_width_mm ?? mat.frame_width_mm ?? 50)} mm (${esc(s.frame_source || 'asumsi pengguna')})`], ['Fraksi rangka r', `${f1(s.frame_ratio_pct ?? (100 * Number(s.total_a_frame_m2 || 0)) / Math.max(0.01, Number(s.total_glazing_area_m2 || 1)))}%`], ['A_frame / A_edge', `${f2(s.total_a_frame_m2 ?? 0)} / ${f2(s.total_a_edge_m2 ?? 0)} m²`]]) : ''}
-    ${hasRttv ? `<div class="card" style="margin-top:6mm"><p class="kicker">Atap</p><h3>RTTV ${f2(rttv.rttv_wm2)} W/m² ${pill(rttv.compliant !== false)}</h3>
-      ${stats([['Batas', `${f0(rttv.limit_wm2 ?? 10)} W/m²`], ['Luas atap', `${f1(rttv.total_roof_area_m2)} m²`], ['Skylight', `${f1(rttv.skylight_area_m2)} m²`], ['Porsi skylight', pct(rttv.srr)]])}</div>` : ''}
+    ${hasRttv ? (() => {
+      const rSv = sideVerdict(Number(rttv.rttv_wm2 || 0), Number(rttv.limit_wm2 ?? 10), vi.verdict);
+      return `<div class="card" style="margin-top:6mm"><p class="kicker">Atap</p><h3>RTTV ${f2(rttv.rttv_wm2)} W/m² ${pillCls(rSv.pillClass, rSv.text)}</h3>
+      ${stats([['Batas', `${f0(rttv.limit_wm2 ?? 10)} W/m²`], ['Luas atap', `${f1(rttv.total_roof_area_m2)} m²`], ['Skylight', `${f1(rttv.skylight_area_m2)} m²`], ['Porsi skylight', pct(rttv.srr)]])}</div>`;
+    })() : ''}
   </section>`);
 
   // 5. Referensi dan catatan

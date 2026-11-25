@@ -40,6 +40,8 @@ h3 { font-size: 11pt; margin-bottom: 3mm; }
 .pill { display: inline-flex; align-items: center; height: 6mm; padding: 0 3mm; border-radius: 3mm; font-size: 8pt; font-weight: 700; }
 .pill.ok { color: #0F6E66; background: #E3F2EF; }
 .pill.fail { color: #A3271F; background: #FBE7E4; }
+.pill.neutral { color: #5E574C; background: #ECEAE4; }
+.pill.warn { color: #9A5B04; background: #FEF3DC; }
 .result .pill { margin-top: 3mm; }
 
 /* grid angka: kolom sama lebar, sel setinggi seragam */
@@ -78,6 +80,8 @@ tr.total td { font-weight: 700; border-top: 0.3mm solid #1E1F24; border-bottom: 
 td .sw { display: inline-block; width: 2.6mm; height: 2.6mm; border-radius: 0.7mm; margin-right: 2mm; vertical-align: -0.3mm; }
 .st-ok { color: #0F6E66; font-weight: 600; }
 .st-fail { color: #A3271F; font-weight: 600; }
+.st-neutral { color: #6F675B; font-weight: 600; }
+.st-warn { color: #9A5B04; font-weight: 600; }
 
 /* rincian per sisi */
 .side { border-radius: 4mm; border: 0.3mm solid #E6E1D8; padding: 4.5mm 5mm; break-inside: avoid; }

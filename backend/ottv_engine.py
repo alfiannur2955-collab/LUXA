@@ -1936,21 +1936,19 @@ PROVISIONAL_WARNING_CODES = frozenset({
 })
 
 
-def resolve_result_status(ottv_total_wm2: float, warnings: List[Dict[str, Any]], is_sni_mode: bool) -> Tuple[bool, str, bool]:
-    """(is_provisional, status_label, compliant) - satu sumber untuk hitung penuh & ganti material cepat."""
+def resolve_result_status(ottv_total_wm2: float, warnings: List[Dict[str, Any]], is_sni_mode: bool) -> Tuple[bool, str, bool, str]:
+    """(is_provisional, status_label, compliant, verdict) - satu sumber untuk hitung penuh & ganti material cepat.
+    verdict: 'memenuhi' | 'melebihi' | 'simulasi' | 'sementara'.
+    """
     is_provisional = any((w or {}).get("code") in PROVISIONAL_WARNING_CODES for w in (warnings or []))
-    compliant = ottv_total_wm2 <= SNI_6389_LIMIT_WM2
+    under_limit = ottv_total_wm2 <= SNI_6389_LIMIT_WM2
     if is_provisional:
-        return True, "HASIL SEMENTARA — perlu konfirmasi", False
+        return True, "HASIL SEMENTARA — perlu konfirmasi", False, "sementara"
     if not is_sni_mode:
-        return False, (
-            "SIMULASI EKSPLORASI — bukan untuk kepatuhan (<= 35 W/m²)"
-            if compliant
-            else "SIMULASI EKSPLORASI — bukan untuk kepatuhan (> 35 W/m²)"
-        ), False
-    if compliant:
-        return False, "MEMENUHI SNI 6389:2020 (<= 35 W/m²)", True
-    return False, "MELEBIHI BATAS SNI 6389:2020 (> 35 W/m²)", False
+        return False, "SIMULASI EKSPLORASI — bukan untuk kepatuhan", False, "simulasi"
+    if under_limit:
+        return False, "MEMENUHI SNI 6389:2020 (<= 35 W/m²)", True, "memenuhi"
+    return False, "MELEBIHI BATAS SNI 6389:2020 (> 35 W/m²)", False, "melebihi"
 
 
 def _suggestion_patch(sugg: List[Dict[str, Any]], group_material_map: Dict[str, str], groups: List[Tuple[str, str, str, str]]) -> Dict[str, Any]:
@@ -4745,7 +4743,9 @@ def analyze_building_ottv(
                 "sf_source": sf_source,
             },
         })
-    is_provisional, eff_status_label, eff_compliant = resolve_result_status(ottv_total_wm2, summary_warnings, is_sni_mode)
+    is_provisional, eff_status_label, eff_compliant, eff_verdict = resolve_result_status(
+        ottv_total_wm2, summary_warnings, is_sni_mode
+    )
 
     if params.compute_rttv is False:
         rttv_result = {
@@ -4802,6 +4802,7 @@ def analyze_building_ottv(
         "sni_limit_wm2": SNI_6389_LIMIT_WM2,
         "margin_to_limit_wm2": round(SNI_6389_LIMIT_WM2 - ottv_total_wm2, 2),
         "compliant": eff_compliant,
+        "verdict": eff_verdict,
         "status_label": eff_status_label,
         "warnings": summary_warnings,
         "rttv": rttv_result,
@@ -4837,6 +4838,7 @@ def analyze_building_ottv(
         "dynamic_floor_presets": dynamic_floor_presets,
         "summary": {
             "is_provisional": is_provisional,
+            "verdict": eff_verdict,
             "materials_confirmed": bool(params.materials_confirmed),
             "warnings": summary_warnings,
             "total_detected_panels": len(panel_records),

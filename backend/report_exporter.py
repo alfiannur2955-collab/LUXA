@@ -218,11 +218,39 @@ def generate_pdf_report(analysis: Dict[str, Any]) -> bytes:
         spaceAfter=4,
     )
 
-    is_comp_pdf = bool(analysis.get("is_compliance", True))
+    s = analysis.get("summary", {})
+    verdict = str(
+        analysis.get("verdict")
+        or s.get("verdict")
+        or (
+            "sementara"
+            if s.get("is_provisional")
+            else (
+                "simulasi"
+                if str(analysis.get("calculation_mode") or "sni").lower() != "sni"
+                else (
+                    "memenuhi"
+                    if float(analysis.get("ottv_total_wm2") or 0.0) <= float(analysis.get("sni_limit_wm2") or 35.0)
+                    else "melebihi"
+                )
+            )
+        )
+    )
+    ottv_v = float(analysis.get("ottv_total_wm2") or 0.0)
+    lim_v = float(analysis.get("sni_limit_wm2") or 35.0)
+    if verdict == "simulasi":
+        verdict_text = "Simulasi — bukan untuk kepatuhan"
+    elif verdict == "sementara":
+        verdict_text = "Hasil sementara — perlu konfirmasi"
+    elif verdict == "memenuhi":
+        verdict_text = f"Memenuhi — Di bawah batas {f'{max(0.0, lim_v - ottv_v):.2f}'.replace('.', ',')} W/m²"
+    else:
+        verdict_text = f"Melebihi — Lewat {f'{max(0.0, ottv_v - lim_v):.2f}'.replace('.', ',')} W/m²"
+
     pdf_title = (
-        "Laporan Perhitungan OTTV mengacu SNI 6389:2020"
-        if is_comp_pdf
-        else "Laporan Perhitungan OTTV mengacu SNI 6389:2020 — Mode Eksplorasi (Bukan untuk Kepatuhan)"
+        "Laporan Perhitungan OTTV mengacu SNI 6389:2020 — Mode Simulasi (Bukan untuk Kepatuhan)"
+        if verdict == "simulasi"
+        else "Laporan Perhitungan OTTV mengacu SNI 6389:2020"
     )
     elements: List[Any] = []
     elements.append(Paragraph(pdf_title, title_style))
@@ -233,14 +261,13 @@ def generate_pdf_report(analysis: Dict[str, Any]) -> bytes:
             f"<b>File Model:</b> {analysis.get('filename')} ({analysis.get('format')}) &nbsp;|&nbsp; "
             f"<b>Lokasi:</b> {loc.get('city', 'Jakarta')} &nbsp;|&nbsp; "
             f"<b>Sumber SF:</b> {sf_src_pdf} &nbsp;|&nbsp; "
-            f"<b>OTTV Total:</b> <b>{analysis.get('ottv_total_wm2')} W/m²</b> "
-            f"({analysis.get('status_label')})",
+            f"<b>OTTV Total:</b> <b>{f'{ottv_v:.2f}'.replace('.', ',')} W/m²</b> "
+            f"({verdict_text})",
             sub_style,
         )
     )
 
     # 1. Summary Table
-    s = analysis.get("summary", {})
     elements.append(Paragraph("1. Ringkasan Eksekutif & Komponen Perpindahan Panas", sec_style))
     sum_data = [
         ["Bidang Terdeteksi", "Bidang Luar Aktif", "Luas Selubung (m²)", "Luas Kaca (m²)", "WWR Efektif", "Konduksi Dinding", "Konduksi Kaca", "Radiasi Surya", "OTTV Total"],
@@ -386,7 +413,11 @@ def generate_pdf_report(analysis: Dict[str, Any]) -> bytes:
                 f"{float(fl.get('wwr', 0)) * 100:.1f}%",
                 f"{fl.get('ottv_floor_wm2', 0):.2f}",
                 f"{fl.get('heat_gain_kw', 0):.2f}",
-                "MEMENUHI" if fl.get("ottv_floor_wm2", 0) <= 35.0 else "MELEBIHI",
+                "Simulasi" if verdict == "simulasi" else (
+                    "Sementara" if verdict == "sementara" else (
+                        "Memenuhi" if fl.get("ottv_floor_wm2", 0) <= lim_v else "Melebihi"
+                    )
+                ),
             ])
         t_fl = Table(fl_data, repeatRows=1)
         t_fl.setStyle(
