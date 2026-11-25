@@ -2032,6 +2032,7 @@ def build_frame_review_warning(
     frame_width_mm: float,
     frame_source: str,
     total_glazing_area_m2: float,
+    edge_frame_width_mm: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
     """Peringatan tinjauan (review) bila fraksi rangka r < 5% atau > 30%, atau lebar kusen > 200 mm."""
     if total_glazing_area_m2 <= 1e-4:
@@ -2046,10 +2047,19 @@ def build_frame_review_warning(
     elif frame_ratio > 0.30:
         reasons.append("ratio_high")
         parts.append(f"fraksi rangka r = {r_pct:.1f}% (> 30%)".replace(".", ","))
+    edge_fallback_used = False
     if fw_mm > 200.0:
         reasons.append("width_high")
         fw_txt = f"{fw_mm:.0f}" if fw_mm.is_integer() else f"{fw_mm:.1f}".replace(".", ",")
-        parts.append(f"lebar kusen {fw_txt} mm (> 200 mm)")
+        if frame_source == "terukur" and edge_frame_width_mm is not None:
+            edge_fallback_used = True
+            efw = float(edge_frame_width_mm)
+            efw_txt = f"{efw:.0f}" if efw.is_integer() else f"{efw:.1f}".replace(".", ",")
+            parts.append(
+                f"lebar kusen terukur {fw_txt} mm (> 200 mm; pita tepi kaca dihitung memakai lebar kusen asumsi {efw_txt} mm)"
+            )
+        else:
+            parts.append(f"lebar kusen {fw_txt} mm (> 200 mm)")
     if not reasons:
         return None
     msg = (
@@ -2063,6 +2073,8 @@ def build_frame_review_warning(
             "frame_ratio": round(frame_ratio, 4),
             "frame_ratio_pct": round(r_pct, 1),
             "frame_width_mm": round(fw_mm, 1),
+            "edge_frame_width_mm": round(float(edge_frame_width_mm), 1) if edge_frame_width_mm is not None else round(fw_mm, 1),
+            "edge_fallback_used": edge_fallback_used,
             "frame_source": frame_source,
             "reasons": reasons,
         },
@@ -3740,18 +3752,28 @@ def analyze_building_ottv(
         z_ground_cut=z_ground_cut,
     )
     frame_measured = bool(frame_meas["measured"])
+    user_frame_width_mm = round(max(0.0, float(params.frame_width_mm)), 1)
     if frame_measured:
         eff_frame_width_m = float(frame_meas["frame_width_m"])
         eff_frame_width_mm = round(eff_frame_width_m * 1000.0, 1)
         frame_source = "terukur"
+        # C3: lebar kusen terukur > 200 mm tidak wajar (sering akibat pelat/cladding tergabung di grup rangka);
+        # jangan dipakai untuk pita tepi A_edge — pakai lebar kusen asumsi (params.frame_width_mm).
+        if eff_frame_width_mm > 200.0:
+            edge_frame_width_mm = user_frame_width_mm
+        else:
+            edge_frame_width_mm = eff_frame_width_mm
+        edge_frame_width_m = edge_frame_width_mm / 1000.0
         # Perbarui outer_area_m2 pada ringkasan grup rangka terukur
         grp_outer_map = frame_meas.get("group_outer_area") or {}
         for gs in group_summaries:
             if gs.get("role") == "frame" and gs.get("group_name") in grp_outer_map:
                 gs["outer_area_m2"] = float(grp_outer_map[gs["group_name"]])
     else:
-        eff_frame_width_mm = round(max(0.0, float(params.frame_width_mm)), 1)
+        eff_frame_width_mm = user_frame_width_mm
         eff_frame_width_m = eff_frame_width_mm / 1000.0
+        edge_frame_width_mm = eff_frame_width_mm
+        edge_frame_width_m = eff_frame_width_m
         frame_source = "asumsi pengguna"
     eff_glass_module_width_mm = round(max(0.0, float(params.glass_module_width_mm)), 1)
     eff_glass_module_width_m = eff_glass_module_width_mm / 1000.0
@@ -3867,7 +3889,7 @@ def analyze_building_ottv(
                     perimeter_m=op_perim,
                     u_cog=u_cog_k,
                     u_frame=u_frame_eff,
-                    frame_width_m=eff_frame_width_m,
+                    frame_width_m=edge_frame_width_m,
                     measured_a_frame_m2=op_gap if frame_measured else None,
                     overlap_a_frame_m2=op_ov if frame_measured else 0.0,
                     module_width_m=eff_glass_module_width_m if not frame_measured else None,
@@ -3894,7 +3916,7 @@ def analyze_building_ottv(
                     perimeter_m=perim_fen,
                     u_cog=u_cog_k,
                     u_frame=u_frame_eff,
-                    frame_width_m=eff_frame_width_m,
+                    frame_width_m=edge_frame_width_m,
                     measured_a_frame_m2=gap_a if frame_measured else None,
                     overlap_a_frame_m2=ov_a if frame_measured else 0.0,
                     module_width_m=eff_glass_module_width_m if not frame_measured else None,
@@ -4735,6 +4757,7 @@ def analyze_building_ottv(
         frame_width_mm=eff_frame_width_mm,
         frame_source=frame_source,
         total_glazing_area_m2=total_glazing_area,
+        edge_frame_width_mm=edge_frame_width_mm,
     )
     if frame_rev_w is not None:
         summary_warnings.append(frame_rev_w)
@@ -4991,6 +5014,7 @@ def analyze_building_ottv(
             "avg_u_fen_wm2k": round(avg_u_fen_bldg, 3),
             "u_frame_eff_wm2k": round(u_frame_eff, 3),
             "frame_width_mm": eff_frame_width_mm,
+            "edge_frame_width_mm": edge_frame_width_mm,
             "glass_module_width_mm": eff_glass_module_width_mm,
             "glass_module_height_m": eff_glass_module_height_m,
             "frame_source": frame_source,
@@ -5016,6 +5040,7 @@ def analyze_building_ottv(
             "u_fenestration": round(float(glz_mat["u_value"]) if glz_mat else float(params.u_fenestration), 3),
             "u_frame": round(u_frame_eff, 3),
             "frame_width_mm": eff_frame_width_mm,
+            "edge_frame_width_mm": edge_frame_width_mm,
             "glass_module_width_mm": eff_glass_module_width_mm,
             "glass_module_height_m": eff_glass_module_height_m,
             "frame_source": frame_source,

@@ -197,6 +197,19 @@ def rematerial_analysis(
         eff_frame_width_mm = round(
             max(0.0, float(prev_params.get("frame_width_mm") or prev_summary.get("frame_width_mm") or 50.0)), 1
         )
+        if eff_frame_width_mm > 200.0:
+            raw_edge = (
+                frame_width_mm
+                if frame_width_mm is not None
+                else (
+                    prev_params.get("edge_frame_width_mm")
+                    if prev_params.get("edge_frame_width_mm") is not None
+                    else prev_summary.get("edge_frame_width_mm", 50.0)
+                )
+            )
+            edge_frame_width_mm = round(max(0.0, float(raw_edge)), 1)
+        else:
+            edge_frame_width_mm = eff_frame_width_mm
     else:
         raw_fw = (
             frame_width_mm
@@ -208,7 +221,9 @@ def rematerial_analysis(
             )
         )
         eff_frame_width_mm = round(max(0.0, float(raw_fw)), 1)
+        edge_frame_width_mm = eff_frame_width_mm
     eff_frame_width_m = eff_frame_width_mm / 1000.0
+    edge_frame_width_m = edge_frame_width_mm / 1000.0
     frame_measured = frame_source == "terukur"
     raw_mod_w = (
         glass_module_width_mm
@@ -324,7 +339,7 @@ def rematerial_analysis(
                     perimeter_m=op_perim,
                     u_cog=u_cog_k,
                     u_frame=u_frame_eff,
-                    frame_width_m=eff_frame_width_m,
+                    frame_width_m=edge_frame_width_m,
                     measured_a_frame_m2=op_gap if frame_measured else None,
                     overlap_a_frame_m2=op_ov if frame_measured else 0.0,
                     module_width_m=eff_mod_w_m if not frame_measured else None,
@@ -352,7 +367,7 @@ def rematerial_analysis(
                     perimeter_m=perim_fen,
                     u_cog=u_cog_k,
                     u_frame=u_frame_eff,
-                    frame_width_m=eff_frame_width_m,
+                    frame_width_m=edge_frame_width_m,
                     measured_a_frame_m2=gap_a if frame_measured else None,
                     overlap_a_frame_m2=ov_a if frame_measured else 0.0,
                     module_width_m=eff_mod_w_m if not frame_measured else None,
@@ -600,6 +615,7 @@ def rematerial_analysis(
         out["summary"]["total_a_edge_m2"] = round(total_a_edge_m2, 2)
         out["summary"]["total_a_cog_m2"] = round(total_a_cog_m2, 2)
         out["summary"]["frame_width_mm"] = eff_frame_width_mm
+        out["summary"]["edge_frame_width_mm"] = edge_frame_width_mm
         out["summary"]["glass_module_width_mm"] = eff_mod_w_mm
         out["summary"]["glass_module_height_m"] = eff_mod_h_m
         out["summary"]["frame_source"] = frame_source
@@ -680,6 +696,7 @@ def rematerial_analysis(
             frame_width_mm=eff_frame_width_mm,
             frame_source=frame_source,
             total_glazing_area_m2=total_glazing_area,
+            edge_frame_width_mm=edge_frame_width_mm,
         )
         if frame_rev_w is not None:
             warns.append(frame_rev_w)
@@ -700,6 +717,7 @@ def rematerial_analysis(
         out["parameters_used"]["roof_material_id"] = eff_rf_id
         out["parameters_used"]["u_frame"] = round(u_frame_eff, 3)
         out["parameters_used"]["frame_width_mm"] = eff_frame_width_mm
+        out["parameters_used"]["edge_frame_width_mm"] = edge_frame_width_mm
         out["parameters_used"]["glass_module_width_mm"] = eff_mod_w_mm
         out["parameters_used"]["glass_module_height_m"] = eff_mod_h_m
         out["parameters_used"]["frame_source"] = frame_source

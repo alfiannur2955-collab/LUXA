@@ -290,7 +290,8 @@ export function createRailPanelBuilders(handlers) {
           if (cat === 'frame') {
             const summ = state.analysisData?.summary || null;
             const isMeasured = summ?.frame_source === 'terukur';
-            const fwVal = isMeasured
+            const measuredOver200 = isMeasured && Number(summ?.frame_width_mm ?? 0) > 200;
+            const fwVal = isMeasured && !measuredOver200
               ? Number(summ?.frame_width_mm ?? 50)
               : Number(state.config?.settings?.frame_width_mm ?? 50);
             const modVal = Number(state.config?.settings?.glass_module_width_mm ?? summ?.glass_module_width_mm ?? 1500);
@@ -315,7 +316,7 @@ export function createRailPanelBuilders(handlers) {
             fwInp.style.flex = '1';
             fwInp.style.minWidth = '0';
             fwInp.setAttribute('aria-label', 'Lebar kusen dalam milimeter');
-            fwInp.disabled = isMeasured;
+            fwInp.disabled = isMeasured && !measuredOver200;
             fwInp.addEventListener('change', () => {
               const num = Math.max(0, Math.min(300, Number(fwInp.value)));
               if (!Number.isFinite(num)) return;
@@ -356,9 +357,11 @@ export function createRailPanelBuilders(handlers) {
             modUnit.textContent = 'mm';
             modRow.append(modInp, modUnit);
 
-            const fwHint = isMeasured
-              ? `Terukur otomatis dari grup rangka (${fmtId(fwVal, 1)} mm).`
-              : 'Asumsi bila tanpa grup rangka (bawaan 50 mm).';
+            const fwHint = measuredOver200
+              ? `Terukur ${fmtId(summ.frame_width_mm, 1)} mm (> 200 mm); pita tepi memakai nilai ini (${fmtId(fwVal, 1)} mm).`
+              : isMeasured
+                ? `Terukur otomatis dari grup rangka (${fmtId(fwVal, 1)} mm).`
+                : 'Asumsi bila tanpa grup rangka (bawaan 50 mm).';
             const modHint = isMeasured
               ? 'Tidak dipakai karena rangka sudah terukur.'
               : 'Pecahan modul virtual bukaan kaca lebar (bawaan 1.500 mm, tinggi = tinggi lantai).';

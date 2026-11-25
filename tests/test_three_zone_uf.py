@@ -577,3 +577,53 @@ def test_ao_dengan_dan_tanpa_rangka_beda_maks_3_persen_archicad_ifc():
     ao_no = r_no["summary"]["total_envelope_area_m2"]
     assert abs(ao_w - ao_no) / max(1e-6, ao_no) <= 0.03
     assert "FRAME_REVIEW_NEEDED" in {w["code"] for w in r_w["summary"]["warnings"]}
+
+
+def test_c3_lebar_kusen_terukur_di_atas_200mm_pakai_frame_width_mm_untuk_pita_tepi(tmp_path):
+    """C3: lebar kusen terukur > 200 mm tidak dipakai untuk pita tepi A_edge;
+    pita tepi memakai params.frame_width_mm + peringatan FRAME_REVIEW_NEEDED."""
+    path = _write_box_3dm(
+        str(tmp_path / "box_wide_frame.3dm"),
+        with_mullions=True,
+        frame_w=0.25,
+        window_size=(8.0, 2.0),
+        continuous_glass=True,
+    )
+    cfg50 = ProjectConfig(
+        settings=SettingsConfig(
+            materials_confirmed=True,
+            mode="sni",
+            frame_material_id="frm_aluminium_standar",
+            frame_width_mm=50.0,
+        )
+    )
+    cfg80 = ProjectConfig(
+        settings=SettingsConfig(
+            materials_confirmed=True,
+            mode="sni",
+            frame_material_id="frm_aluminium_standar",
+            frame_width_mm=80.0,
+        )
+    )
+    r50 = analyze_building_ottv(path, "box_wide_frame.3dm", cfg50.to_envelope_parameters())
+    r80 = analyze_building_ottv(path, "box_wide_frame.3dm", cfg80.to_envelope_parameters())
+
+    assert r50["summary"]["frame_source"] == "terukur"
+    assert r50["summary"]["frame_width_mm"] > 200.0
+    assert r50["summary"]["edge_frame_width_mm"] == 50.0
+    assert r80["summary"]["edge_frame_width_mm"] == 80.0
+
+    # Dengan pita tepi 50 mm (bukan 250 mm), A_cog masih besar (> 20 m2) dan A_edge berubah saat frame_width_mm diubah
+    assert r50["summary"]["total_a_cog_m2"] > 20.0
+    assert r80["summary"]["total_a_edge_m2"] > r50["summary"]["total_a_edge_m2"] + 1.0
+
+    # Peringatan FRAME_REVIEW_NEEDED muncul dan menjelaskan pemakaian lebar asumsi untuk pita tepi
+    rev = [w for w in r50["summary"]["warnings"] if w.get("code") == "FRAME_REVIEW_NEEDED"]
+    assert len(rev) == 1
+    assert "pita tepi" in rev[0]["message"].lower()
+
+    # Paritas rematerial saat frame_width_mm diubah pada kasus lebar terukur > 200 mm
+    fast80 = rematerial_analysis(r50, frame_width_mm=80.0, materials_confirmed=True)
+    assert abs(fast80["summary"]["total_a_edge_m2"] - r80["summary"]["total_a_edge_m2"]) <= 0.05
+    assert abs(fast80["ottv_total_wm2"] - r80["ottv_total_wm2"]) <= 0.01
+
