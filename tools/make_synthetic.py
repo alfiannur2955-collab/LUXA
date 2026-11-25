@@ -74,6 +74,7 @@ TDEK_WALL = float(get_tdek_wall(MASS_WALL))
 U_GLZ = float(DEFAULT_GLAZING_MAT["u_value"])
 U_FRAME_SNI_ALU = 8.0  # SNI 6389:2020 Tabel 3 (aluminium/metal)
 FRAME_WIDTH_DEFAULT_M = 0.05  # Bawaan settings.frame_width_mm = 50 mm
+GLASS_MODULE_WIDTH_DEFAULT_M = 1.5  # Bawaan settings.glass_module_width_mm = 1500 mm (C1)
 SHGC_GLZ = float(DEFAULT_GLAZING_MAT["shgc"])
 SCK_GLZ = SHGC_GLZ / SC_TO_SHGC_RATIO  # 0.20 / 0.87
 
@@ -158,22 +159,30 @@ def analytical_three_zone_uf(
     u_cog: float = U_GLZ,
     u_frame: float = U_FRAME_SNI_ALU,
     fw_m: float = FRAME_WIDTH_DEFAULT_M,
+    mod_w_m: float = GLASS_MODULE_WIDTH_DEFAULT_M,
+    mod_h_m: float = 4.0,
     measured_ov_frame_m2: Optional[float] = None,
 ) -> float:
-    """U_f tiga zona analitis SNI 6389:2020 Lampiran C untuk bukaan persegi W x H (tanpa memanggil engine)."""
+    """U_f tiga zona analitis SNI 6389:2020 Lampiran C + C1 modul virtual untuk bukaan W x H."""
     a_tot = w_m * h_m
     if a_tot <= 1e-12:
         return u_cog
     u_edge = 0.5 * (u_cog + u_frame)
     if measured_ov_frame_m2 is None:
-        w_g = max(0.0, w_m - 2.0 * fw_m)
-        h_g = max(0.0, h_m - 2.0 * fw_m)
-        a_g = min(a_tot, w_g * h_g)
-        a_f = max(0.0, a_tot - a_g)
+        n_cols = max(1, int(round(w_m / mod_w_m))) if (mod_w_m > 1e-3 and w_m > mod_w_m) else 1
+        n_rows = max(1, int(round(h_m / mod_h_m))) if (mod_h_m > 1e-3 and h_m > mod_h_m) else 1
+        w_eff = w_m / n_cols
+        h_eff = h_m / n_rows
+        a_m = w_eff * h_eff
+        w_g = max(0.0, w_eff - 2.0 * fw_m)
+        h_g = max(0.0, h_eff - 2.0 * fw_m)
+        a_g = min(a_m, w_g * h_g)
+        a_f = max(0.0, a_m - a_g)
         w_c = max(0.0, w_g - 4.0 * fw_m)
         h_c = max(0.0, h_g - 4.0 * fw_m)
         a_c = min(a_g, w_c * h_c)
         a_e = max(0.0, a_g - a_c)
+        return (u_cog * a_c + u_frame * a_f + u_edge * a_e) / a_m
     else:
         a_f = min(a_tot, max(0.0, measured_ov_frame_m2))
         a_g = max(0.0, a_tot - a_f)

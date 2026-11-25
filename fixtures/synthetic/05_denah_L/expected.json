@@ -28,12 +28,12 @@
     },
     "total_envelope_area_m2": 1920.0,
     "wwr_total": 0.4,
-    "ottv_total_wm2": 20.7102,
+    "ottv_total_wm2": 22.1463,
     "ottv_by_orientation": {
-      "U": 19.9214,
-      "T": 22.0364,
-      "S": 16.5335,
-      "B": 24.3496
+      "U": 21.3187,
+      "T": 23.4336,
+      "S": 18.0084,
+      "B": 25.8244
     },
     "rttv": {
       "applicable": true,
